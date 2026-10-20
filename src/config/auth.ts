@@ -1,3 +1,4 @@
+import { expo } from '@better-auth/expo';
 import { betterAuth } from 'better-auth';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { multiSession } from 'better-auth/plugins/multi-session';
@@ -11,6 +12,9 @@ import { meForSession } from '../utils/workplace';
 const CARRY_ME = new Set(['/sign-in/email', '/multi-session/set-active', '/multi-session/revoke']);
 
 const DEV_SECRET = 'restaurant-v2-dev-only-secret-not-for-production';
+
+/** The mobile app's own scheme; in development also Expo Go's. */
+const MOBILE_ORIGINS = process.env.NODE_ENV === 'production' ? ['restora://'] : ['restora://', 'exp://'];
 
 function authSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET;
@@ -32,7 +36,8 @@ function createAuth() {
     // forwards to this server, and the redirect after (e.g. callbackURL "/") then lands in the app.
     baseURL: process.env.BETTER_AUTH_URL || allowedOrigins[0],
     secret: authSecret(),
-    trustedOrigins: allowedOrigins,
+    // The mobile app (scheme restora://) signs in from outside a browser; the expo() plugin below reads its origin.
+    trustedOrigins: [...allowedOrigins, ...MOBILE_ORIGINS],
     emailAndPassword: {
       enabled: true,
       // Nobody signs in until they open the link we email; invitations are bound to an email, so it must be theirs.
@@ -87,7 +92,7 @@ function createAuth() {
         return ctx.json({ ...(returned as object), me });
       }),
     },
-    plugins: [multiSession()],
+    plugins: [multiSession(), expo()],
   });
 }
 
