@@ -1,0 +1,553 @@
+import type { Context } from 'hono';
+import type { ClientSession } from 'mongoose';
+import Order, { type IOrder, type IOrderItem, type IOrderCustomer } from '../models/order';
+import MenuItem from '../models/menu_item';
+import AddonGroup from '../models/addon_group';
+import Customer from '../models/customer';
+import DailyCounter from '../models/daily_counter';
+import Settings from '../models/settings';
+import Table from '../models/table';
+import logAudit from '../utils/audit';
+import dayKey from '../utils/day_key';
+import calcTotals from '../utils/calc_totals';
+import runInTransaction from '../utils/transaction';
+import normalizePhone from '../utils/normalize_phone';
+import applyKhata from '../utils/khata';
+import httpError from '../utils/http_error';
+import resolveBranchId from '../utils/resolve_branch';
+import { hasPermission } from '../middlewares/permission_guard';
+import { getTenantId } from '../middlewares/tenant_context';
+
+type PaymentMethod = NonNullable<IOrder['paymentMethod']>;
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
+
+async function taxRateFor(method: PaymentMethod | undefined): Promise<number> {
+  if (!method) return 0;
+  const settings = await Settings.findOne({});
+  return settings?.taxByPaymentMethod?.[method] ?? 0;
+}
+
+/**
+ * The customer's counters once an order is paid or put on khata: one more order, what they spent, what they had.
+ * Khata orders also add to what they owe, with a ledger line, in the same atomic update.
+ */
+async function recordCustomerOrder(order: IOrder, byName: string | undefined, session?: ClientSession) {
+  if (!order.customerId) return;
+  const lastOrder = {
+    items: order.items,
+    type: order.type,
+    paymentMethod: order.paymentMethod,
+    total: order.total,
+    area: order.area,
+    address: order.address,
+  };
+  const now = new Date().toISOString();
+
+  if (order.paymentStatus === 'khata') {
+    await applyKhata({
+      customerId: order.customerId,
+      delta: order.total,
+      type: 'order',
+      orderToken: order.dailyToken,
+      byName,
+      session,
+      alsoInc: { orderCount: 1, totalSpent: order.total },
+    });
+    await Customer.updateOne({ _id: order.customerId }, { $set: { lastOrderAt: now, lastOrder } }, { session });
+  } else if (order.paymentStatus === 'paid') {
+    await Customer.updateOne(
+      { _id: order.customerId },
+      { $inc: { orderCount: 1, totalSpent: order.total }, $set: { lastOrderAt: now, lastOrder } },
+      { session }
+    );
+  }
+}
+
+export async function listOrders(c: Context) {
+  const branchId = c.get('branchId') as string | undefined;
+  const date = c.req.query('date') || dayKey();
+  const status = c.req.query('status');
+  const customerId = c.req.query('customerId');
+
+  if (!DAY.test(date)) return c.json({ message: 'Use a date like 2026-01-31' }, 400);
+
+  const filter: Record<string, unknown> = {};
+  if (branchId) filter.branchId = branchId;
+  if (status) filter.status = String(status);
+
+  if (customerId) {
+    // A customer's history: every date.
+    filter.customerId = String(customerId);
+  } else if (c.req.query('allDates') !== 'true') {
+    filter.dayKey = date;
+  }
+
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
+  return c.json(orders);
+}
+
+export async function getOrder(c: Context) {
+  const order = await Order.findById(c.req.param('id')).catch(() => null);
+  if (!order) {
+    return c.json({ message: 'Order not found' }, 404);
+  }
+  return c.json(order);
+}
+
+/** When an order taken offline was really placed: its own time if believable (the last two days, not ahead), else now. */
+function placedTime(placedAt?: string): number {
+  const at = placedAt ? Date.parse(placedAt) : NaN;
+  const now = Date.now();
+  return at > now - 2 * 86_400_000 && at < now + 5 * 60_000 ? at : now;
+}
+
+type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number };
+
+/**
+ * The order's customer: an existing one by id, or a new record when a name and a real mobile number were given (a name
+ * alone is a walk-in, with no record). Answers an error message when the id is unknown.
+ */
+async function resolveCustomer(body: { customerId?: string | null; newName?: string | null; newPhone?: string | null; area?: string | null; address?: string | null }) {
+  if (body.customerId) {
+    const cust = await Customer.findById(body.customerId).catch(() => null);
+    if (!cust) return 'That customer was not found';
+    const customerId = String(cust._id);
+    return { customerId, customerSnapshot: { _id: customerId, name: cust.name, phone: cust.phone } as IOrderCustomer };
+  }
+  const phone = body.newName ? normalizePhone(body.newPhone || '') : null;
+  // A name without a number is just a walk-in: no customer record (one fake number would merge every walk-in).
+  if (!phone) return { customerId: undefined, customerSnapshot: undefined };
+  const cust =
+    (await Customer.findOne({ phone })) ??
+    (await Customer.create({ name: body.newName ?? '', phone, area: body.area || undefined, addresses: body.address ? [body.address] : [], source: 'staff' }));
+  const customerId = String(cust._id);
+  return { customerId, customerSnapshot: { _id: customerId, name: cust.name, phone: cust.phone } as IOrderCustomer };
+}
+
+/**
+ * The order lines priced from the menu, never from the client: size and add-ons by id, each checked against the dish's
+ * add-on rules. The ids are kept on the line so the order can be opened for editing later. Answers an error message
+ * when a dish is gone, sold out or picked wrongly.
+ */
+async function priceItems(rawItems: RawItem[], branchId: string): Promise<IOrderItem[] | string> {
+  const menuItems = await MenuItem.find({ _id: { $in: rawItems.map((i) => i.itemId) } }).catch(() => []);
+  const menuById = new Map(menuItems.map((m) => [String(m._id), m]));
+  const groupIds = [...new Set(menuItems.flatMap((m) => m.addonGroupIds))];
+  const groups = groupIds.length ? await AddonGroup.find({ _id: { $in: groupIds } }) : [];
+  const groupById = new Map(groups.map((g) => [String(g._id), g]));
+  const priced: IOrderItem[] = [];
+
+  for (const rawItem of rawItems) {
+    const menuItem = menuById.get(rawItem.itemId);
+    if (!menuItem || menuItem.hidden) return 'One of the dishes is no longer on the menu';
+    if (menuItem.soldOutBranchIds.includes(branchId)) return `"${menuItem.name}" is sold out in this branch`;
+
+    const size = rawItem.sizeId ? menuItem.sizes.find((s) => String(s._id) === rawItem.sizeId) : menuItem.sizes[0];
+    if (!size) return rawItem.sizeId ? `Size not found for "${menuItem.name}"` : `"${menuItem.name}" has no price yet`;
+
+    const chosen = new Set(rawItem.addonIds);
+    let addonsPrice = 0;
+    const addons: { name: string; price: number }[] = [];
+    const addonIds: string[] = [];
+    for (const groupId of menuItem.addonGroupIds) {
+      const group = groupById.get(groupId);
+      if (!group) continue;
+      const picked = group.options.filter((o) => chosen.has(String(o._id)));
+      if (picked.length < group.min) return `"${group.name}" for "${menuItem.name}" requires at least ${group.min} selection(s)`;
+      if (picked.length > group.max) return `"${group.name}" for "${menuItem.name}" allows at most ${group.max} selection(s)`;
+      for (const option of picked) {
+        addonsPrice += option.price;
+        addons.push({ name: option.name, price: option.price });
+        addonIds.push(String(option._id));
+      }
+    }
+
+    priced.push({
+      itemId: String(menuItem._id),
+      name: menuItem.name,
+      sizeId: String(size._id),
+      sizeName: size.name || undefined,
+      addonIds: addonIds.length ? addonIds : undefined,
+      addons: addons.length ? addons : undefined,
+      note: rawItem.note || undefined,
+      price: size.price + addonsPrice,
+      qty: rawItem.qty,
+    });
+  }
+  return priced;
+}
+
+export async function createOrder(c: Context) {
+  const body = c.get('validatedJson');
+
+  // Sent before (an offline order syncing again, or a retry after a dropped answer): the same order, not a second one.
+  if (body.clientId) {
+    const existing = await Order.findOne({ clientId: body.clientId });
+    if (existing) return c.json(existing, 200);
+  }
+  const user = c.get('user');
+  const branchId = await resolveBranchId(c, body.branchId);
+
+  // What the person may do beyond taking the order.
+  if (body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
+    return c.json({ message: 'You cannot give discounts' }, 403);
+  }
+  if (body.paymentStatus !== 'unpaid' && !(await hasPermission(c, 'orders:payment'))) {
+    return c.json({ message: 'You cannot record payments. Save it as pay later.' }, 403);
+  }
+
+  // 1. The customer: an existing one, or a new one when a real mobile number was given.
+  const found = await resolveCustomer(body);
+  if (typeof found === 'string') return c.json({ message: found }, 400);
+  const { customerId, customerSnapshot } = found;
+  if (body.paymentStatus === 'khata' && !customerId) {
+    return c.json({ message: 'Khata needs a saved customer with a mobile number' }, 400);
+  }
+
+  // 2. The table's name at the time of the order.
+  let tableName = body.tableName || undefined;
+  let tableId: string | undefined;
+  if (body.tableId) {
+    const table = await Table.findOne({ _id: body.tableId, branchId, archived: false }).catch(() => null);
+    if (!table) return c.json({ message: 'That table is not in this branch' }, 400);
+    tableId = String(table._id);
+    tableName = table.name;
+  }
+
+  // 3. Prices come from the menu, never from the client.
+  const orderItems = await priceItems(body.items, branchId);
+  if (typeof orderItems === 'string') return c.json({ message: orderItems }, 400);
+
+  // 4. Totals. Tax is added once a payment method is known.
+  const paymentMethod: PaymentMethod | undefined = body.paymentStatus === 'unpaid' ? undefined : body.paymentMethod;
+  const taxRate = await taxRateFor(paymentMethod);
+  const deliveryFee = body.type === 'delivery' ? body.deliveryFee || 0 : 0;
+  const totals = calcTotals(orderItems, body.discount || 0, taxRate, deliveryFee);
+  // An order taken offline counts on the day it was taken.
+  const placed = placedTime(body.placedAt);
+  const todayKey = dayKey(placed);
+
+  // 5. Token, order and customer counters together.
+  const create = () => runInTransaction(async (session) => {
+    const counter = await DailyCounter.findOneAndUpdate(
+      { restaurantId: getTenantId(), branchId, dayKey: todayKey },
+      { $inc: { seq: 1 } },
+      { upsert: true, returnDocument: 'after', session }
+    );
+
+    const [saved] = await Order.create(
+      [
+        {
+          dailyToken: counter?.seq || 1,
+          branchId,
+          customerId,
+          customer: customerSnapshot,
+          type: body.type,
+          status: 'new',
+          items: orderItems,
+          subtotal: totals.subtotal,
+          discount: totals.discount,
+          taxRate,
+          tax: totals.tax,
+          deliveryFee,
+          total: totals.total,
+          paymentMethod,
+          paymentStatus: body.paymentStatus,
+          tableId,
+          tableName,
+          area: body.area || undefined,
+          address: body.address || undefined,
+          rider: body.rider || undefined,
+          takenBy: user?.name,
+          dayKey: todayKey,
+          clientId: body.clientId,
+          placedAt: body.placedAt ? new Date(placed).toISOString() : undefined,
+        },
+      ],
+      { session }
+    );
+
+    await recordCustomerOrder(saved!, user?.name, session);
+    return saved!;
+  });
+  let newOrder: Awaited<ReturnType<typeof create>>;
+  try {
+    newOrder = await create();
+  } catch (err) {
+    // The same order arrived twice at once (two syncs racing): the first one saved it.
+    const existing = body.clientId && (err as { code?: number }).code === 11000 ? await Order.findOne({ clientId: body.clientId }) : null;
+    if (existing) return c.json(existing, 200);
+    throw err;
+  }
+
+  await logAudit({
+    action: 'order.created',
+    actor: auditActor(c),
+    target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
+    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+  });
+
+  return c.json(newOrder, 201);
+}
+
+/** Moves an order along the board. Cancelling has its own route and permission. */
+async function setStatus(c: Context, id: string, status: IOrder['status']) {
+  if (status === 'cancelled') throw httpError(400, 'Use Cancel order for that');
+  const order = await Order.findOneAndUpdate(
+    { _id: id, status: { $ne: 'cancelled' } },
+    { $set: { status } },
+    { returnDocument: 'before' }
+  ).catch(() => null);
+  if (!order) throw httpError(404, 'Order not found or already cancelled');
+
+  await logAudit({
+    action: 'order.status_updated',
+    actor: auditActor(c),
+    target: { type: 'order', id, label: `#${order.dailyToken}` },
+    changes: { before: { status: order.status }, after: { status } },
+  });
+  return Order.findById(id);
+}
+
+export async function updateOrderStatus(c: Context) {
+  const { status } = c.get('validatedJson') as { status: IOrder['status'] };
+  return c.json(await setStatus(c, c.req.param('id') ?? '', status));
+}
+
+export async function recordPayment(c: Context) {
+  const id = c.req.param('id') ?? '';
+  const { paymentMethod, paymentStatus = 'paid', discount, deliveryFee } = c.get('validatedJson') as {
+    paymentMethod: PaymentMethod;
+    paymentStatus?: 'paid' | 'khata';
+    discount?: number;
+    deliveryFee?: number;
+  };
+  const user = c.get('user');
+
+  const order = await Order.findById(id).catch(() => null);
+  if (!order) {
+    return c.json({ message: 'Order not found' }, 404);
+  }
+  if (order.status === 'cancelled') {
+    return c.json({ message: 'A cancelled order cannot be paid' }, 400);
+  }
+  if (order.paymentStatus !== 'unpaid') {
+    return c.json({ message: `Order #${order.dailyToken} is already ${order.paymentStatus === 'paid' ? 'paid' : 'on khata'}` }, 409);
+  }
+  if (paymentStatus === 'khata' && !order.customerId) {
+    return c.json({ message: 'Khata needs a saved customer on the order' }, 400);
+  }
+  if (discount !== undefined && discount !== order.discount && !(await hasPermission(c, 'orders:discount'))) {
+    return c.json({ message: 'You cannot give discounts' }, 403);
+  }
+
+  const taxRate = await taxRateFor(paymentMethod);
+  const appliedDelivery = order.type === 'delivery' ? (deliveryFee ?? order.deliveryFee) : 0;
+  const totals = calcTotals(order.items, discount ?? order.discount, taxRate, appliedDelivery);
+
+  const updated = await runInTransaction(async (session) => {
+    // Only an unpaid order can be paid, checked in the same write, so a double tap cannot charge twice.
+    const paid = await Order.findOneAndUpdate(
+      { _id: id, paymentStatus: 'unpaid', status: { $ne: 'cancelled' } },
+      {
+        $set: {
+          paymentMethod,
+          paymentStatus,
+          discount: totals.discount,
+          deliveryFee: appliedDelivery,
+          taxRate,
+          tax: totals.tax,
+          total: totals.total,
+        },
+      },
+      { returnDocument: 'after', session }
+    );
+    if (!paid) throw httpError(409, 'This order was just paid by someone else');
+    await recordCustomerOrder(paid, user?.name, session);
+    return paid;
+  });
+
+  await logAudit({
+    action: 'order.payment_recorded',
+    actor: auditActor(c),
+    target: { type: 'order', id, label: `#${order.dailyToken}` },
+    changes: { after: { paymentMethod, paymentStatus, total: updated.total } },
+  });
+
+  return c.json(updated);
+}
+
+export async function updateOrder(c: Context) {
+  const id = c.req.param('id') ?? '';
+  const body = { ...(c.get('validatedJson') as Record<string, unknown>) };
+
+  const order = await Order.findById(id).catch(() => null);
+  if (!order) {
+    return c.json({ message: 'Order not found' }, 404);
+  }
+
+  // The board sends `{ status }` here.
+  if (body.status !== undefined) {
+    const { status, ...rest } = body;
+    if (Object.keys(rest).length === 0) return c.json(await setStatus(c, id, status as IOrder['status']));
+    await setStatus(c, id, status as IOrder['status']);
+    delete body.status;
+  }
+
+  if (body.discount !== undefined || body.deliveryFee !== undefined) {
+    if (order.paymentStatus !== 'unpaid') {
+      return c.json({ message: 'The bill is settled; its amounts can no longer change' }, 400);
+    }
+    if (body.discount !== undefined && body.discount !== order.discount && !(await hasPermission(c, 'orders:discount'))) {
+      return c.json({ message: 'You cannot give discounts' }, 403);
+    }
+    const discount = (body.discount as number | undefined) ?? order.discount;
+    const deliveryFee = order.type === 'delivery' ? ((body.deliveryFee as number | undefined) ?? order.deliveryFee) : 0;
+    const totals = calcTotals(order.items, discount, order.taxRate, deliveryFee);
+    Object.assign(body, { discount: totals.discount, deliveryFee, tax: totals.tax, total: totals.total });
+  }
+
+  if (body.tableId) {
+    const table = await Table.findOne({ _id: body.tableId, branchId: order.branchId, archived: false }).catch(() => null);
+    if (!table) return c.json({ message: 'That table is not in this branch' }, 400);
+    body.tableName = table.name;
+  }
+
+  const updated = await Order.findByIdAndUpdate(id, { $set: body }, { returnDocument: 'after' });
+
+  await logAudit({
+    action: 'order.updated',
+    actor: auditActor(c),
+    target: { type: 'order', id, label: `#${order.dailyToken}` },
+  });
+
+  return c.json(updated);
+}
+
+/** Statuses an order can still be edited in: until it is on the way or done. */
+const EDITABLE_STATUSES: IOrder['status'][] = ['new', 'preparing', 'ready'];
+
+/**
+ * Changes what a placed order is and what is in it (dishes, type, table, customer, discount), priced again from the menu.
+ * Only until it is on the way or done, and only while unpaid: a paid or khata bill is settled.
+ */
+export async function editOrder(c: Context) {
+  const id = c.req.param('id') ?? '';
+  const body = c.get('validatedJson');
+
+  const order = await Order.findById(id).catch(() => null);
+  if (!order) return c.json({ message: 'Order not found' }, 404);
+  if (!EDITABLE_STATUSES.includes(order.status)) {
+    return c.json({ message: 'This order is on the way or done, so it can no longer be changed' }, 400);
+  }
+  if (order.paymentStatus !== 'unpaid') {
+    return c.json({ message: 'This bill is settled, so its order can no longer be changed' }, 400);
+  }
+  if (body.discount !== order.discount && body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
+    return c.json({ message: 'You cannot give discounts' }, 403);
+  }
+
+  const found = await resolveCustomer(body);
+  if (typeof found === 'string') return c.json({ message: found }, 400);
+
+  let tableName = body.type === 'dine_in' ? body.tableName || undefined : undefined;
+  let tableId: string | undefined;
+  if (body.type === 'dine_in' && body.tableId) {
+    const table = await Table.findOne({ _id: body.tableId, branchId: order.branchId, archived: false }).catch(() => null);
+    if (!table) return c.json({ message: 'That table is not in this branch' }, 400);
+    tableId = String(table._id);
+    tableName = table.name;
+  }
+
+  const items = await priceItems(body.items, order.branchId);
+  if (typeof items === 'string') return c.json({ message: items }, 400);
+
+  // Unpaid, so no tax yet: it is added when the customer pays.
+  const deliveryFee = body.type === 'delivery' ? body.deliveryFee || 0 : 0;
+  const totals = calcTotals(items, body.discount || 0, 0, deliveryFee);
+  const isDelivery = body.type === 'delivery';
+
+  const updated = await Order.findByIdAndUpdate(
+    id,
+    {
+      $set: {
+        customerId: found.customerId,
+        customer: found.customerSnapshot,
+        type: body.type,
+        items,
+        subtotal: totals.subtotal,
+        discount: totals.discount,
+        taxRate: 0,
+        tax: totals.tax,
+        deliveryFee,
+        total: totals.total,
+        tableId,
+        tableName,
+        area: isDelivery ? body.area || undefined : undefined,
+        address: isDelivery ? body.address || undefined : undefined,
+        rider: isDelivery ? body.rider || undefined : undefined,
+      },
+    },
+    { returnDocument: 'after' }
+  );
+
+  await logAudit({
+    action: 'order.edited',
+    actor: auditActor(c),
+    target: { type: 'order', id, label: `#${order.dailyToken}` },
+  });
+
+  return c.json(updated);
+}
+
+export async function cancelOrder(c: Context) {
+  const id = c.req.param('id') ?? '';
+  const user = c.get('user');
+
+  const cancelled = await runInTransaction(async (session) => {
+    const order = await Order.findOneAndUpdate(
+      { _id: id, status: { $ne: 'cancelled' } },
+      { $set: { status: 'cancelled' } },
+      { returnDocument: 'after', session }
+    ).catch(() => null);
+    if (!order) throw httpError(404, 'Order not found or already cancelled');
+
+    // Undo what the order did to the customer. A khata order stops being owed, with a reversal line.
+    if (order.customerId && order.paymentStatus === 'khata') {
+      await applyKhata({
+        customerId: order.customerId,
+        delta: -order.total,
+        type: 'reversal',
+        orderToken: order.dailyToken,
+        note: `Order #${order.dailyToken} cancelled`,
+        byName: user?.name,
+        session,
+        alsoInc: { orderCount: -1, totalSpent: -order.total },
+      });
+    } else if (order.customerId && order.paymentStatus === 'paid') {
+      await Customer.updateOne({ _id: order.customerId }, { $inc: { orderCount: -1, totalSpent: -order.total } }, { session });
+    }
+    return order;
+  });
+
+  await logAudit({
+    action: 'order.cancelled',
+    actor: auditActor(c),
+    target: { type: 'order', id, label: `#${cancelled.dailyToken}` },
+  });
+
+  return c.json(cancelled);
+}
+
+export default {
+  list: listOrders,
+  get: getOrder,
+  create: createOrder,
+  updateStatus: updateOrderStatus,
+  recordPayment,
+  update: updateOrder,
+  edit: editOrder,
+  cancel: cancelOrder,
+};

@@ -1,0 +1,43 @@
+import { z } from 'zod';
+import PAYMENT_METHODS from '../constants/payment_methods';
+import TEMPLATE_KEYS from '../constants/template_keys';
+
+const percent = z.coerce.number().min(0, 'Cannot be below 0').max(100, 'Cannot be above 100');
+
+const taxByPaymentMethodSchema = z.object({
+  cash: percent,
+  card: percent,
+  jazzcash: percent,
+  easypaisa: percent,
+  bank: percent,
+});
+
+const whatsappTemplatesSchema = z.object({
+  winback: z.string().trim(),
+  reservation: z.string().trim(),
+});
+
+const receiptSchema = z.object({
+  ntn: z.string().trim().max(30, 'Up to 30 characters'),
+  strn: z.string().trim().max(30, 'Up to 30 characters'),
+  footer: z.string().trim().max(160, 'Keep it to 160 characters'),
+});
+
+export const settingsSchema = z.object({
+  restaurantName: z.string().trim().min(1, 'Enter the restaurant name'),
+  logo: z.string().optional().nullable(),
+  taxByPaymentMethod: taxByPaymentMethodSchema,
+  whatsappTemplates: whatsappTemplatesSchema,
+  receipt: receiptSchema.partial().optional(),
+});
+
+/** `taxSet` and other read-only fields the client echoes back are ignored; saving any tax rate marks tax as set. */
+export const settingsUpdateSchema = z.object({
+  restaurantName: z.string().trim().min(1, 'Enter the restaurant name').optional(),
+  logo: z.string().optional().nullable(),
+  taxByPaymentMethod: taxByPaymentMethodSchema.partial().optional(),
+  whatsappTemplates: whatsappTemplatesSchema.partial().optional(),
+  receipt: receiptSchema.partial().optional(),
+});
+
+export default settingsSchema;

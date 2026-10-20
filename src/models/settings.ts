@@ -1,0 +1,77 @@
+import mongoose, { Schema, type Document, type Model } from 'mongoose';
+import type { PaymentMethod } from '../constants/payment_methods';
+import type { TemplateKey } from '../constants/template_keys';
+import tenantPlugin from './plugins/tenant_plugin';
+
+export interface ISettings {
+  _id?: string;
+  restaurantId?: string;
+  restaurantName: string;
+  logo?: string;
+  onboarded?: boolean;
+  taxSet?: boolean;
+  taxByPaymentMethod?: Record<PaymentMethod, number>;
+  whatsappTemplates?: Record<TemplateKey, string>;
+  /** Printed on customer receipts; each line is left off while empty. */
+  receipt?: { ntn?: string; strn?: string; footer?: string };
+  updatedAt?: string;
+  createdAt?: string;
+}
+
+const SettingsSchema = new Schema<ISettings>(
+  {
+    restaurantId: { type: String, required: true, unique: true },
+    restaurantName: { type: String, required: true, trim: true },
+    logo: { type: String },
+    onboarded: { type: Boolean, default: false },
+    taxSet: { type: Boolean, default: false },
+    taxByPaymentMethod: {
+      cash: { type: Number, default: 16 },
+      card: { type: Number, default: 5 },
+      jazzcash: { type: Number, default: 5 },
+      easypaisa: { type: Number, default: 5 },
+      bank: { type: Number, default: 5 },
+    },
+    receipt: {
+      ntn: { type: String, trim: true },
+      strn: { type: String, trim: true },
+      footer: { type: String, trim: true },
+    },
+    whatsappTemplates: {
+      winback: {
+        type: String,
+        default: 'Assalam o Alaikum {name}! We miss you at {restaurant}. Order this week and get 10% off your karahi.',
+      },
+      reservation: {
+        type: String,
+        default: 'Hi {name}, your table for {party} at {restaurant} is booked for {date} at {time}. Reply YES to confirm.',
+      },
+    },
+  },
+  {
+    timestamps: true,
+    toJSON: {
+      virtuals: true,
+      transform: (_doc, ret: Record<string, unknown>) => {
+        if (ret._id) ret._id = String(ret._id);
+        delete ret.__v;
+        return ret;
+      },
+    },
+    toObject: {
+      virtuals: true,
+      transform: (_doc, ret: Record<string, unknown>) => {
+        if (ret._id) ret._id = String(ret._id);
+        delete ret.__v;
+        return ret;
+      },
+    },
+  }
+);
+
+SettingsSchema.plugin(tenantPlugin);
+
+const Settings: Model<ISettings> =
+  mongoose.models.Settings || mongoose.model<ISettings>('Settings', SettingsSchema);
+
+export default Settings;
