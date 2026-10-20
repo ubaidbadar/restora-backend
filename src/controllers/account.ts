@@ -1,40 +1,35 @@
 import type { Context } from 'hono';
 import auth from '../config/auth';
-import Restaurant from '../models/restaurant';
-import Role from '../models/role';
 import logAudit from '../utils/audit';
 import validatePin from '../utils/validate_pin';
-import { runWithoutTenant } from '../middlewares/tenant_context';
-import type { IStaffMember } from '../models/staff_member';
-import { buildMe, moveTo, openBranchesFor, workableMembership } from '../utils/workplace';
+import { meOf, moveTo, type Workplace } from '../utils/workplace';
 
-/** `GET /me`: the account, where it works now and what it may do there. */
+/** `GET /me`: the account, where it works now and what it may do there; the auth guard already loaded all of it. */
 export async function getMe(c: Context) {
-  return c.json(await buildMe(c));
+  return c.json(meOf(c));
 }
 
 /** Switch this sign-in to another restaurant the person works at. */
 export async function switchWorkplace(c: Context) {
   const { restaurantId } = c.get('validatedJson') as { restaurantId: string };
-  const member = await workableMembership(c.get('user').id, restaurantId);
-  if (!member) {
+  const me = await moveTo(c, restaurantId);
+  if (!me) {
     return c.json({ message: 'You do not work at that restaurant, or it is closed' }, 403);
   }
-  return c.json(await moveTo(c, member));
+  return c.json(me);
 }
 
 /** Switch this sign-in to another branch of the current restaurant. */
 export async function switchBranch(c: Context) {
   const { branchId } = c.get('validatedJson') as { branchId: string };
-  const member = c.get('membership') as IStaffMember | undefined;
-  if (!member) {
+  const workplace = c.get('workplace') as Workplace | undefined;
+  if (!workplace) {
     return c.json({ message: 'Open a restaurant first' }, 400);
   }
-  const branches = await openBranchesFor(member);
-  if (!branches.some((b) => String(b._id) === branchId)) {
+  if (!workplace.branches.some((b) => String(b._id) === branchId)) {
     return c.json({ message: 'You do not work at that branch, or it is closed' }, 403);
   }
-  return c.json(await moveTo(c, member, branchId));
+  return c.json(await moveTo(c, String(workplace.member.restaurantId), branchId));
 }
 
 /** "Chrome on Android" from a user agent; good enough to tell sessions apart. */

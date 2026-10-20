@@ -1,14 +1,13 @@
 import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
 import auth from '../config/auth';
-import Branch from '../models/branch';
-import Restaurant from '../models/restaurant';
-import Role from '../models/role';
-import StaffMember, { type IStaffMember } from '../models/staff_member';
+import type Permission from '@shared/permission';
+import type Me from '@shared/me';
+import { type IStaffMember } from '../models/staff_member';
 import { type IDevice } from '../models/device';
 import { runWithoutTenant } from './tenant_context';
-import findDeviceByToken from '../utils/find_device';
-import { buildMe, firstWorkableMembership, isOwnerMembership, openBranchesFor, saveWorkplace, workableMembership } from '../utils/workplace';
+import findDeviceByToken, { terminalInUse } from '../utils/find_device';
+import { enterWorkplace, loadMemberWorkplace, loadUserWorkplace, meOf, saveWorkplace, type Workplace } from '../utils/workplace';
 
 export interface AuthContextVariables {
   user?: { id: string; name: string; email: string; image?: string | null };
@@ -19,6 +18,11 @@ export interface AuthContextVariables {
   branchId?: string;
   isOwner?: boolean;
   via?: 'web' | 'pos';
+  /** Where they work, loaded once per request by this guard (utils/workplace). */
+  workplace?: Workplace;
+  /** Their open restaurants, for the switcher. */
+  restaurants?: Me['restaurants'];
+  permissions?: { all: boolean; set: Set<Permission> | Set<string> };
 }
 
 /** Routes that check their own credentials (POS terminals) or need none. */
@@ -38,19 +42,6 @@ const actorIdleLimit = (device: IDevice) => Math.max(60, device.settings?.idleLo
 
 const unauthorized = (c: Context, code: 'signed_out' | 'pos_locked', message: string) => c.json({ code, message }, 401);
 
-/** Puts the member's restaurant, branch and owner status on the request. */
-async function enterWorkplace(c: Context, member: IStaffMember, wantedBranchId: string | null | undefined) {
-  const [branches, ownerRole] = await Promise.all([
-    openBranchesFor(member),
-    runWithoutTenant(() => Role.exists({ _id: { $in: member.roleIds }, restaurantId: member.restaurantId, key: 'owner' })),
-  ]);
-  const branch = branches.find((b) => String(b._id) === wantedBranchId) ?? branches[0];
-  c.set('membership', member);
-  c.set('restaurantId', String(member.restaurantId));
-  c.set('isOwner', isOwnerMembership(member) || Boolean(ownerRole));
-  if (branch) c.set('branchId', String(branch._id));
-}
-
 export async function authGuard(c: Context, next: Next) {
   const path = c.req.path;
   if (SELF_AUTHENTICATED.some((pattern) => pattern.test(path))) {
@@ -67,21 +58,20 @@ export async function authGuard(c: Context, next: Next) {
     c.set('session', session);
     c.set('via', 'web');
 
+    // One aggregation: where they work (the restaurant saved on the session, while they still work there), what they
+    // may do there, and their other restaurants. /me is then made from it without asking the database again.
     const activeRestaurantId = (session.activeRestaurantId as string | null | undefined) || null;
-    let member = activeRestaurantId ? await workableMembership(user.id, activeRestaurantId) : null;
-    const lost = Boolean(activeRestaurantId && !member);
+    const { restaurants, workplace } = await loadUserWorkplace(user.id, activeRestaurantId);
+    const restaurantId = workplace ? String(workplace.member.restaurantId) : null;
+    const lost = Boolean(activeRestaurantId && restaurantId !== activeRestaurantId);
+    enterWorkplace(c, workplace, restaurants, lost ? null : (session.activeBranchId as string | null | undefined));
 
-    if (!member) {
-      // First request of this sign-in, or the restaurant was lost (removed, suspended, being deleted):
-      // work in their first restaurant, if they have one.
-      member = await firstWorkableMembership(user.id);
-      if (member || lost) await saveWorkplace(session.token, member ? String(member.restaurantId) : null);
-    }
-    if (member) await enterWorkplace(c, member, lost ? null : (session.activeBranchId as string | null | undefined));
+    // First request of this sign-in, or the restaurant was lost (removed, suspended, being deleted): save where they work now.
+    if (restaurantId !== activeRestaurantId) await saveWorkplace(session.token, restaurantId);
 
     if (lost && !accountLevel) {
       // The answer carries where they work now, so the app updates without asking again.
-      return c.json({ code: 'context_lost', message: 'You no longer have access to that restaurant.', me: await buildMe(c) }, 403);
+      return c.json({ code: 'context_lost', message: 'You no longer have access to that restaurant.', me: meOf(c) }, 403);
     }
 
     await next();
@@ -95,22 +85,21 @@ export async function authGuard(c: Context, next: Next) {
     return unauthorized(c, 'signed_out', 'Sign in to continue');
   }
 
-  const [branch, restaurant] = await runWithoutTenant(() =>
-    Promise.all([Branch.findById(device.branchId).catch(() => null), Restaurant.findById(device.restaurantId)])
-  );
-  if (!branch || branch.isActive === false || restaurant?.status !== 'active') {
-    return unauthorized(c, 'signed_out', 'This terminal is no longer in use. Register it again.');
-  }
   if (!device.actor?.membershipId) {
+    // Nobody unlocked: still say so only for a terminal that is in use.
+    if (!(await terminalInUse(device))) return unauthorized(c, 'signed_out', 'This terminal is no longer in use. Register it again.');
     return unauthorized(c, 'pos_locked', 'Unlock the terminal with your PIN');
   }
 
+  // One aggregation: the unlocked person in the terminal's restaurant, with its roles, open branches and settings.
+  const { restaurants, workplace } = await loadMemberWorkplace(device.actor.membershipId, String(device.restaurantId));
+  // A closed restaurant has no workplace; an archived branch is not among the open ones.
+  if (!workplace || !workplace.openBranches.some((b) => String(b._id) === device.branchId)) {
+    if (!(await terminalInUse(device))) return unauthorized(c, 'signed_out', 'This terminal is no longer in use. Register it again.');
+  }
   const lastActive = device.actor.lastActiveAt ? Date.parse(device.actor.lastActiveAt) : 0;
-  const staff = await runWithoutTenant(() =>
-    StaffMember.findOne({ _id: device.actor!.membershipId, restaurantId: device.restaurantId, status: 'active' })
-  );
-  const worksHere = staff && (isOwnerMembership(staff) || staff.branchScope === 'all' || staff.branchIds.includes(device.branchId));
-  if (!staff || !worksHere || Date.now() - lastActive > actorIdleLimit(device)) {
+  const worksHere = workplace?.branches.some((b) => String(b._id) === device.branchId);
+  if (!workplace || !worksHere || Date.now() - lastActive > actorIdleLimit(device)) {
     device.actor = null;
     await runWithoutTenant(() => device.save());
     return unauthorized(c, 'pos_locked', 'The terminal locked itself. Unlock it with your PIN.');
@@ -124,8 +113,8 @@ export async function authGuard(c: Context, next: Next) {
 
   c.set('device', device);
   c.set('via', 'pos');
-  c.set('user', { id: staff.userId, name: device.actor.name, email: '' });
-  await enterWorkplace(c, staff, device.branchId);
+  c.set('user', { id: workplace.member.userId, name: device.actor.name, email: '' });
+  enterWorkplace(c, workplace, restaurants, device.branchId);
   await next();
 }
 

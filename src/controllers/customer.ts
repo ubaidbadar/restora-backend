@@ -221,7 +221,10 @@ export async function mergeCustomer(c: Context) {
   const { customerId } = c.get('validatedJson') as { customerId: string };
   if (customerId === id) return c.json({ message: 'Pick another customer to merge' }, 400);
 
-  const [keep, other] = await Promise.all([Customer.findById(id).catch(() => null), Customer.findById(customerId).catch(() => null)]);
+  // Both records in one query.
+  const pair = await Customer.find({ _id: { $in: [id, customerId] } }).catch(() => []);
+  const keep = pair.find((customer) => String(customer._id) === id);
+  const other = pair.find((customer) => String(customer._id) === customerId);
   if (!keep || !other) return c.json({ message: 'Customer not found' }, 404);
 
   const merged = await runInTransaction(async (session) => {

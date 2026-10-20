@@ -1,9 +1,7 @@
 import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { runWithTenant, runWithoutTenant } from './tenant_context';
-import findDeviceByToken from '../utils/find_device';
-import Branch from '../models/branch';
-import Restaurant from '../models/restaurant';
+import findDeviceByToken, { terminalInUse } from '../utils/find_device';
 
 /** POS routes: the terminal's own token is the credential. Everything after runs scoped to the terminal's restaurant. */
 export async function posDeviceGuard(c: Context, next: Next) {
@@ -18,10 +16,7 @@ export async function posDeviceGuard(c: Context, next: Next) {
   }
 
   // A terminal of an archived branch or a closed restaurant stops working.
-  const [branch, restaurant] = await runWithoutTenant(() =>
-    Promise.all([Branch.findById(device.branchId).catch(() => null), Restaurant.findById(device.restaurantId)])
-  );
-  if (!branch || branch.isActive === false || restaurant?.status !== 'active') {
+  if (!(await terminalInUse(device))) {
     return c.json({ code: 'signed_out', message: 'This terminal is no longer in use. Register it again.' }, 401);
   }
 

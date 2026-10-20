@@ -1,4 +1,8 @@
-import Device from '../models/device';
+import Branch from '../models/branch';
+import Device, { type IDevice } from '../models/device';
+import Restaurant from '../models/restaurant';
+import { toObjectId } from './auth_users';
+import lookup from './lookup';
 import { runWithoutTenant } from '../middlewares/tenant_context';
 import hashToken from './hash_token';
 
@@ -24,4 +28,19 @@ export default async function findDeviceByToken(token: string | undefined) {
     }
     return null;
   });
+}
+
+/** Whether a terminal still works: its branch is open, in a restaurant that is open. One aggregation. */
+export async function terminalInUse(device: Pick<IDevice, 'branchId' | 'restaurantId'>): Promise<boolean> {
+  const branchId = toObjectId(device.branchId);
+  if (!branchId) return false;
+  const found = await runWithoutTenant(() =>
+    Branch.aggregate([
+      { $match: { _id: branchId, restaurantId: String(device.restaurantId), isActive: { $ne: false } } },
+      ...lookup({ from: Restaurant, localField: 'restaurantId', as: 'restaurant', pipeline: [{ $match: { status: 'active' } }, { $project: { _id: 1 } }] }),
+      { $match: { 'restaurant.0': { $exists: true } } },
+      { $project: { _id: 1 } },
+    ])
+  );
+  return found.length > 0;
 }

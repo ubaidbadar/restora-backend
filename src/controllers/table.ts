@@ -7,6 +7,7 @@ import logAudit from '../utils/audit';
 import dayKey from '../utils/day_key';
 import randomToken from '../utils/random_token';
 import resolveBranchId from '../utils/resolve_branch';
+import lookup from '../utils/lookup';
 
 /** The random part of a table's QR link (/t/<code>): 96 bits from the CSPRNG, URL-safe. */
 const newQrCode = () => randomToken(12);
@@ -38,92 +39,53 @@ export async function getFloorTables(c: Context) {
   const minTime = new Date(now - 30 * 60 * 1000).toISOString();
   const maxTime = new Date(now + 90 * 60 * 1000).toISOString();
 
-  // 1. Every table of the branch. Archived ones come last, with nothing going on, so the Tables page can offer to
-  //    bring them back without a second request.
-  const allTables = await Table.find({ branchId }).sort({ name: 1 });
-  const tables = allTables.filter((t) => !t.archived);
-  const tableIds = tables.map((t) => String(t._id));
-
-  // 2. Fetch today's open dine-in orders
-  const orders = await Order.find({
-    branchId,
-    dayKey: today,
-    type: 'dine_in',
-    status: { $ne: 'cancelled' },
-    $or: [{ status: { $ne: 'completed' } }, { paymentStatus: { $ne: 'paid' } }],
-    tableId: { $in: tableIds },
-  });
-
-  // 3. Fetch open guest requests
-  const requests = await GuestRequest.find({
-    branchId,
-    resolved: false,
-    tableId: { $in: tableIds },
-  });
-
-  // 4. Fetch bookings in window [-30min, +90min]
-  const reservations = await Reservation.find({
-    branchId,
-    status: { $nin: ['cancelled', 'seated'] },
-    dateTime: { $gte: minTime, $lte: maxTime },
-    tableId: { $in: tableIds },
-  }).sort({ dateTime: 1 });
-
-  // 5. Group and merge into FloorTable shape
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ordersByTable = new Map<string, any[]>();
-  for (const o of orders) {
-    if (!o.tableId) continue;
-    const list = ordersByTable.get(o.tableId) || [];
-    list.push({
-      _id: String(o._id),
-      dailyToken: o.dailyToken,
-      total: o.total,
-      status: o.status,
-      paymentStatus: o.paymentStatus,
-      createdAt: o.createdAt,
-    });
-    ordersByTable.set(o.tableId, list);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const requestsByTable = new Map<string, any[]>();
-  for (const r of requests) {
-    const list = requestsByTable.get(r.tableId) || [];
-    list.push({
-      _id: String(r._id),
-      type: r.type,
-      createdAt: r.createdAt,
-    });
-    requestsByTable.set(r.tableId, list);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bookingByTable = new Map<string, any>();
-  for (const b of reservations) {
-    if (b.tableId && !bookingByTable.has(b.tableId)) {
-      bookingByTable.set(b.tableId, {
-        _id: String(b._id),
-        dateTime: b.dateTime,
-        partySize: b.partySize,
-      });
-    }
-  }
-
-  const floorTables = [...tables, ...allTables.filter((t) => t.archived)].map((t) => {
-    const tId = String(t._id);
-    return {
-      _id: tId,
-      name: t.name,
-      section: t.section,
-      seats: t.seats,
-      qrCode: t.qrCode,
-      archived: t.archived,
-      orders: ordersByTable.get(tId) || [],
-      requests: requestsByTable.get(tId) || [],
-      booking: bookingByTable.get(tId) || null,
-    };
-  });
+  // One aggregation: every table of the branch with what is going on at it. Archived ones come last, with nothing
+  // going on, so the Tables page can offer to bring them back without a second request.
+  const scope = { restaurantId: c.get('restaurantId') as string, branchId };
+  const asId = { $toString: '$_id' };
+  const floorTables = await Table.aggregate([
+    { $match: { branchId } },
+    { $sort: { archived: 1, name: 1 } },
+    { $set: { _id: asId } },
+    // Today's dine-in orders still open: not cancelled, and not both completed and paid.
+    ...lookup({
+      from: Order,
+      localField: '_id',
+      foreignField: 'tableId',
+      as: 'orders',
+      pipeline: [
+        { $match: { ...scope, dayKey: today, type: 'dine_in', status: { $ne: 'cancelled' }, $or: [{ status: { $ne: 'completed' } }, { paymentStatus: { $ne: 'paid' } }] } },
+        { $project: { _id: asId, dailyToken: 1, total: 1, status: 1, paymentStatus: 1, createdAt: 1 } },
+      ],
+    }),
+    // Calls from the table's QR page not yet seen to.
+    ...lookup({ from: GuestRequest, localField: '_id', foreignField: 'tableId', as: 'requests', pipeline: [{ $match: { ...scope, resolved: false } }, { $project: { _id: asId, type: 1, createdAt: 1 } }] }),
+    // The next booking from 30 minutes ago to 90 minutes ahead.
+    ...lookup({
+      from: Reservation,
+      localField: '_id',
+      foreignField: 'tableId',
+      as: 'booking',
+      pipeline: [
+        { $match: { ...scope, status: { $nin: ['cancelled', 'seated'] }, dateTime: { $gte: minTime, $lte: maxTime } } },
+        { $sort: { dateTime: 1 } },
+        { $limit: 1 },
+        { $project: { _id: asId, dateTime: 1, partySize: 1 } },
+      ],
+    }),
+    {
+      $project: {
+        name: 1,
+        section: 1,
+        seats: 1,
+        qrCode: 1,
+        archived: 1,
+        orders: { $cond: ['$archived', [], '$orders'] },
+        requests: { $cond: ['$archived', [], '$requests'] },
+        booking: { $cond: ['$archived', null, { $ifNull: [{ $first: '$booking' }, null] }] },
+      },
+    },
+  ]);
 
   return c.json(floorTables);
 }

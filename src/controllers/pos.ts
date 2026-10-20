@@ -1,13 +1,15 @@
 import type { Context } from 'hono';
-import type { IDevice } from '../models/device';
+import Device, { type IDevice } from '../models/device';
 import StaffMember, { type IStaffMember } from '../models/staff_member';
 import Restaurant from '../models/restaurant';
 import Branch from '../models/branch';
 import Role from '../models/role';
 import logAudit from '../utils/audit';
-import { findAuthUser, findAuthUsers } from '../utils/auth_users';
+import { findAuthUser } from '../utils/auth_users';
+import lookup from '../utils/lookup';
+import lookupUser from '../utils/lookup_user';
 import { runWithoutTenant } from '../middlewares/tenant_context';
-import { buildMe } from '../utils/workplace';
+import { enterWorkplace, loadMemberWorkplace, meOf } from '../utils/workplace';
 
 const MAX_PIN_ATTEMPTS = 5;
 const PAUSE_MS = 5 * 60 * 1000;
@@ -19,8 +21,17 @@ const worksAt = (member: IStaffMember, branchId: string) =>
   member.isOwner || member.isPrimaryOwner || member.branchScope === 'all' || member.branchIds.includes(branchId);
 
 async function posState(device: DeviceDoc) {
-  const restaurant = await runWithoutTenant(() => Restaurant.findById(device.restaurantId));
-  const branch = await Branch.findById(device.branchId);
+  // The terminal's restaurant and branch in one aggregation.
+  const [found] = await runWithoutTenant(() =>
+    Device.aggregate<{ restaurant: { name: string; logo?: string }[]; branch: { _id: unknown; name: string }[] }>([
+      { $match: { _id: device._id } },
+      ...lookup({ from: Restaurant, localField: 'restaurantId', as: 'restaurant', pipeline: [{ $project: { name: 1, logo: 1 } }] }),
+      ...lookup({ from: Branch, localField: 'branchId', as: 'branch', pipeline: [{ $project: { name: 1 } }] }),
+      { $project: { restaurant: 1, branch: 1 } },
+    ])
+  );
+  const restaurant = found?.restaurant[0];
+  const branch = found?.branch[0];
   return {
     device: { _id: String(device._id), name: device.name, settings: device.settings },
     restaurant: { name: restaurant?.name || 'Restaurant', logo: restaurant?.logo },
@@ -46,23 +57,25 @@ export async function getPosPeople(c: Context) {
   const device = c.get('device') as DeviceDoc;
 
   // Scoped to the terminal's restaurant by posDeviceGuard; only people who work in its branch.
-  const staff = (await StaffMember.find({ status: 'active' }).sort({ joinedAt: 1 })).filter((m) => worksAt(m, device.branchId));
-  const [users, roles] = await Promise.all([
-    findAuthUsers(staff.map((m) => m.userId)),
-    Role.find({ _id: { $in: staff.flatMap((m) => m.roleIds) } }),
+  // One aggregation: who works in the terminal's branch, with their names and roles.
+  const people = await StaffMember.aggregate([
+    { $match: { status: 'active', $or: [{ isOwner: true }, { isPrimaryOwner: true }, { branchScope: 'all' }, { branchIds: device.branchId }] } },
+    { $sort: { joinedAt: 1 } },
+    ...lookupUser(),
+    ...lookup({ from: Role, localField: 'roleIds', as: 'roles', let: { rid: '$restaurantId' }, pipeline: [{ $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } }, { $project: { name: 1 } }] }),
+    {
+      $project: {
+        _id: 0,
+        membershipId: { $toString: '$_id' },
+        name: { $ifNull: ['$user.name', 'Staff'] },
+        image: { $ifNull: ['$user.image', null] },
+        roleNames: '$roles.name',
+        locked: { $eq: ['$pinLocked', true] },
+        hasPin: { $gt: ['$pinHash', null] },
+      },
+    },
   ]);
-  const roleName = new Map(roles.map((r) => [String(r._id), r.name]));
-
-  return c.json(
-    staff.map((m) => ({
-      membershipId: String(m._id),
-      name: users.get(m.userId)?.name || 'Staff',
-      image: users.get(m.userId)?.image ?? null,
-      roleNames: m.roleIds.map((id) => roleName.get(id)).filter(Boolean),
-      locked: Boolean(m.pinLocked),
-      hasPin: Boolean(m.pinHash),
-    }))
-  );
+  return c.json(people);
 }
 
 export async function unlockPos(c: Context) {
@@ -143,10 +156,10 @@ export async function unlockPos(c: Context) {
 
   // The terminal now works as this person: the answer carries their /me.
   c.set('user', { id: member.userId, name: actorName, email: '' });
-  c.set('membership', member);
-  c.set('isOwner', Boolean(member.isOwner || member.isPrimaryOwner));
   c.set('via', 'pos');
-  return c.json({ ...(await posState(device)), me: await buildMe(c) });
+  const { restaurants, workplace } = await loadMemberWorkplace(String(member._id), String(device.restaurantId));
+  enterWorkplace(c, workplace, restaurants, device.branchId);
+  return c.json({ ...(await posState(device)), me: meOf(c) });
 }
 
 export async function lockPos(c: Context) {

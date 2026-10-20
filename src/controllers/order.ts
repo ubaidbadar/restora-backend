@@ -1,8 +1,10 @@
 import type { Context } from 'hono';
 import type { ClientSession } from 'mongoose';
 import Order, { type IOrder, type IOrderItem, type IOrderCustomer } from '../models/order';
-import MenuItem from '../models/menu_item';
-import AddonGroup from '../models/addon_group';
+import MenuItem, { type IMenuItem } from '../models/menu_item';
+import AddonGroup, { type IAddonGroup } from '../models/addon_group';
+import lookup from '../utils/lookup';
+import { toObjectId } from '../utils/auth_users';
 import Customer from '../models/customer';
 import DailyCounter from '../models/daily_counter';
 import Settings from '../models/settings';
@@ -132,11 +134,13 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
  * when a dish is gone, sold out or picked wrongly.
  */
 async function priceItems(rawItems: RawItem[], branchId: string): Promise<IOrderItem[] | string> {
-  const menuItems = await MenuItem.find({ _id: { $in: rawItems.map((i) => i.itemId) } }).catch(() => []);
+  // One aggregation: the dishes with their add-on groups (of the same restaurant).
+  const ids = rawItems.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
+  const menuItems = await MenuItem.aggregate<IMenuItem & { _id: unknown; groups: (IAddonGroup & { _id: unknown })[] }>([
+    { $match: { _id: { $in: ids } } },
+    ...lookup({ from: AddonGroup, localField: 'addonGroupIds', as: 'groups', let: { rid: '$restaurantId' }, pipeline: [{ $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } }] }),
+  ]);
   const menuById = new Map(menuItems.map((m) => [String(m._id), m]));
-  const groupIds = [...new Set(menuItems.flatMap((m) => m.addonGroupIds))];
-  const groups = groupIds.length ? await AddonGroup.find({ _id: { $in: groupIds } }) : [];
-  const groupById = new Map(groups.map((g) => [String(g._id), g]));
   const priced: IOrderItem[] = [];
 
   for (const rawItem of rawItems) {
@@ -151,8 +155,9 @@ async function priceItems(rawItems: RawItem[], branchId: string): Promise<IOrder
     let addonsPrice = 0;
     const addons: { name: string; price: number }[] = [];
     const addonIds: string[] = [];
+    // In the dish's own order of groups.
     for (const groupId of menuItem.addonGroupIds) {
-      const group = groupById.get(groupId);
+      const group = menuItem.groups.find((entry) => String(entry._id) === groupId);
       if (!group) continue;
       const picked = group.options.filter((o) => chosen.has(String(o._id)));
       if (picked.length < group.min) return `"${group.name}" for "${menuItem.name}" requires at least ${group.min} selection(s)`;

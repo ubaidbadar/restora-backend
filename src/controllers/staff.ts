@@ -9,9 +9,12 @@ import maskContact from '../utils/mask_contact';
 import randomToken from '../utils/random_token';
 import normalizePhone from '../utils/normalize_phone';
 import httpError from '../utils/http_error';
-import { findAuthUserByEmail, findAuthUsers } from '../utils/auth_users';
+import { findAuthUserByEmail, findAuthUsers, toObjectId } from '../utils/auth_users';
+import { isOwnerMembership } from '../utils/workplace';
+import lookupUser from '../utils/lookup_user';
+import lookup from '../utils/lookup';
 import { moveTo } from '../utils/workplace';
-import { checkAccessGrant, isOwnerMember, ownerRoleIds } from '../utils/staff_access';
+import { checkAccessGrant } from '../utils/staff_access';
 import { runWithoutTenant } from '../middlewares/tenant_context';
 import { sendStaffInvitationEmail } from '../services/email';
 import appOrigin from '../utils/app_origin';
@@ -23,12 +26,21 @@ import type { IStaffMember } from '../models/staff_member';
  * nobody but an owner may change an owner, and only an owner may change their own access.
  */
 async function loadManageable(c: Context, id: string) {
-  const member = await StaffMember.findById(id).catch(() => null);
-  if (!member) throw httpError(404, 'Staff member not found');
+  // The member with any Owner role of theirs, in one aggregation.
+  const memberId = toObjectId(id);
+  const [found] = memberId
+    ? await StaffMember.aggregate<IStaffMember & { ownerRoles: unknown[] }>([
+        { $match: { _id: memberId } },
+        ...lookup({ from: Role, localField: 'roleIds', as: 'ownerRoles', let: { rid: '$restaurantId' }, pipeline: [{ $match: { key: 'owner', $expr: { $eq: ['$restaurantId', '$$rid'] } } }, { $project: { _id: 1 } }] }),
+      ])
+    : [];
+  if (!found) throw httpError(404, 'Staff member not found');
+  const { ownerRoles, ...fields } = found;
+  const member = StaffMember.hydrate(fields);
 
   const actor = c.get('membership') as IStaffMember | undefined;
   const actorIsOwner = Boolean(c.get('isOwner'));
-  if (!actorIsOwner && isOwnerMember(member, await ownerRoleIds())) {
+  if (!actorIsOwner && (isOwnerMembership(member) || ownerRoles.length > 0)) {
     throw httpError(403, 'Only an owner can change an owner');
   }
   if (!actorIsOwner && actor && String(actor._id) === String(member._id)) {
@@ -40,7 +52,7 @@ async function loadManageable(c: Context, id: string) {
 const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 /** A member as the Staff list shows it, with their account's name and email. */
-function memberJson(member: InstanceType<typeof StaffMember>, user: { id: string; name: string; email: string; image: string | null } | undefined) {
+function memberJson(member: IStaffMember & { _id: unknown }, user: { id: string; name: string; email: string; image: string | null } | null | undefined) {
   return {
     _id: String(member._id),
     userId: member.userId,
@@ -61,10 +73,10 @@ function memberJson(member: InstanceType<typeof StaffMember>, user: { id: string
 const answerMember = async (c: Context, member: InstanceType<typeof StaffMember>) =>
   c.json(memberJson(member, (await findAuthUsers([member.userId])).get(member.userId)));
 
+/** The staff of this restaurant with their accounts' names, in one aggregation. */
 export async function listStaffMembers(c: Context) {
-  const staff = await StaffMember.find({}).sort({ joinedAt: 1 });
-  const users = await findAuthUsers(staff.map((m) => m.userId));
-  return c.json(staff.map((member) => memberJson(member, users.get(member.userId))));
+  const staff = await StaffMember.aggregate<IStaffMember & { _id: unknown; user: Parameters<typeof memberJson>[1] }>([{ $sort: { joinedAt: 1 } }, ...lookupUser()]);
+  return c.json(staff.map((member) => memberJson(member, member.user)));
 }
 
 export async function updateStaffMember(c: Context) {
@@ -166,19 +178,23 @@ const INVITE_DAYS = 7;
 
 const inviteUrlFor = (token: string) => `${appOrigin()}/invite/${token}`;
 
+/** An invitation's restaurant (name, logo, state), roles and branches, each limited to that restaurant. */
+const invitationJoins = () => [
+  ...lookup({ from: Restaurant, localField: 'restaurantId', as: 'restaurant', pipeline: [{ $project: { name: 1, logo: 1, status: 1 } }] }),
+  ...lookup({ from: Role, localField: 'roleIds', as: 'roles', let: { rid: '$restaurantId' }, pipeline: [{ $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } }, { $project: { name: 1, key: 1 } }] }),
+  ...lookup({ from: Branch, localField: 'branchIds', as: 'branches', let: { rid: '$restaurantId' }, pipeline: [{ $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } }, { $project: { name: 1 } }] }),
+];
+
 /** Emails the link for an email invitation. Phone invitations are sent by the inviter from their own WhatsApp. */
 async function sendInvite(invitation: InstanceType<typeof Invitation>, token: string) {
   if (invitation.channel !== 'email' || !invitation.email) return;
-  const [restaurant, roles] = await Promise.all([
-    runWithoutTenant(() => Restaurant.findById(invitation.restaurantId)),
-    Role.find({ _id: { $in: invitation.roleIds } }),
-  ]);
+  const [found] = await runWithoutTenant(() => Invitation.aggregate<{ restaurant: { name: string }[]; roles: { name: string }[] }>([{ $match: { _id: invitation._id } }, ...invitationJoins()]));
   sendStaffInvitationEmail({
     to: invitation.email,
     recipientName: invitation.name,
-    restaurantName: restaurant?.name || 'Restaurant',
+    restaurantName: found?.restaurant[0]?.name || 'Restaurant',
     invitedByName: invitation.invitedByName,
-    roleNames: roles.map((r) => r.name),
+    roleNames: found?.roles.map((r) => r.name) ?? [],
     inviteUrl: inviteUrlFor(token),
   }).catch((err) => console.error('[Staff Controller] Failed to send invite email:', err));
 }
@@ -287,16 +303,17 @@ export async function revokeInvitation(c: Context) {
 export async function lookupInvitation(c: Context) {
   const token = c.req.param('token');
 
-  const { invitation, restaurant, roles, branches } = await runWithoutTenant(async () => {
-    const invitation = await Invitation.findOne({ token });
-    if (!invitation) return { invitation: null, restaurant: null, roles: [], branches: [] };
-    const [restaurant, roles, branches] = await Promise.all([
-      Restaurant.findById(invitation.restaurantId),
-      Role.find({ _id: { $in: invitation.roleIds }, restaurantId: invitation.restaurantId }),
-      Branch.find({ _id: { $in: invitation.branchIds }, restaurantId: invitation.restaurantId }),
-    ]);
-    return { invitation, restaurant, roles, branches };
-  });
+  const [found] = await runWithoutTenant(() =>
+    Invitation.aggregate<InstanceType<typeof Invitation> & { restaurant: { name: string; logo?: string }[]; roles: { name: string }[]; branches: { name: string }[] }>([
+      { $match: { token } },
+      { $limit: 1 },
+      ...invitationJoins(),
+    ])
+  );
+  const invitation = found;
+  const restaurant = found?.restaurant[0];
+  const roles = found?.roles ?? [];
+  const branches = found?.branches ?? [];
 
   if (!invitation) {
     return c.json({ message: 'This invitation link is not valid' }, 404);
@@ -342,21 +359,28 @@ async function join(c: Context, filter: Record<string, unknown>) {
       return { error: `This invitation is for ${maskContact(invitation.email, 'email')}. Sign in with that email to join.` };
     }
 
-    const restaurant = await Restaurant.findById(invitation.restaurantId);
-    if (restaurant?.status !== 'active') {
+    // In one aggregation: the restaurant's state, the person's existing membership there, and the invitation's roles
+    // and branches that still exist in that restaurant.
+    const [joins] = await Invitation.aggregate<{
+      restaurant: { status?: string }[];
+      roles: { _id: unknown; key?: string }[];
+      branches: { _id: unknown }[];
+      existing: (IStaffMember & { _id: unknown })[];
+    }>([
+      { $match: { _id: invitation._id } },
+      ...invitationJoins(),
+      { $lookup: { from: StaffMember.collection.collectionName, let: { rid: '$restaurantId' }, pipeline: [{ $match: { userId: user.id, $expr: { $eq: ['$restaurantId', '$$rid'] } } }, { $limit: 1 }], as: 'existing' } },
+    ]);
+    if (joins?.restaurant[0]?.status !== 'active') {
       await Invitation.updateOne({ _id: invitation._id }, { $set: { status: 'pending' } });
       return { error: 'This restaurant is closed.' };
     }
 
-    const existing = await StaffMember.findOne({ restaurantId: invitation.restaurantId, userId: user.id });
-    if (existing?.status === 'suspended') return { error: 'Your access to this restaurant is suspended. Ask the owner.' };
-    if (existing) return { invitation, member: existing, joined: false };
+    const found = joins.existing[0];
+    if (found?.status === 'suspended') return { error: 'Your access to this restaurant is suspended. Ask the owner.' };
+    if (found) return { invitation, member: StaffMember.hydrate(found), joined: false };
 
-    // Only roles and branches that still exist in that restaurant.
-    const [roles, branches] = await Promise.all([
-      Role.find({ _id: { $in: invitation.roleIds }, restaurantId: invitation.restaurantId }),
-      Branch.find({ _id: { $in: invitation.branchIds }, restaurantId: invitation.restaurantId }),
-    ]);
+    const { roles, branches } = joins;
     const member = await StaffMember.create({
       restaurantId: invitation.restaurantId,
       userId: user.id,
@@ -381,7 +405,7 @@ async function join(c: Context, filter: Record<string, unknown>) {
     });
   }
 
-  const me = await moveTo(c, result.member);
+  const me = await moveTo(c, String(result.member.restaurantId));
   return c.json({ success: true, membershipId: String(result.member._id), restaurantId: result.invitation.restaurantId, me });
 }
 
@@ -400,27 +424,20 @@ export async function listMyInvitations(c: Context) {
     return c.json([]);
   }
 
-  const list = await runWithoutTenant(async () => {
-    const invitations = await Invitation.find({
-      email: user.email.toLowerCase(),
-      status: 'pending',
-      expiresAt: { $gt: new Date().toISOString() },
-    });
-    return Promise.all(
-      invitations.map(async (inv) => {
-        const [restaurant, roles] = await Promise.all([
-          Restaurant.findById(inv.restaurantId),
-          Role.find({ _id: { $in: inv.roleIds }, restaurantId: inv.restaurantId }),
-        ]);
-        return {
-          _id: String(inv._id),
-          restaurantName: restaurant?.name || 'Restaurant',
-          roleNames: roles.map((r) => r.name),
-          invitedByName: inv.invitedByName,
-        };
-      })
-    );
-  });
+  const list = await runWithoutTenant(() =>
+    Invitation.aggregate([
+      { $match: { email: user.email.toLowerCase(), status: 'pending', expiresAt: { $gt: new Date().toISOString() } } },
+      ...invitationJoins(),
+      {
+        $project: {
+          _id: { $toString: '$_id' },
+          restaurantName: { $ifNull: [{ $first: '$restaurant.name' }, 'Restaurant'] },
+          roleNames: '$roles.name',
+          invitedByName: 1,
+        },
+      },
+    ])
+  );
 
   return c.json(list);
 }

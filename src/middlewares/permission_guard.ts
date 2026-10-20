@@ -3,7 +3,10 @@ import type Permission from '@shared/permission';
 import type { IStaffMember } from '../models/staff_member';
 import Role from '../models/role';
 
-/** The permissions the current member has through their roles, loaded once per request. */
+/**
+ * The permissions the current member has through their roles. The auth guard loads them with the workplace, so this
+ * normally asks nothing; only a request that set a member itself (a POS unlock) looks the roles up.
+ */
 async function memberPermissions(c: Context): Promise<{ all: boolean; set: Set<string> }> {
   const cached = c.get('permissions') as { all: boolean; set: Set<string> } | undefined;
   if (cached) return cached;

@@ -3,6 +3,7 @@ import Order from '../models/order';
 import Customer from '../models/customer';
 import Branch from '../models/branch';
 import dayKey from '../utils/day_key';
+import lookup from '../utils/lookup';
 import { hasPermission } from '../middlewares/permission_guard';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -121,30 +122,22 @@ export async function getDashboard(c: Context) {
   const todayEnd = new Date(todayStart.getTime() + 86_400_000);
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [customerKhataStats, newCustomersCount, slippingTotal, slippingCustomers] =
-    await Promise.all([
-      Customer.aggregate([
-        { $match: { khataBalance: { $gt: 0 } } },
-        {
-          $group: {
-            _id: null,
-            khataTotal: { $sum: '$khataBalance' },
-            khataCustomers: { $sum: 1 },
-          },
-        },
-      ]),
-      Customer.countDocuments({ createdAt: { $gte: todayStart, $lt: todayEnd } }),
-      // Slipping away: ordered before, but not in the last 30 days. Someone who never ordered is new, not slipping.
-      Customer.countDocuments({
-        lastOrderAt: { $lte: thirtyDaysAgo },
-      }),
-      Customer.find({
-        lastOrderAt: { $lte: thirtyDaysAgo },
-      })
-        .select('-addresses -notes')
-        .sort({ totalSpent: -1, orderCount: -1 })
-        .limit(10),
-    ]);
+  // One aggregation over the customers for all four numbers.
+  const [customerStats] = await Customer.aggregate([
+    {
+      $facet: {
+        khata: [{ $match: { khataBalance: { $gt: 0 } } }, { $group: { _id: null, khataTotal: { $sum: '$khataBalance' }, khataCustomers: { $sum: 1 } } }],
+        newToday: [{ $match: { createdAt: { $gte: todayStart, $lt: todayEnd } } }, { $count: 'n' }],
+        // Slipping away: ordered before, but not in the last 30 days. Someone who never ordered is new, not slipping.
+        slippingTotal: [{ $match: { lastOrderAt: { $lte: thirtyDaysAgo } } }, { $count: 'n' }],
+        slipping: [{ $match: { lastOrderAt: { $lte: thirtyDaysAgo } } }, { $sort: { totalSpent: -1, orderCount: -1 } }, { $limit: 10 }, { $project: { addresses: 0, notes: 0 } }],
+      },
+    },
+  ]);
+  const customerKhataStats = customerStats?.khata ?? [];
+  const newCustomersCount = customerStats?.newToday[0]?.n ?? 0;
+  const slippingTotal = customerStats?.slippingTotal[0]?.n ?? 0;
+  const slippingCustomers = customerStats?.slipping ?? [];
 
   const khataStats = customerKhataStats[0] || { khataTotal: 0, khataCustomers: 0 };
 
@@ -152,34 +145,31 @@ export async function getDashboard(c: Context) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let perBranch: any[] = [];
   if (isAllBranches) {
-    const branches = await Branch.find({ archivedAt: { $exists: false } }).sort({ name: 1 });
-    const branchOrderStats = await Order.aggregate([
+    // One aggregation: each open branch with today's sales and order count.
+    perBranch = await Branch.aggregate([
+      { $match: { archivedAt: { $exists: false } } },
+      { $sort: { name: 1 } },
+      { $set: { _id: { $toString: '$_id' } } },
+      ...lookup({
+        from: Order,
+        localField: '_id',
+        foreignField: 'branchId',
+        as: 'stats',
+        pipeline: [
+          { $match: { restaurantId: c.get('restaurantId'), dayKey: today, status: { $ne: 'cancelled' } } },
+          { $group: { _id: null, sales: { $sum: '$total' }, orderCount: { $sum: 1 } } },
+        ],
+      }),
+      { $set: { stats: { $first: '$stats' } } },
       {
-        $match: {
-          dayKey: today,
-          status: { $ne: 'cancelled' },
-        },
-      },
-      {
-        $group: {
-          _id: '$branchId',
-          sales: { $sum: '$total' },
-          orderCount: { $sum: 1 },
+        $project: {
+          _id: 0,
+          branch: { $unsetField: { field: 'stats', input: '$$ROOT' } },
+          sales: { $ifNull: ['$stats.sales', 0] },
+          orderCount: { $ifNull: ['$stats.orderCount', 0] },
         },
       },
     ]);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const branchMap = new Map<string, any>(branchOrderStats.map((s: any) => [s._id, s]));
-
-    perBranch = branches.map((b) => {
-      const stats = branchMap.get(String(b._id)) || { sales: 0, orderCount: 0 };
-      return {
-        branch: b,
-        sales: stats.sales,
-        orderCount: stats.orderCount,
-      };
-    });
   }
 
   return c.json({

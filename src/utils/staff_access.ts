@@ -1,18 +1,7 @@
 import type { Context } from 'hono';
 import Role from '../models/role';
 import Branch from '../models/branch';
-import type { IStaffMember } from '../models/staff_member';
 import httpError from './http_error';
-
-/** True for anyone with owner powers, through the flags or the Owner role. */
-export function isOwnerMember(member: Pick<IStaffMember, 'isOwner' | 'isPrimaryOwner' | 'roleIds'>, ownerRoleIds: Set<string>): boolean {
-  return Boolean(member.isOwner || member.isPrimaryOwner || member.roleIds.some((id) => ownerRoleIds.has(id)));
-}
-
-export async function ownerRoleIds(): Promise<Set<string>> {
-  const roles = await Role.find({ key: 'owner' });
-  return new Set(roles.map((r) => String(r._id)));
-}
 
 /**
  * Checks roles and branches given to someone (an access change or an invitation):

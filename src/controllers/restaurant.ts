@@ -6,46 +6,37 @@ import Branch from '../models/branch';
 import Role from '../models/role';
 import Settings from '../models/settings';
 import logAudit from '../utils/audit';
-import { buildMe, firstWorkableMembership, moveTo, saveWorkplace } from '../utils/workplace';
+import { moveTo } from '../utils/workplace';
+import lookup from '../utils/lookup';
 import { runWithoutTenant, runWithTenant } from '../middlewares/tenant_context';
 
 const DELETE_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** After leaving or deleting: move this sign-in to another restaurant they work at, or to none. */
-async function moveOn(c: Context) {
-  const next = await firstWorkableMembership(c.get('user').id);
-  if (next) return moveTo(c, next);
-  await saveWorkplace(c.get('session').token, null);
-  c.set('membership', undefined);
-  c.set('restaurantId', undefined);
-  c.set('branchId', undefined);
-  return buildMe(c);
-}
+/** Into their oldest open restaurant, or none. */
+const moveOn = (c: Context) => moveTo(c);
 
-/** Every restaurant the person belongs to, with its state, for /restaurants. */
+/** Every restaurant the person belongs to, with its state and their roles there, for /restaurants. One aggregation. */
 export async function listRestaurants(c: Context) {
-  const user = c.get('user');
-  const list = await runWithoutTenant(async () => {
-    const memberships = await StaffMember.find({ userId: user.id }).sort({ joinedAt: 1 });
-    return Promise.all(
-      memberships.map(async (m) => {
-        const [restaurant, roles] = await Promise.all([
-          Restaurant.findById(m.restaurantId),
-          Role.find({ _id: { $in: m.roleIds }, restaurantId: m.restaurantId }),
-        ]);
-        return restaurant
-          ? {
-              _id: String(m._id),
-              status: m.status,
-              roleNames: roles.map((r) => r.name),
-              isPrimaryOwner: Boolean(m.isPrimaryOwner),
-              restaurant: { _id: String(restaurant._id), name: restaurant.name, status: restaurant.status ?? 'active', deleteAfter: restaurant.deleteAfter },
-            }
-          : null;
-      })
-    );
-  });
-  return c.json(list.filter(Boolean));
+  const list = await runWithoutTenant(() =>
+    StaffMember.aggregate([
+      { $match: { userId: c.get('user').id } },
+      { $sort: { joinedAt: 1 } },
+      ...lookup({ from: Restaurant, localField: 'restaurantId', as: 'restaurant', pipeline: [{ $project: { name: 1, status: 1, deleteAfter: 1 } }] }),
+      { $unwind: '$restaurant' },
+      ...lookup({ from: Role, localField: 'roleIds', as: 'roles', let: { rid: '$restaurantId' }, pipeline: [{ $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } }, { $project: { name: 1 } }] }),
+      {
+        $project: {
+          _id: { $toString: '$_id' },
+          status: 1,
+          roleNames: '$roles.name',
+          isPrimaryOwner: { $eq: ['$isPrimaryOwner', true] },
+          restaurant: { _id: { $toString: '$restaurant._id' }, name: '$restaurant.name', status: { $ifNull: ['$restaurant.status', 'active'] }, deleteAfter: '$restaurant.deleteAfter' },
+        },
+      },
+    ])
+  );
+  return c.json(list);
 }
 
 /** First-run step 1: the restaurant, its first branch, the preset roles, the owner and default settings. */
@@ -62,11 +53,11 @@ export async function onboarding(c: Context) {
   const restaurant = await runWithoutTenant(() => Restaurant.create({ name, status: 'active' }));
   const restaurantId = String(restaurant._id);
 
-  const { branch, owner } = await runWithTenant(restaurantId, async () => {
+  const { branch } = await runWithTenant(restaurantId, async () => {
     const branch = await Branch.create({ name: branchName, area: area || undefined, city: city || undefined, phone: phone || undefined, isActive: true });
     const roles = await Role.insertMany(PRESET_ROLES.map((preset) => ({ restaurantId, key: preset.key, name: preset.name, isPreset: true, permissions: preset.permissions })));
     const ownerRole = roles.find((role) => role.key === 'owner')!;
-    const owner = await StaffMember.create({
+    await StaffMember.create({
       userId: user.id,
       roleIds: [String(ownerRole._id)],
       branchScope: 'all',
@@ -76,7 +67,7 @@ export async function onboarding(c: Context) {
       isPrimaryOwner: true,
     });
     await Settings.create({ restaurantName: name, onboarded: true, taxSet: false });
-    return { branch, owner };
+    return { branch };
   });
 
   await logAudit({
@@ -87,7 +78,7 @@ export async function onboarding(c: Context) {
   });
 
   // This sign-in now works in the new restaurant.
-  const me = await moveTo(c, owner, String(branch._id));
+  const me = await moveTo(c, restaurantId, String(branch._id));
   return c.json({ restaurantId, name, restaurant: { _id: restaurantId, name }, branch: { _id: String(branch._id), name: branch.name }, me }, 201);
 }
 
@@ -118,7 +109,9 @@ export async function transferOwnership(c: Context) {
     return c.json({ message: 'You already own this restaurant' }, 400);
   }
 
-  const [ownerRole, managerRole] = await Promise.all([Role.findOne({ key: 'owner' }), Role.findOne({ key: 'manager' })]);
+  const presets = await Role.find({ key: { $in: ['owner', 'manager'] } });
+  const ownerRole = presets.find((role) => role.key === 'owner');
+  const managerRole = presets.find((role) => role.key === 'manager');
   if (!ownerRole) {
     return c.json({ message: 'This restaurant has no Owner role' }, 500);
   }
@@ -146,7 +139,8 @@ export async function transferOwnership(c: Context) {
     target: { type: 'membership', id: membershipId, label: 'Transferred ownership' },
   });
 
-  return c.json({ success: true, message: 'Ownership transferred', me: await buildMe(c) });
+  // They are no longer the owner: load it again, so /me shows what they may do now.
+  return c.json({ success: true, message: 'Ownership transferred', me: await moveTo(c, String(membership.restaurantId), c.get('branchId')) });
 }
 
 /** Schedules the restaurant for deletion in 30 days. Nobody can work in it meanwhile; the owner can keep it. */
