@@ -169,7 +169,6 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
       workplace && member
         ? {
             restaurant: { _id: workplace.restaurant._id, name: workplace.restaurant.name, logo: workplace.restaurant.logo || undefined },
-            membershipId: String(member._id),
             roleNames: workplace.roleNames,
             isOwner: workplace.isOwner,
             isPrimaryOwner: Boolean(member.isPrimaryOwner),
@@ -181,8 +180,6 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
             // A terminal works only in its own branch.
             branches: (device ? (branch ? [branch] : []) : workplace.branches).map((b) => ({ _id: b._id, name: b.name })),
             settings: {
-              restaurantName: saved?.restaurantName ?? workplace.restaurant.name,
-              logo: saved?.logo || undefined,
               onboarded: Boolean(saved?.onboarded),
               taxSet: Boolean(saved?.taxSet),
               taxByPaymentMethod: { ...DEFAULT_SETTINGS.taxByPaymentMethod, ...saved?.taxByPaymentMethod },
