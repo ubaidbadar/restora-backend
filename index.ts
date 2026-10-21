@@ -130,6 +130,26 @@ app.route('/api/v1', api);
 // Health check endpoint
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
+// API docs: the OpenAPI spec, and a page that renders it.
+const OPENAPI_SPEC = path.join(import.meta.dir, 'docs', 'openapi.yaml');
+app.get('/docs/openapi.yaml', () =>
+  new Response(Bun.file(OPENAPI_SPEC), { headers: { 'Content-Type': 'application/yaml; charset=utf-8' } })
+);
+app.get('/docs', (c) =>
+  c.html(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Restora API</title>
+  </head>
+  <body>
+    <script id="api-reference" data-url="/docs/openapi.yaml"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.25.0"></script>
+  </body>
+</html>`)
+);
+
 const port = parseInt(process.env.PORT || '3000', 10);
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant_v2';
 
