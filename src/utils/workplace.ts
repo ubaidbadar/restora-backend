@@ -204,7 +204,7 @@ export function meOf(c: Context): Me {
  */
 export async function moveTo(c: Context, restaurantId?: string | null, branchId?: string | null): Promise<Me | null> {
   const { restaurants, workplace } = await loadUserWorkplace(c.get('user').id, restaurantId);
-  if (restaurantId && workplace && String(workplace.member.restaurantId) !== restaurantId) return null;
+  if (restaurantId && (!workplace || String(workplace.member.restaurantId) !== restaurantId)) return null;
   enterWorkplace(c, workplace, restaurants, branchId);
   const session = c.get('session');
   if (session?.token) await saveWorkplace(session.token, c.get('restaurantId') ?? null, c.get('branchId') ?? null);

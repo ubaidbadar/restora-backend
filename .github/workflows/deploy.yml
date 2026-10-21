@@ -1,0 +1,94 @@
+name: Deploy to production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; never cancel a deploy that is already running.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Build, upload, switch, health-check
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_URL }}
+    env:
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      APP_ROOT: /srv/restora/api
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Build
+        run: |
+          bun install --frozen-lockfile
+          bun run --if-present build
+          # Ship production dependencies only (same OS/arch as the server: linux-x64).
+          rm -rf node_modules
+          bun install --frozen-lockfile --production
+
+      - name: Package release
+        run: |
+          RELEASE="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          echo "RELEASE=${RELEASE}" >> "$GITHUB_ENV"
+          tar --exclude=.git --exclude=.github --exclude='*.tgz' -czf /tmp/release.tgz .
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_HOST" || { echo "Repository variable DEPLOY_HOST is not set"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Upload release
+        run: |
+          scp -o StrictHostKeyChecking=yes /tmp/release.tgz \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${APP_ROOT}/releases/${RELEASE}.tgz"
+
+      - name: Activate release (atomic switch + health check + auto-rollback)
+        run: |
+          ssh -o StrictHostKeyChecking=yes "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s -- "${RELEASE}" <<'REMOTE'
+          set -euo pipefail
+          umask 027
+          R="$1"; D=/srv/restora/api/releases
+          mkdir -p "$D/$R"
+          tar -xzf "$D/$R.tgz" -C "$D/$R"
+          rm -f "$D/$R.tgz"
+          restora-deploy "$R"
+          REMOTE
+
+      - name: Public smoke test
+        if: ${{ vars.DEPLOY_URL != '' }}
+        env:
+          URL: ${{ vars.DEPLOY_URL }}${{ vars.HEALTH_PATH || '/health' }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$URL" >/dev/null; then echo "✓ $URL"; exit 0; fi
+            echo "waiting for $URL ($i/12)"; sleep 5
+          done
+          echo "✗ public URL did not become healthy" >&2; exit 1
+
+      - name: Clean up SSH material
+        if: always()
+        run: rm -rf ~/.ssh/id_ed25519 ~/.ssh/known_hosts /tmp/release.tgz
