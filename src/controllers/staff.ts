@@ -10,7 +10,6 @@ import randomToken from '../utils/random_token';
 import normalizePhone from '../utils/normalize_phone';
 import httpError from '../utils/http_error';
 import { findAuthUserByEmail, findAuthUsers, toObjectId } from '../utils/auth_users';
-import { isOwnerMembership } from '../utils/workplace';
 import lookupUser from '../utils/lookup_user';
 import lookup from '../utils/lookup';
 import { moveTo } from '../utils/workplace';
@@ -40,7 +39,7 @@ async function loadManageable(c: Context, id: string) {
 
   const actor = c.get('membership') as IStaffMember | undefined;
   const actorIsOwner = Boolean(c.get('isOwner'));
-  if (!actorIsOwner && (isOwnerMembership(member) || ownerRoles.length > 0)) {
+  if (!actorIsOwner && (member.isOwner || member.isPrimaryOwner || ownerRoles.length > 0)) {
     throw httpError(403, 'Only an owner can change an owner');
   }
   if (!actorIsOwner && actor && String(actor._id) === String(member._id)) {

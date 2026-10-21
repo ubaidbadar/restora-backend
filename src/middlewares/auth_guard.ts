@@ -7,7 +7,8 @@ import { type IStaffMember } from '../models/staff_member';
 import { type IDevice } from '../models/device';
 import { runWithoutTenant } from './tenant_context';
 import findDeviceByToken, { terminalInUse } from '../utils/find_device';
-import { enterWorkplace, loadMemberWorkplace, loadUserWorkplace, meOf, saveWorkplace, type Workplace } from '../utils/workplace';
+import { toObjectId } from '../utils/auth_users';
+import { enterWorkplace, loadWorkplace, sessionWorkplace, toMe, type Workplace } from '../utils/workplace';
 
 export interface AuthContextVariables {
   user?: { id: string; name: string; email: string; image?: string | null };
@@ -60,18 +61,13 @@ export async function authGuard(c: Context, next: Next) {
 
     // One aggregation: where they work (the restaurant saved on the session, while they still work there), what they
     // may do there, and their other restaurants. /me is then made from it without asking the database again.
-    const activeRestaurantId = (session.activeRestaurantId as string | null | undefined) || null;
-    const { restaurants, workplace } = await loadUserWorkplace(user.id, activeRestaurantId);
-    const restaurantId = workplace ? String(workplace.member.restaurantId) : null;
-    const lost = Boolean(activeRestaurantId && restaurantId !== activeRestaurantId);
-    enterWorkplace(c, workplace, restaurants, lost ? null : (session.activeBranchId as string | null | undefined));
-
-    // First request of this sign-in, or the restaurant was lost (removed, suspended, being deleted): save where they work now.
-    if (restaurantId !== activeRestaurantId) await saveWorkplace(session.token, restaurantId);
+    const found = await sessionWorkplace(user.id, session);
+    enterWorkplace(c, found);
+    const lost = Boolean(session.activeRestaurantId && found.workplace?.restaurant._id !== session.activeRestaurantId);
 
     if (lost && !accountLevel) {
       // The answer carries where they work now, so the app updates without asking again.
-      return c.json({ code: 'context_lost', message: 'You no longer have access to that restaurant.', me: meOf(c) }, 403);
+      return c.json({ code: 'context_lost', message: 'You no longer have access to that restaurant.', me: toMe(c.var) }, 403);
     }
 
     await next();
@@ -92,14 +88,15 @@ export async function authGuard(c: Context, next: Next) {
   }
 
   // One aggregation: the unlocked person in the terminal's restaurant, with its roles, open branches and settings.
-  const { restaurants, workplace } = await loadMemberWorkplace(device.actor.membershipId, String(device.restaurantId));
+  const restaurantId = String(device.restaurantId);
+  const found = await loadWorkplace({ _id: toObjectId(device.actor.membershipId), restaurantId, status: 'active' }, restaurantId, device.branchId, true);
+  const { workplace } = found;
   // A closed restaurant has no workplace; an archived branch is not among the open ones.
-  if (!workplace || !workplace.openBranches.some((b) => String(b._id) === device.branchId)) {
+  if (!workplace || !workplace.openBranches.some((b) => b._id === device.branchId)) {
     if (!(await terminalInUse(device))) return unauthorized(c, 'signed_out', 'This terminal is no longer in use. Register it again.');
   }
   const lastActive = device.actor.lastActiveAt ? Date.parse(device.actor.lastActiveAt) : 0;
-  const worksHere = workplace?.branches.some((b) => String(b._id) === device.branchId);
-  if (!workplace || !worksHere || Date.now() - lastActive > actorIdleLimit(device)) {
+  if (!workplace?.branch || Date.now() - lastActive > actorIdleLimit(device)) {
     device.actor = null;
     await runWithoutTenant(() => device.save());
     return unauthorized(c, 'pos_locked', 'The terminal locked itself. Unlock it with your PIN.');
@@ -114,7 +111,7 @@ export async function authGuard(c: Context, next: Next) {
   c.set('device', device);
   c.set('via', 'pos');
   c.set('user', { id: workplace.member.userId, name: device.actor.name, email: '' });
-  enterWorkplace(c, workplace, restaurants, device.branchId);
+  enterWorkplace(c, found);
   await next();
 }
 
