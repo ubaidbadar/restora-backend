@@ -30,7 +30,7 @@ jobs:
       DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
       APP_ROOT: /srv/restora/api
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
