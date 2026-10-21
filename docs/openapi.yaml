@@ -1737,7 +1737,6 @@ components:
             _id: { type: string }
             name: { type: string }
             logo: { type: string }
-        membershipId: { type: string }
         roleNames: { type: array, items: { type: string } }
         isOwner: { type: boolean }
         isPrimaryOwner: { type: boolean }

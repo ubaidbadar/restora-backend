@@ -9,7 +9,7 @@ import { findAuthUser } from '../utils/auth_users';
 import lookup from '../utils/lookup';
 import lookupUser from '../utils/lookup_user';
 import { runWithoutTenant } from '../middlewares/tenant_context';
-import { enterWorkplace, loadMemberWorkplace, meOf } from '../utils/workplace';
+import { enterWorkplace, loadWorkplace, toMe } from '../utils/workplace';
 
 const MAX_PIN_ATTEMPTS = 5;
 const PAUSE_MS = 5 * 60 * 1000;
@@ -157,9 +157,9 @@ export async function unlockPos(c: Context) {
   // The terminal now works as this person: the answer carries their /me.
   c.set('user', { id: member.userId, name: actorName, email: '' });
   c.set('via', 'pos');
-  const { restaurants, workplace } = await loadMemberWorkplace(String(member._id), String(device.restaurantId));
-  enterWorkplace(c, workplace, restaurants, device.branchId);
-  return c.json({ ...(await posState(device)), me: meOf(c) });
+  const restaurantId = String(device.restaurantId);
+  enterWorkplace(c, await loadWorkplace({ _id: member._id, restaurantId, status: 'active' }, restaurantId, device.branchId, true));
+  return c.json({ ...(await posState(device)), me: toMe(c.var) });
 }
 
 export async function lockPos(c: Context) {

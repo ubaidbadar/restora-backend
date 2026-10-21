@@ -6,7 +6,7 @@ import { createAuthMiddleware } from 'better-auth/api';
 import mongoose from 'mongoose';
 import allowedOrigins from '../constants/allowed_origins';
 import { sendAccountEmail } from '../services/email';
-import { meForSession } from '../utils/workplace';
+import { sessionWorkplace, toMe } from '../utils/workplace';
 
 /** Answers that start a sign-in also carry `me`, so the app has everything without a second request. */
 const CARRY_ME = new Set(['/sign-in/email', '/multi-session/set-active', '/multi-session/revoke']);
@@ -88,8 +88,8 @@ function createAuth() {
         const returned = ctx.context.returned;
         const started = ctx.context.newSession;
         if (!started || !returned || returned instanceof Error) return;
-        const me = await meForSession(started.user, started.session as typeof started.session & { activeRestaurantId?: string | null; activeBranchId?: string | null });
-        return ctx.json({ ...(returned as object), me });
+        const found = await sessionWorkplace(started.user.id, started.session as typeof started.session & { activeRestaurantId?: string | null; activeBranchId?: string | null });
+        return ctx.json({ ...(returned as object), me: toMe({ user: started.user, via: 'web', ...found }) });
       }),
     },
     plugins: [multiSession(), expo()],

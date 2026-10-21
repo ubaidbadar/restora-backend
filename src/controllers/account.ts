@@ -2,11 +2,11 @@ import type { Context } from 'hono';
 import auth from '../config/auth';
 import logAudit from '../utils/audit';
 import validatePin from '../utils/validate_pin';
-import { meOf, moveTo, type Workplace } from '../utils/workplace';
+import { moveTo, toMe, type Workplace } from '../utils/workplace';
 
 /** `GET /me`: the account, where it works now and what it may do there; the auth guard already loaded all of it. */
 export async function getMe(c: Context) {
-  return c.json(meOf(c));
+  return c.json(toMe(c.var));
 }
 
 /** Switch this sign-in to another restaurant the person works at. */
@@ -26,10 +26,10 @@ export async function switchBranch(c: Context) {
   if (!workplace) {
     return c.json({ message: 'Open a restaurant first' }, 400);
   }
-  if (!workplace.branches.some((b) => String(b._id) === branchId)) {
+  if (!workplace.branches.some((b) => b._id === branchId)) {
     return c.json({ message: 'You do not work at that branch, or it is closed' }, 403);
   }
-  return c.json(await moveTo(c, String(workplace.member.restaurantId), branchId));
+  return c.json(await moveTo(c, workplace.restaurant._id, branchId));
 }
 
 /** "Chrome on Android" from a user agent; good enough to tell sessions apart. */
