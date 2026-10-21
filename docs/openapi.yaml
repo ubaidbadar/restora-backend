@@ -606,6 +606,23 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Order' }
         '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/orders/stream:
+    get:
+      tags: [Orders]
+      summary: Live orders (Server-Sent Events)
+      description: |
+        Orders of the restaurant (the active branch, when one is open) created or changed from now on, scoped like
+        `GET /api/v1/orders`. Each event is `order.created` or `order.updated`, and its data is the order as JSON, the
+        same shape as in the list: upsert it by `_id`. A `: ping` comment comes every 25 seconds. The server ends the
+        stream after 5 minutes so the sign-in is checked again; reconnect, then load `GET /api/v1/orders` for anything
+        missed in between.
+      x-permission: orders:view
+      responses:
+        '200':
+          description: An event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
   /api/v1/orders/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
