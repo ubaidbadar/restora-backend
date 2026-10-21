@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import type { ClientSession } from 'mongoose';
 import Order, { type IOrder, type IOrderItem, type IOrderCustomer } from '../models/order';
 import MenuItem, { type IMenuItem } from '../models/menu_item';
@@ -19,6 +20,7 @@ import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
 import { hasPermission } from '../middlewares/permission_guard';
 import { getTenantId } from '../middlewares/tenant_context';
+import onOrderEvent from '../services/order_events';
 
 type PaymentMethod = NonNullable<IOrder['paymentMethod']>;
 
@@ -88,6 +90,40 @@ export async function listOrders(c: Context) {
 
   const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
   return c.json(orders);
+}
+
+/** How long one stream stays open. The app reconnects, so sign-outs and locked terminals are checked again. */
+const STREAM_MS = 5 * 60_000;
+
+/**
+ * Orders created or changed from now on, as Server-Sent Events: `order.created` and `order.updated`, each with the order
+ * as GET /orders answers it. Scoped like GET /orders. After a reconnect the app loads /orders again for what it missed.
+ */
+export function streamOrders(c: Context) {
+  const restaurantId = c.get('restaurantId') as string;
+  const branchId = c.get('branchId') as string | undefined;
+  // Bun closes a connection that is quiet for 10 seconds; this one is meant to wait. The pings find dead connections.
+  (c.env as { timeout?: (req: Request, seconds: number) => void } | undefined)?.timeout?.(c.req.raw, 0);
+  c.header('X-Accel-Buffering', 'no');
+
+  return streamSSE(c, async (stream) => {
+    const off = onOrderEvent({
+      restaurantId,
+      branchId,
+      send: ({ type, order }) => void stream.writeSSE({ event: type, data: JSON.stringify(order) }),
+    });
+    const ping = setInterval(() => void stream.write(': ping\n\n'), 25_000);
+    // Open until the app goes away or the time is up.
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, STREAM_MS);
+      stream.onAbort(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    clearInterval(ping);
+    off();
+  });
 }
 
 export async function getOrder(c: Context) {
@@ -548,6 +584,7 @@ export async function cancelOrder(c: Context) {
 
 export default {
   list: listOrders,
+  stream: streamOrders,
   get: getOrder,
   create: createOrder,
   updateStatus: updateOrderStatus,
