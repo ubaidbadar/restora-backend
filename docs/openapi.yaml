@@ -1,0 +1,2061 @@
+openapi: 3.1.0
+info:
+  title: Restora API
+  version: 1.0.0
+  description: |
+    The Restora restaurant backend: orders, menu, tables, reservations, customers and khata, staff, roles and POS terminals.
+
+    **Signing in.** Most routes need one of:
+    - a Better Auth session cookie (someone's own sign-in, "web" mode; see `/api/v1/auth/*`), or
+    - a registered POS terminal (`pos_device_token` cookie or `x-device-token` header) with someone unlocked on it by PIN ("pos" mode).
+
+    The restaurant and branch always come from the session or terminal, never from the request.
+
+    **Errors** are JSON `{ "message": "..." }`. Validation errors (400) also carry `issues`. Auth errors (401) and some 403s
+    carry a `code`: `signed_out`, `pos_locked`, `context_lost` (with the current `me`) or `reauth_required`.
+
+    **Permissions.** Each operation lists the permission it needs (`x-permission`). Owners have every permission.
+    Routes marked "web only" refuse a POS terminal. Routes marked "fresh sign-in" need a sign-in from the last 10 minutes.
+servers:
+  - url: /
+    description: This server
+tags:
+  - name: Health
+  - name: Auth
+  - name: Account
+  - name: Restaurants
+  - name: Branches
+  - name: Settings
+  - name: Menu
+  - name: Orders
+  - name: Tables
+  - name: Guest requests
+  - name: Reservations
+  - name: Customers
+  - name: Staff
+  - name: Roles
+  - name: Teams
+  - name: Devices
+  - name: POS
+  - name: Dashboard
+  - name: Audit
+  - name: Uploads
+  - name: Public
+security:
+  - session: []
+  - deviceToken: []
+  - deviceCookie: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: The server is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+
+  /uploads/{fileName}:
+    get:
+      tags: [Uploads]
+      summary: A locally stored image (when R2 is not configured)
+      description: Serves PNG, JPEG, WebP and GIF files only.
+      security: []
+      parameters:
+        - { name: fileName, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The image
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/auth/{path}:
+    get:
+      tags: [Auth]
+      summary: Better Auth (GET)
+      description: |
+        Handled by [Better Auth](https://www.better-auth.com/docs). Sign-up, sign-in, sign-out, session, password reset and
+        email verification live here (for example `POST /api/v1/auth/sign-in/email`). `/api/auth/*` is an alias.
+      security: []
+      parameters:
+        - { name: path, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: See Better Auth }
+    post:
+      tags: [Auth]
+      summary: Better Auth (POST)
+      security: []
+      parameters:
+        - { name: path, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: See Better Auth }
+
+  # ---------------------------------------------------------------- Account
+  /api/v1/me:
+    get:
+      tags: [Account]
+      summary: Who is signed in and where they work
+      description: Works on a POS terminal too, where it says who is unlocked.
+      responses:
+        '200':
+          description: The current account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/me/workplace:
+    post:
+      tags: [Account]
+      summary: Switch restaurant (web only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [restaurantId]
+              properties:
+                restaurantId: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/MeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/me/branch:
+    post:
+      tags: [Account]
+      summary: Switch branch (web only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branchId]
+              properties:
+                branchId: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/MeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/me/sessions:
+    get:
+      tags: [Account]
+      summary: List my signed-in sessions (web only)
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/me/sessions/revoke-others:
+    post:
+      tags: [Account]
+      summary: Sign out everywhere else (web only)
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/me/sessions/{token}:
+    delete:
+      tags: [Account]
+      summary: Sign out one session (web only)
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/me/profile:
+    patch:
+      tags: [Account]
+      summary: Update my name (web only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/me/pin:
+    post:
+      tags: [Account]
+      summary: Set my POS PIN (web only, fresh sign-in)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { type: string, pattern: '^\d{4,6}$', description: 'Not an easy guess like 1234 or 0000' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- Restaurants
+  /api/v1/restaurants:
+    get:
+      tags: [Restaurants]
+      summary: Restaurants I work at (web only)
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/restaurants/{id}/keep:
+    post:
+      tags: [Restaurants]
+      summary: Keep a restaurant that is scheduled for deletion (web only)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/onboarding:
+    post:
+      tags: [Restaurants]
+      summary: Create a restaurant with its first branch (web only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, branchName]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                branchName: { type: string, minLength: 1, maxLength: 60 }
+                area: { type: [string, 'null'] }
+                city: { type: [string, 'null'] }
+                phone: { type: [string, 'null'] }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restaurantId: { type: string }
+                  name: { type: string }
+                  restaurant: { $ref: '#/components/schemas/Ref' }
+                  branch: { $ref: '#/components/schemas/Ref' }
+                  me: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/restaurant/transfer:
+    post:
+      tags: [Restaurants]
+      summary: Transfer ownership (web only, fresh sign-in)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [membershipId, confirmName]
+              properties:
+                membershipId: { type: string }
+                confirmName: { type: string, description: 'The restaurant name, typed to confirm' }
+                keepMeAsOwner: { type: boolean, default: true }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/restaurant/delete:
+    post:
+      tags: [Restaurants]
+      summary: Schedule the restaurant for deletion (web only, fresh sign-in)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmName]
+              properties:
+                confirmName: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/restaurant/leave:
+    post:
+      tags: [Restaurants]
+      summary: Leave the current restaurant (web only)
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ---------------------------------------------------------------- Branches
+  /api/v1/branches:
+    get:
+      tags: [Branches]
+      summary: List branches
+      x-permission: member
+      parameters:
+        - { name: all, in: query, description: 'true includes archived branches', schema: { type: boolean } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Branches]
+      summary: Add a branch
+      x-permission: branches:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BranchInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/branches/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Branches]
+      summary: Get a branch
+      x-permission: member
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Branches]
+      summary: Update a branch
+      x-permission: branches:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BranchUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Branches]
+      summary: Archive a branch
+      x-permission: branches:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/branches/{id}/archive:
+    post:
+      tags: [Branches]
+      summary: Archive a branch (same as DELETE)
+      x-permission: branches:manage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/branches/{id}/reopen:
+    post:
+      tags: [Branches]
+      summary: Reopen an archived branch
+      x-permission: branches:manage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Settings
+  /api/v1/settings:
+    get:
+      tags: [Settings]
+      summary: Restaurant settings
+      x-permission: member
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    patch:
+      tags: [Settings]
+      summary: Update restaurant settings
+      x-permission: settings:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SettingsUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/settings/logo:
+    post:
+      tags: [Settings]
+      summary: Upload the restaurant logo
+      x-permission: settings:manage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary, description: 'Also accepted as `logo` or `image`. JPEG, PNG, WebP or GIF up to 5 MB.' }
+          application/json:
+            schema: { $ref: '#/components/schemas/DataUrlUpload' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ---------------------------------------------------------------- Menu
+  /api/v1/menu:
+    get:
+      tags: [Menu]
+      summary: The full menu (categories, dishes, add-on groups)
+      x-permission: menu:view
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/menu/categories:
+    post:
+      tags: [Menu]
+      summary: Add a category
+      x-permission: menu:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                sortOrder: { type: integer, default: 0 }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/menu/categories/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Menu]
+      summary: Update a category
+      x-permission: menu:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                sortOrder: { type: integer }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Menu]
+      summary: Delete a category
+      x-permission: menu:update
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/menu/addon-groups:
+    post:
+      tags: [Menu]
+      summary: Add an add-on group
+      x-permission: menu:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddonGroupInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/menu/addon-groups/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Menu]
+      summary: Update an add-on group
+      x-permission: menu:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1 }
+                min: { type: integer, minimum: 0 }
+                max: { type: integer, minimum: 1 }
+                options: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AddonOption' } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Menu]
+      summary: Delete an add-on group
+      x-permission: menu:update
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/menu/items:
+    post:
+      tags: [Menu]
+      summary: Add a dish
+      x-permission: menu:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MenuItemInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/menu/items/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Menu]
+      summary: Update a dish
+      description: Changes only the fields sent.
+      x-permission: menu:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MenuItemUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Menu]
+      summary: Delete a dish
+      x-permission: menu:update
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/menu/items/{id}/stock:
+    patch:
+      tags: [Menu]
+      summary: Mark a dish sold out or back in stock
+      x-permission: menu:stock
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [soldOut]
+              properties:
+                soldOut: { type: boolean }
+                branchId: { type: string, description: Defaults to the active branch }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/menu/bulk:
+    post:
+      tags: [Menu]
+      summary: Import a whole menu
+      description: Categories and add-on groups are matched by name.
+      x-permission: menu:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BulkMenu' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ---------------------------------------------------------------- Orders
+  /api/v1/orders:
+    get:
+      tags: [Orders]
+      summary: List orders
+      x-permission: orders:view
+      parameters:
+        - { name: date, in: query, description: 'Day in Pakistan time (YYYY-MM-DD). Defaults to today.', schema: { type: string, format: date } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderStatus' } }
+        - { name: customerId, in: query, schema: { type: string } }
+        - { name: allDates, in: query, description: 'true lists every day', schema: { type: boolean } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Orders]
+      summary: Place an order
+      description: Sending the same `clientId` again (an offline sync or retry) returns the existing order with 200.
+      x-permission: orders:create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderCreate' }
+      responses:
+        '200':
+          description: The order already existed (same clientId)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Orders]
+      summary: Get an order
+      x-permission: orders:view
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Orders]
+      summary: Update an order's details
+      x-permission: orders:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { $ref: '#/components/schemas/OrderStatus' }
+                rider: { type: [string, 'null'] }
+                area: { type: [string, 'null'] }
+                address: { type: [string, 'null'] }
+                discount: { type: number, minimum: 0 }
+                deliveryFee: { type: number, minimum: 0 }
+                tableId: { type: [string, 'null'] }
+                tableName: { type: [string, 'null'] }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Orders]
+      summary: Edit a placed order (what it is and what is in it)
+      x-permission: orders:update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderEdit' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/orders/{id}/status:
+    patch:
+      tags: [Orders]
+      summary: Move an order along the board
+      x-permission: orders:update
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/OrderStatus' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/orders/{id}/payment:
+    post:
+      tags: [Orders]
+      summary: Record a payment
+      x-permission: orders:payment
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paymentMethod]
+              properties:
+                paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+                paymentStatus: { type: string, enum: [paid, khata], default: paid }
+                discount: { type: number, minimum: 0 }
+                deliveryFee: { type: number, minimum: 0 }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/orders/{id}/cancel:
+    post:
+      tags: [Orders]
+      summary: Cancel an order
+      x-permission: orders:cancel
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Tables
+  /api/v1/tables:
+    get:
+      tags: [Tables]
+      summary: List tables
+      x-permission: tables:view
+      parameters:
+        - { name: all, in: query, description: 'true includes archived tables', schema: { type: boolean } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Tables]
+      summary: Add a table
+      x-permission: tables:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                branchId: { type: string }
+                name: { type: string, minLength: 1, maxLength: 20 }
+                section: { type: string, maxLength: 30, default: '' }
+                seats: { type: [integer, 'null'], minimum: 1, maximum: 100 }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/tables/floor:
+    get:
+      tags: [Tables]
+      summary: The floor view (tables with their open orders and guest calls)
+      x-permission: tables:view
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/tables/batch:
+    post:
+      tags: [Tables]
+      summary: Add many tables at once
+      x-permission: tables:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [names]
+              properties:
+                branchId: { type: string }
+                names: { type: array, minItems: 1, maxItems: 100, items: { type: string, minLength: 1, maxLength: 20 } }
+                section: { type: string, maxLength: 30, default: '' }
+                seats: { type: [integer, 'null'], minimum: 1, maximum: 100 }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/tables/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Tables]
+      summary: Update a table
+      x-permission: tables:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                branchId: { type: string }
+                name: { type: string, minLength: 1, maxLength: 20 }
+                section: { type: string, maxLength: 30 }
+                seats: { type: [integer, 'null'], minimum: 1, maximum: 100 }
+                archived: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Tables]
+      summary: Archive a table
+      x-permission: tables:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/tables/{id}/qr:
+    post:
+      tags: [Tables]
+      summary: Make a new QR code for a table (the old one stops working)
+      x-permission: tables:manage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/tables/{id}/archive:
+    post:
+      tags: [Tables]
+      summary: Archive a table (same as DELETE)
+      x-permission: tables:manage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/tables/{id}/restore:
+    post:
+      tags: [Tables]
+      summary: Restore an archived table
+      x-permission: tables:manage
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Guest requests
+  /api/v1/guest-requests/{id}:
+    delete:
+      tags: [Guest requests]
+      summary: Resolve a guest call (same as POST resolve)
+      x-permission: tables:view
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/guest-requests/{id}/resolve:
+    post:
+      tags: [Guest requests]
+      summary: Resolve a guest call
+      x-permission: tables:view
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Reservations
+  /api/v1/reservations:
+    get:
+      tags: [Reservations]
+      summary: List reservations
+      x-permission: reservations:view
+      parameters:
+        - { name: date, in: query, description: Day (YYYY-MM-DD), schema: { type: string, format: date } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Reservations]
+      summary: Book a table
+      description: Either `customerId`, or the guest's `name` and `phone` (saved as a customer if new). `newName` and `newPhone` are older names for the same fields.
+      x-permission: reservations:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/reservations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Reservations]
+      summary: Get a reservation
+      x-permission: reservations:view
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Reservations]
+      summary: Update a reservation
+      x-permission: reservations:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                partySize: { type: integer, minimum: 1, maximum: 500 }
+                dateTime: { type: string, format: date-time }
+                status: { $ref: '#/components/schemas/ReservationStatus' }
+                tableId: { type: [string, 'null'], description: "'' or null means no table" }
+                note: { type: [string, 'null'], maxLength: 300 }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Reservations]
+      summary: Delete a reservation
+      x-permission: reservations:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Customers
+  /api/v1/customers:
+    get:
+      tags: [Customers]
+      summary: List or search customers
+      x-permission: customers:view
+      parameters:
+        - { name: q, in: query, description: Name or part of a phone number, schema: { type: string, maxLength: 60 } }
+        - { name: segment, in: query, schema: { type: string, enum: [inactive, vip, khata] } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Customers]
+      summary: Add a customer
+      x-permission: customers:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/customers/import:
+    post:
+      tags: [Customers]
+      summary: Import customers from a sheet
+      x-permission: customers:import
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customers]
+              properties:
+                customers:
+                  type: array
+                  minItems: 1
+                  maxItems: 5000
+                  description: One object per sheet row, in sheet order
+                  items:
+                    type: object
+                    properties:
+                      name: { type: [string, number, 'null'] }
+                      phone: { type: [string, number, 'null'] }
+                      area: { type: [string, number, 'null'] }
+                      openingKhata: { type: [number, 'null'] }
+                onExisting: { type: string, enum: [skip, fill], default: skip }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/customers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Customers]
+      summary: Get a customer
+      x-permission: customers:view
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Customers]
+      summary: Update a customer
+      x-permission: customers:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Customers]
+      summary: Delete a customer
+      x-permission: customers:delete
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/customers/{id}/merge:
+    post:
+      tags: [Customers]
+      summary: Merge another customer into this one
+      x-permission: customers:delete
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId]
+              properties:
+                customerId: { type: string, description: The customer merged into this one }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/customers/{id}/khata:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Customers]
+      summary: The customer's khata (credit ledger)
+      x-permission: customers:view
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Customers]
+      summary: Add a khata payment or adjustment
+      description: Order, opening, reversal and merge lines are written only by the server.
+      x-permission: customers:khata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, amount]
+              properties:
+                type: { type: string, enum: [payment, adjustment] }
+                amount: { type: number, description: 'Not 0. A payment is more than 0.' }
+                note: { type: [string, 'null'], maxLength: 200 }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/customers/{id}/khata/{entryId}/reverse:
+    post:
+      tags: [Customers]
+      summary: Reverse a khata entry
+      x-permission: customers:khata
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - { name: entryId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Staff
+  /api/v1/members:
+    get:
+      tags: [Staff]
+      summary: List staff members
+      x-permission: staff:view
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/members/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Staff]
+      summary: Change someone's roles and branches
+      x-permission: staff:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Access' }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Staff]
+      summary: Remove someone from the restaurant
+      x-permission: staff:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/members/{id}/suspend:
+    post:
+      tags: [Staff]
+      summary: Suspend a staff member
+      x-permission: staff:manage
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/members/{id}/activate:
+    post:
+      tags: [Staff]
+      summary: Reactivate a staff member
+      x-permission: staff:manage
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/members/{id}/unlock-pin:
+    post:
+      tags: [Staff]
+      summary: Unlock a PIN locked after wrong attempts
+      x-permission: staff:manage
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/members/{id}/clear-pin:
+    post:
+      tags: [Staff]
+      summary: Clear someone's PIN
+      x-permission: staff:manage
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/invitations:
+    get:
+      tags: [Staff]
+      summary: List invitations
+      x-permission: staff:view
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Staff]
+      summary: Invite someone
+      x-permission: staff:invite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Invite' }
+      responses:
+        '201':
+          description: Created; includes `inviteUrl`
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/invitations/{id}/resend:
+    post:
+      tags: [Staff]
+      summary: Resend an invitation
+      x-permission: staff:invite
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/invitations/{id}/revoke:
+    post:
+      tags: [Staff]
+      summary: Revoke an invitation
+      x-permission: staff:invite
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/invitations/lookup/{token}:
+    get:
+      tags: [Staff]
+      summary: Look up an invitation by its link token
+      description: No sign-in needed.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/invitations/accept/{token}:
+    post:
+      tags: [Staff]
+      summary: Accept an invitation by its link token (web only)
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/MeResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/my-invitations:
+    get:
+      tags: [Staff]
+      summary: Invitations sent to my email, across restaurants (web only)
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/my-invitations/{id}/accept:
+    post:
+      tags: [Staff]
+      summary: Accept one of my invitations (web only)
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/MeResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Roles
+  /api/v1/roles:
+    get:
+      tags: [Roles]
+      summary: List roles
+      x-permission: member
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Roles]
+      summary: Add a role
+      x-permission: roles:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                description: { type: [string, 'null'] }
+                permissions: { type: array, items: { $ref: '#/components/schemas/Permission' }, default: [] }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/roles/matrix:
+    post:
+      tags: [Roles]
+      summary: Save the roles matrix (every role's permissions at once)
+      x-permission: roles:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                p:
+                  type: object
+                  description: Maps `r<roleId>` to that role's permissions
+                  additionalProperties: { type: array, items: { $ref: '#/components/schemas/Permission' } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/roles/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Roles]
+      summary: Update a role
+      x-permission: roles:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                description: { type: [string, 'null'] }
+                permissions: { type: array, items: { $ref: '#/components/schemas/Permission' } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Roles]
+      summary: Delete a role
+      x-permission: roles:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/roles/{id}/reset:
+    post:
+      tags: [Roles]
+      summary: Reset a preset role to its defaults
+      x-permission: roles:manage
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Teams
+  /api/v1/teams:
+    get:
+      tags: [Teams]
+      summary: List teams
+      x-permission: teams:manage
+      parameters:
+        - { name: branchId, in: query, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Teams]
+      summary: Add a team
+      x-permission: teams:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 60 }
+                description: { type: [string, 'null'] }
+                branchId: { type: [string, 'null'], description: "'' or null means all branches" }
+                membershipIds: { type: array, items: { type: string }, default: [] }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/teams/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Teams]
+      summary: Update a team
+      x-permission: teams:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 60 }
+                description: { type: [string, 'null'] }
+                branchId: { type: [string, 'null'], description: "Only when sent: '' or null means all branches" }
+                membershipIds: { type: array, items: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Teams]
+      summary: Delete a team
+      x-permission: teams:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Devices
+  /api/v1/devices:
+    get:
+      tags: [Devices]
+      summary: List POS terminals
+      x-permission: devices:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Devices]
+      summary: Register this browser as a POS terminal
+      description: Sets the `pos_device_token` cookie.
+      x-permission: devices:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40, example: Counter 1 }
+                branchId: { type: string }
+                idleLockSeconds: { type: integer, minimum: 30, maximum: 3600, default: 90 }
+                lockAfterOrder: { type: boolean, default: false }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/devices/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Devices]
+      summary: Update a POS terminal
+      x-permission: devices:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40 }
+                branchId: { type: string }
+                idleLockSeconds: { type: integer, minimum: 30, maximum: 3600 }
+                lockAfterOrder: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Devices]
+      summary: Remove a POS terminal
+      x-permission: devices:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- POS
+  /api/v1/pos/state:
+    get:
+      tags: [POS]
+      summary: The terminal's state (who is unlocked, if anyone)
+      security: [{ deviceToken: [] }, { deviceCookie: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/pos/people:
+    get:
+      tags: [POS]
+      summary: The people who can unlock this terminal
+      security: [{ deviceToken: [] }, { deviceCookie: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/pos/unlock:
+    post:
+      tags: [POS]
+      summary: Unlock the terminal with a PIN
+      security: [{ deviceToken: [] }, { deviceCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [membershipId, pin]
+              properties:
+                membershipId: { type: string }
+                pin: { type: string, pattern: '^\d{4,6}$' }
+      responses:
+        '200': { $ref: '#/components/responses/MeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/pos/lock:
+    post:
+      tags: [POS]
+      summary: Lock the terminal
+      security: [{ deviceToken: [] }, { deviceCookie: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- Dashboard
+  /api/v1/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Today's numbers
+      x-permission: reports:view
+      parameters:
+        - { name: scope, in: query, description: '`all` needs reports:view_all_branches', schema: { type: string, enum: [branch, all], default: branch } }
+        - { name: date, in: query, description: 'Day in Pakistan time (YYYY-MM-DD). Defaults to today.', schema: { type: string, format: date } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+
+  # ---------------------------------------------------------------- Audit
+  /api/v1/audit:
+    get:
+      tags: [Audit]
+      summary: The activity log
+      x-permission: audit:view
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: action, in: query, description: 'For example `order.created`', schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+
+  # ---------------------------------------------------------------- Uploads
+  /api/v1/uploads:
+    post:
+      tags: [Uploads]
+      summary: Upload an image
+      description: Stored in Cloudflare R2 when configured, otherwise on local disk.
+      x-permission: menu:update or settings:manage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary, description: 'Also accepted as `image`, `logo` or `photo`. JPEG, PNG, WebP or GIF up to 5 MB.' }
+                folder: { type: string }
+          application/json:
+            schema: { $ref: '#/components/schemas/DataUrlUpload' }
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Upload' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/uploads/presign:
+    post:
+      tags: [Uploads]
+      summary: Get a presigned URL for a direct upload to R2
+      x-permission: menu:update or settings:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentType]
+              properties:
+                contentType: { type: string, enum: [image/jpeg, image/png, image/webp, image/gif] }
+                filename: { type: string }
+                folder: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '501': { description: R2 is not configured, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /api/v1/uploads/{key}:
+    delete:
+      tags: [Uploads]
+      summary: Delete an uploaded file of this restaurant
+      x-permission: menu:update or settings:manage
+      parameters:
+        - { name: key, in: path, required: true, description: 'The storage key, starting with `r_<restaurantId>/`', schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Public
+  /api/v1/public/t/{code}:
+    get:
+      tags: [Public]
+      summary: The menu for a table's QR code
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TableCode'
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/public/t/{code}/call:
+    post:
+      tags: [Public]
+      summary: Call a waiter or ask for the bill
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TableCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind: { type: string, enum: [waiter, bill] }
+                type: { type: string, enum: [waiter, bill], description: Accepted instead of `kind` }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/public/t/{code}/opt-in:
+    post:
+      tags: [Public]
+      summary: A guest agrees to WhatsApp offers
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TableCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, consent]
+              properties:
+                name: { type: string, maxLength: 80 }
+                phone: { $ref: '#/components/schemas/Phone' }
+                consent: { type: boolean, const: true }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: Better Auth session cookie, set by signing in at /api/v1/auth.
+    deviceCookie:
+      type: apiKey
+      in: cookie
+      name: pos_device_token
+      description: A registered POS terminal. Most routes also need someone unlocked on it.
+    deviceToken:
+      type: apiKey
+      in: header
+      name: x-device-token
+      description: A registered POS terminal, sent as a header.
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    TableCode:
+      name: code
+      in: path
+      required: true
+      description: The code in the table's QR link
+      schema: { type: string }
+
+  responses:
+    Json:
+      description: OK
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: true }
+    Created:
+      description: Created
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: true }
+    MeResponse:
+      description: OK; includes the updated `me` where it changed
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: true }
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationError' }
+    Unauthorized:
+      description: Not signed in, or the terminal is locked
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Missing permission, wrong mode, or a fresh sign-in is needed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: A record with this unique identifier already exists
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        code: { type: string, enum: [signed_out, pos_locked, context_lost, reauth_required] }
+        me: { $ref: '#/components/schemas/Me' }
+    ValidationError:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, description: 'The first problem, ready to show' }
+        issues: { type: array, items: { type: object, additionalProperties: true } }
+    Ref:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string }
+    Phone:
+      type: string
+      description: A Pakistani mobile number like 0300 1234567; saved as +923…
+      example: 0300 1234567
+    Permission:
+      type: string
+      enum:
+        - orders:view
+        - orders:create
+        - orders:update
+        - orders:payment
+        - orders:discount
+        - orders:cancel
+        - customers:view
+        - customers:manage
+        - customers:khata
+        - customers:import
+        - customers:delete
+        - reservations:view
+        - reservations:manage
+        - tables:view
+        - tables:manage
+        - menu:view
+        - menu:update
+        - menu:stock
+        - reports:view
+        - reports:view_all_branches
+        - staff:view
+        - staff:invite
+        - staff:manage
+        - teams:manage
+        - roles:manage
+        - settings:manage
+        - branches:manage
+        - devices:manage
+        - audit:view
+    OrderType: { type: string, enum: [dine_in, takeaway, delivery] }
+    OrderStatus: { type: string, enum: [new, preparing, ready, out_for_delivery, completed, cancelled] }
+    PaymentMethod: { type: string, enum: [cash, card, jazzcash, easypaisa, bank] }
+    PaymentStatus: { type: string, enum: [paid, unpaid, khata] }
+    ReservationStatus: { type: string, enum: [pending, confirmed, seated, cancelled] }
+
+    Me:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+            email: { type: string }
+            image: { type: [string, 'null'] }
+        mode: { type: string, enum: [web, pos] }
+        workplace:
+          oneOf:
+            - { $ref: '#/components/schemas/Workplace' }
+            - { type: 'null' }
+        restaurants: { type: array, items: { $ref: '#/components/schemas/Ref' } }
+        device:
+          type: [object, 'null']
+          properties:
+            _id: { type: string }
+            name: { type: string }
+            settings:
+              type: object
+              properties:
+                idleLockSeconds: { type: integer }
+                lockAfterOrder: { type: boolean }
+    Workplace:
+      type: object
+      properties:
+        restaurant:
+          type: object
+          properties:
+            _id: { type: string }
+            name: { type: string }
+            logo: { type: string }
+        membershipId: { type: string }
+        roleNames: { type: array, items: { type: string } }
+        isOwner: { type: boolean }
+        isPrimaryOwner: { type: boolean }
+        hasPin: { type: boolean }
+        permissions: { type: array, items: { $ref: '#/components/schemas/Permission' } }
+        branch:
+          type: [object, 'null']
+          properties:
+            _id: { type: string }
+            name: { type: string }
+            address: { type: string }
+            area: { type: string }
+            city: { type: string }
+            phone: { type: string }
+        allBranches: { type: boolean }
+        branches: { type: array, items: { $ref: '#/components/schemas/Ref' } }
+        settings: { type: object, additionalProperties: true }
+
+    BranchInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        address: { type: [string, 'null'] }
+        area: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        phone: { type: [string, 'null'] }
+    BranchUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        address: { type: [string, 'null'] }
+        area: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        phone: { type: [string, 'null'] }
+
+    SettingsUpdate:
+      type: object
+      description: Read-only fields the client echoes back (like `taxSet`) are ignored. Saving any tax rate marks tax as set.
+      properties:
+        restaurantName: { type: string, minLength: 1 }
+        logo: { type: [string, 'null'] }
+        taxByPaymentMethod:
+          type: object
+          description: Percent, 0 to 100
+          properties:
+            cash: { type: number, minimum: 0, maximum: 100 }
+            card: { type: number, minimum: 0, maximum: 100 }
+            jazzcash: { type: number, minimum: 0, maximum: 100 }
+            easypaisa: { type: number, minimum: 0, maximum: 100 }
+            bank: { type: number, minimum: 0, maximum: 100 }
+        whatsappTemplates:
+          type: object
+          properties:
+            winback: { type: string }
+            reservation: { type: string }
+        receipt:
+          type: object
+          properties:
+            ntn: { type: string, maxLength: 30 }
+            strn: { type: string, maxLength: 30 }
+            footer: { type: string, maxLength: 160 }
+
+    MenuSize:
+      type: object
+      required: [price]
+      properties:
+        _id: { type: string }
+        name: { type: string, default: '', description: 'Empty for a single price' }
+        price: { type: number, minimum: 0 }
+    MenuItemInput:
+      type: object
+      required: [categoryId, name, sizes]
+      properties:
+        categoryId: { type: string }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 200, default: '' }
+        photo: { type: [string, 'null'] }
+        sizes: { type: array, minItems: 1, items: { $ref: '#/components/schemas/MenuSize' } }
+        addonGroupIds: { type: array, items: { type: string }, default: [] }
+        hidden: { type: boolean, default: false }
+    MenuItemUpdate:
+      type: object
+      properties:
+        categoryId: { type: string }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 200 }
+        photo: { type: [string, 'null'] }
+        sizes: { type: array, minItems: 1, items: { $ref: '#/components/schemas/MenuSize' } }
+        addonGroupIds: { type: array, items: { type: string } }
+        hidden: { type: boolean }
+    AddonOption:
+      type: object
+      required: [name]
+      properties:
+        _id: { type: string }
+        name: { type: string, minLength: 1 }
+        price: { type: number, minimum: 0, default: 0 }
+    AddonGroupInput:
+      type: object
+      required: [name, options]
+      description: '`min` is at most `max` and at most the number of options.'
+      properties:
+        name: { type: string, minLength: 1 }
+        min: { type: integer, minimum: 0, default: 0 }
+        max: { type: integer, minimum: 1, default: 1 }
+        options: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AddonOption' } }
+    BulkMenu:
+      type: object
+      properties:
+        addonGroups:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [name, options]
+            properties:
+              name: { type: string, minLength: 1, maxLength: 60 }
+              min: { type: integer, minimum: 0, default: 0 }
+              max: { type: integer, minimum: 1, default: 1 }
+              options:
+                type: array
+                minItems: 1
+                maxItems: 50
+                items:
+                  type: object
+                  required: [name]
+                  properties:
+                    name: { type: string, minLength: 1, maxLength: 60 }
+                    price: { type: number, minimum: 0, default: 0 }
+        items:
+          type: array
+          maxItems: 1000
+          items:
+            type: object
+            required: [category, name, sizes]
+            properties:
+              category: { type: string, minLength: 1, maxLength: 40 }
+              name: { type: string, minLength: 1, maxLength: 80 }
+              sizes:
+                type: array
+                minItems: 1
+                maxItems: 10
+                items:
+                  type: object
+                  required: [price]
+                  properties:
+                    name: { type: string, default: '' }
+                    price: { type: number, minimum: 0 }
+              addons: { type: array, items: { type: string }, description: Add-on group names }
+
+    OrderItemInput:
+      type: object
+      required: [itemId, qty]
+      properties:
+        itemId: { type: string }
+        sizeId: { type: [string, 'null'] }
+        addonIds: { type: array, items: { type: string }, default: [] }
+        note: { type: [string, 'null'] }
+        qty: { type: integer, minimum: 1 }
+    OrderCreate:
+      type: object
+      required: [items, type]
+      description: |
+        A dine-in order needs `tableId` or `tableName`; a delivery needs `address`. A paid or khata order needs
+        `paymentMethod`; a khata order needs a customer (`customerId` or `newName`).
+      properties:
+        branchId: { type: string }
+        customerId: { type: [string, 'null'] }
+        newName: { type: [string, 'null'] }
+        newPhone: { type: [string, 'null'] }
+        items: { type: array, minItems: 1, items: { $ref: '#/components/schemas/OrderItemInput' } }
+        type: { $ref: '#/components/schemas/OrderType' }
+        tableId: { type: [string, 'null'] }
+        tableName: { type: [string, 'null'] }
+        area: { type: [string, 'null'] }
+        address: { type: [string, 'null'] }
+        rider: { type: [string, 'null'] }
+        deliveryFee: { type: number, minimum: 0, default: 0 }
+        discount: { type: number, minimum: 0, default: 0 }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        paymentStatus: { allOf: [{ $ref: '#/components/schemas/PaymentStatus' }], default: unpaid }
+        clientId: { type: string, minLength: 8, maxLength: 64, description: 'Made on the device; makes retries safe' }
+        placedAt: { type: string, format: date-time, description: 'When it was taken, if offline' }
+    OrderEdit:
+      type: object
+      required: [items, type]
+      properties:
+        customerId: { type: [string, 'null'] }
+        newName: { type: [string, 'null'] }
+        newPhone: { type: [string, 'null'] }
+        items: { type: array, minItems: 1, items: { $ref: '#/components/schemas/OrderItemInput' } }
+        type: { $ref: '#/components/schemas/OrderType' }
+        tableId: { type: [string, 'null'] }
+        tableName: { type: [string, 'null'] }
+        area: { type: [string, 'null'] }
+        address: { type: [string, 'null'] }
+        rider: { type: [string, 'null'] }
+        deliveryFee: { type: number, minimum: 0, default: 0 }
+        discount: { type: number, minimum: 0, default: 0 }
+    Order:
+      type: object
+      properties:
+        _id: { type: string }
+        dailyToken: { type: integer, description: The order number for the day }
+        branchId: { type: string }
+        customerId: { type: string }
+        customer:
+          type: object
+          properties:
+            _id: { type: string }
+            name: { type: string }
+            phone: { type: string }
+        type: { $ref: '#/components/schemas/OrderType' }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              itemId: { type: string }
+              name: { type: string }
+              sizeId: { type: string }
+              sizeName: { type: string }
+              addonIds: { type: array, items: { type: string } }
+              addons: { type: array, items: { type: object, properties: { name: { type: string }, price: { type: number } } } }
+              note: { type: string }
+              price: { type: number }
+              qty: { type: integer }
+        subtotal: { type: number }
+        discount: { type: number }
+        taxRate: { type: number }
+        tax: { type: number }
+        deliveryFee: { type: number }
+        total: { type: number }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        paymentStatus: { $ref: '#/components/schemas/PaymentStatus' }
+        tableId: { type: string }
+        tableName: { type: string }
+        area: { type: string }
+        address: { type: string }
+        rider: { type: string }
+        takenBy: { type: string }
+        dayKey: { type: string, description: YYYY-MM-DD in Pakistan time }
+        clientId: { type: string }
+        placedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ReservationCreate:
+      type: object
+      required: [partySize, dateTime]
+      properties:
+        branchId: { type: string }
+        customerId: { type: [string, 'null'] }
+        name: { type: [string, 'null'], maxLength: 80 }
+        phone: { $ref: '#/components/schemas/Phone' }
+        newName: { type: [string, 'null'], maxLength: 80, deprecated: true }
+        newPhone: { allOf: [{ $ref: '#/components/schemas/Phone' }], deprecated: true }
+        partySize: { type: integer, minimum: 1, maximum: 500 }
+        dateTime: { type: string, format: date-time }
+        status: { allOf: [{ $ref: '#/components/schemas/ReservationStatus' }], default: pending }
+        tableId: { type: [string, 'null'], description: "'' or null means no table" }
+        note: { type: [string, 'null'], maxLength: 300 }
+
+    CustomerCreate:
+      type: object
+      required: [name, phone]
+      properties:
+        name: { type: string, minLength: 1 }
+        phone: { $ref: '#/components/schemas/Phone' }
+        altPhone: { type: [string, 'null'] }
+        area: { type: string }
+        tags: { description: 'A list, or one comma- or line-separated string', oneOf: [{ type: array, items: { type: string } }, { type: string }] }
+        addresses: { description: 'A list, or one comma- or line-separated string', oneOf: [{ type: array, items: { type: string } }, { type: string }] }
+        notes: { type: string }
+        openingKhata: { type: number, default: 0, description: What they already owe }
+    CustomerUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        phone: { $ref: '#/components/schemas/Phone' }
+        altPhone: { type: [string, 'null'] }
+        area: { type: string }
+        tags: { oneOf: [{ type: array, items: { type: string } }, { type: string }] }
+        addresses: { oneOf: [{ type: array, items: { type: string } }, { type: string }] }
+        notes: { type: string }
+
+    Access:
+      type: object
+      required: [roleIds, branchScope]
+      properties:
+        roleIds: { type: array, minItems: 1, items: { type: string } }
+        branchScope: { type: string, enum: [all, list] }
+        branchIds: { type: array, items: { type: string }, default: [], description: Needed when branchScope is list }
+    Invite:
+      type: object
+      required: [channel, roleIds]
+      properties:
+        channel: { type: string, enum: [email, phone] }
+        email: { type: string, format: email, description: Needed for the email channel }
+        phone: { $ref: '#/components/schemas/Phone' }
+        name: { type: [string, 'null'] }
+        roleIds: { type: array, minItems: 1, items: { type: string } }
+        branchScope: { type: string, enum: [all, list], default: all }
+        branchIds: { type: array, items: { type: string }, default: [] }
+
+    DataUrlUpload:
+      type: object
+      required: [dataUrl]
+      properties:
+        dataUrl: { type: string, description: 'data:image/...;base64,... (JPEG, PNG, WebP or GIF, up to 5 MB)' }
+        folder: { type: string }
+    Upload:
+      type: object
+      properties:
+        url: { type: string }
+        key: { type: string }
+        size: { type: integer }
+        contentType: { type: string }
+        storage: { type: string, enum: [cloudflare-r2, local] }
