@@ -4,6 +4,8 @@
  */
 import path from 'path';
 import { rm } from 'fs/promises';
+import { compile, optimize } from '@tailwindcss/node';
+import { Scanner } from '@tailwindcss/oxide';
 
 const ROOT = import.meta.dir;
 const OUT = path.join(ROOT, 'dist', 'assets');
@@ -27,9 +29,11 @@ if (!js.success) {
   process.exit(1);
 }
 
-const tailwind = Bun.spawnSync(['bunx', 'tailwindcss', '-i', path.join(ROOT, 'index.css'), '--minify'], { stderr: 'inherit' });
-if (!tailwind.success) process.exit(1);
-const css = tailwind.stdout;
+// Tailwind's own compiler, as its CLI runs it: the classes used under site/ (index.css says `source(".")`).
+const compiler = await compile(await Bun.file(path.join(ROOT, 'index.css')).text(), { base: ROOT, onDependency: () => {} });
+const sources = compiler.root && compiler.root !== 'none' ? [{ ...compiler.root, negated: false }] : [];
+const candidates = new Scanner({ sources: [...sources, ...compiler.sources] }).scan();
+const css = optimize(compiler.build(candidates), { minify: true }).code;
 const cssName = `site-${Bun.hash(css).toString(36)}.css`;
 await Bun.write(path.join(OUT, cssName), css);
 
