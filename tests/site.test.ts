@@ -50,9 +50,9 @@ describe('Site', () => {
   it('serves every marketing page as HTML with its own title, and no script', async () => {
     for (const [path, title] of [
       ['/', 'Restora: Orders, tables and khata for your restaurant'],
-      ['/features', 'Features | Restora'],
-      ['/pricing', 'Pricing | Restora'],
-      ['/contact', 'Contact | Restora'],
+      ['/features', 'Restaurant POS features: orders, QR tables, khata | Restora'],
+      ['/pricing', 'Pricing: free restaurant software, no card | Restora'],
+      ['/contact', 'Contact us on WhatsApp or email | Restora'],
       ['/privacy', 'Privacy policy | Restora'],
     ]) {
       const res = await app.request(path!);
@@ -62,6 +62,14 @@ describe('Site', () => {
       expect(html).toContain(`<title>${title}</title>`);
       expect(html).not.toContain('type="module"');
     }
+  });
+
+  it('points each page\'s share link and canonical at the page itself', async () => {
+    const html = await (await app.request('/pricing')).text();
+    expect(html).toContain('<link rel="canonical" href="https://restora.live/pricing"/>');
+    expect(html).toContain('<meta property="og:url" content="https://restora.live/pricing"/>');
+    expect(html).toContain('"@type":"BreadcrumbList"');
+    expect(await (await app.request('/')).text()).toContain('"logo":"https://restora.live/apple-icon.png"');
   });
 
   it('hydrates the demo form, and answers 404 for a page that is not there', async () => {

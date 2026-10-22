@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import JsonLd from '../components/json_ld';
 import SITE from '../constants/site';
 import type PageData from '../types/page_data';
 import type PageMeta from '../types/page_meta';
@@ -7,6 +8,18 @@ import type SiteAssets from '../types/site_assets';
 const OG_IMAGE = `${SITE.url}/opengraph-image.png`;
 const OG_ALT = `${SITE.name}: ${SITE.tagline}`;
 const PRELOAD_FONTS = ['bricolage_grotesque', 'instrument_sans', 'plex_mono_400', 'plex_mono_600'];
+
+/** Home › this page, so search results show where the page sits on the site. */
+function breadcrumbOf(name: string, url: string) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: SITE.name, item: SITE.url },
+      { '@type': 'ListItem', position: 2, name, item: url },
+    ],
+  };
+}
 
 interface DocumentProps {
   meta: PageMeta;
@@ -20,6 +33,8 @@ interface DocumentProps {
 export default function Document({ meta, assets, data, children }: DocumentProps) {
   const title = meta.title ? `${meta.title} | ${SITE.name}` : `${SITE.name}: ${SITE.tagline}`;
   const description = meta.description ?? SITE.description;
+  // The page's own address: shares and search results point here, not to the home page.
+  const url = meta.canonical ? `${SITE.url}${meta.canonical === '/' ? '' : meta.canonical}` : undefined;
 
   return (
     <html lang="en-PK">
@@ -36,11 +51,11 @@ export default function Document({ meta, assets, data, children }: DocumentProps
         <meta name="application-name" content={SITE.name} />
         {meta.noindex && <meta name="robots" content="noindex, nofollow" />}
         <link rel="manifest" href="/manifest.webmanifest" />
-        {meta.canonical && <link rel="canonical" href={`${SITE.url}${meta.canonical === '/' ? '' : meta.canonical}`} />}
+        {url && <link rel="canonical" href={url} />}
         <meta name="format-detection" content="telephone=no" />
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />
-        <meta property="og:url" content={SITE.url} />
+        {url && <meta property="og:url" content={url} />}
         <meta property="og:site_name" content={SITE.name} />
         <meta property="og:locale" content="en_PK" />
         <meta property="og:image" content={OG_IMAGE} />
@@ -57,6 +72,8 @@ export default function Document({ meta, assets, data, children }: DocumentProps
         <link rel="icon" href="/favicon.ico" sizes="48x48" type="image/x-icon" />
         <link rel="icon" href="/icon.svg" sizes="any" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-icon.png" sizes="180x180" type="image/png" />
+        {/* The crumb is the title's first part: "Pricing", not the whole line. */}
+        {url && meta.title && <JsonLd data={breadcrumbOf(meta.title.split(':')[0]!, url)} />}
         {/* The script comes after the first paint: low priority, so the CSS and fonts are not kept waiting. */}
         {data && assets.chunks.map((chunk) => <link key={chunk} rel="modulepreload" href={chunk} fetchPriority="low" />)}
       </head>
