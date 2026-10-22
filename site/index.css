@@ -1,0 +1,152 @@
+@import "tailwindcss" source(".");
+
+/* The four faces are served from this server (SIL Open Font License, see public/fonts/LICENSES.txt): visitors never ask Google. */
+@font-face { font-family: "Bricolage Grotesque"; src: url("/fonts/bricolage_grotesque.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "Instrument Sans"; src: url("/fonts/instrument_sans.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex_mono_400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plex_mono_600.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Noto Nastaliq Urdu"; src: url("/fonts/noto_nastaliq_urdu.woff2") format("woff2"); font-display: swap; }
+
+:root {
+  --font-bricolage: "Bricolage Grotesque";
+  --font-instrument: "Instrument Sans";
+  --font-plex-mono: "IBM Plex Mono";
+  --font-nastaliq: "Noto Nastaliq Urdu";
+}
+
+
+/*
+  restora.live design tokens.
+
+  The idea: Pakistani restaurants run on paper. The parchi (the order slip), the kitchen ticket, the khata register.
+  The site is built from that paper and from Restora's indigo. Paper is white and cool (never cream); the deep
+  "night" indigo carries the evening sections; haldi yellow marks what matters on a slip, like a highlighter pen;
+  chili red is only for "unpaid" and alarms. Monospace appears only on printed slips, where a thermal printer would use it.
+*/
+@theme {
+  --color-indigo: #4F46E5;       /* the brand: buttons, links, the cloche */
+  --color-indigo-deep: #3B33C9;  /* hover / pressed */
+  --color-indigo-wash: #E7E6FB;  /* tints behind indigo content */
+  --color-night: #17134A;        /* evening sections, the footer */
+  --color-night-soft: #241F63;   /* panels on night */
+  --color-paper: #FFFFFF;        /* slips, cards */
+  --color-canvas: #EEF0F6;       /* the page: cool, like a steel counter */
+  --color-rule: #D5D9E5;         /* hairlines on canvas and paper */
+  --color-ink: #12152E;          /* text */
+  --color-ink-2: #3D4260;        /* body text on paper/canvas (9.6:1) */
+  --color-ink-3: #5E6482;        /* quiet text (5.9:1) */
+  --color-moon: #C9C6F4;         /* body text on night (9.7:1) */
+  --color-haldi: #F5B530;        /* the highlighter */
+  --color-haldi-soft: #FCEBC4;
+  --color-chili: #C8412A;        /* unpaid, alarms (5.1:1 on paper) */
+  --color-leaf: #1F7A4A;         /* paid, online (5.6:1 on paper) */
+  --color-leaf-soft: #DDF1E5;
+  --color-whatsapp: #25D366;
+  --color-on-whatsapp: #052E16;
+
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-slip: var(--font-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-urdu: var(--font-nastaliq), "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", serif;
+
+  /* One radius per kind of thing: slips are torn paper (2px), controls are firm (10px), panels are soft (22px). */
+  --radius-slip: 2px;
+  --radius-control: 10px;
+  --radius-panel: 22px;
+
+  --shadow-slip: 0 1px 0 rgb(18 21 46 / 0.04), 0 18px 40px -18px rgb(18 21 46 / 0.35);
+  --shadow-lift: 0 30px 60px -30px rgb(23 19 74 / 0.45);
+
+  --ease-print: cubic-bezier(0.2, 0.7, 0.1, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  ::selection {
+    background: var(--color-haldi);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-haldi);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* The display face is set tight and slightly condensed at large sizes, where Bricolage's character shows. */
+@utility display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variation-settings: "wdth" 92, "opsz" 96;
+  letter-spacing: -0.022em;
+  line-height: 0.94;
+}
+
+/* The torn edge of a slip: a row of small teeth along the bottom (or top) of a block of paper. */
+@utility tear-bottom {
+  --tooth: 10px;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--tooth) 100%;
+}
+@utility tear-top {
+  --tooth: 10px;
+  mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--tooth) 100%;
+}
+
+/* Ruled lines of a khata register. */
+@utility ruled {
+  background-image: repeating-linear-gradient(to bottom, transparent 0 39px, rgb(61 66 96 / 0.18) 39px 40px);
+}
+
+/* The hero slip prints itself once: it grows down out of the printer, line by line. */
+@keyframes print {
+  from { clip-path: inset(0 0 100% 0); translate: 0 -12px; }
+  to { clip-path: inset(0 0 0 0); translate: 0 0; }
+}
+@keyframes stamp {
+  0% { opacity: 0; scale: 1.6; rotate: -14deg; }
+  70% { opacity: 1; scale: 0.94; rotate: -9deg; }
+  100% { opacity: 1; scale: 1; rotate: -9deg; }
+}
+@utility animate-print {
+  animation: print 2.4s var(--ease-print) 0.3s both;
+}
+@utility animate-stamp {
+  animation: stamp 420ms var(--ease-print) 2.9s both;
+}
+
+/* A sheet over the guest menu rises from the bottom edge (reduced motion turns it off, above). */
+@keyframes sheet-up {
+  from { translate: 0 100%; }
+  to { translate: 0 0; }
+}
+@utility animate-sheet-up {
+  animation: sheet-up 280ms var(--ease-print) backwards; /* not "both": the pulled position must win once it has risen */
+}

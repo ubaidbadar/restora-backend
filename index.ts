@@ -33,6 +33,7 @@ import publicRouter from './src/routes/public';
 import guestRequestRouter from './src/routes/guest_request';
 import accountRouter from './src/routes/account';
 import uploadRouter from './src/routes/upload';
+import site from './site/server';
 
 import startRestaurantCleanupWorker from './src/workers/restaurant_cleanup';
 
@@ -149,6 +150,9 @@ app.get('/docs', (c) =>
   </body>
 </html>`)
 );
+
+// restora.live: the marketing pages and a table's QR menu, rendered here (site/). Last, so it never shadows the API.
+app.route('/', site);
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/restaurant_v2';
