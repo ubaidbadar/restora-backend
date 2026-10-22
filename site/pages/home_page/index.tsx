@@ -2,7 +2,7 @@ import Button from '../../ui/button';
 import ClosingCta from '../../components/closing_cta';
 import EveningTimeline from './evening_timeline';
 import FaqList from '../../components/faq_list';
-import JsonLd from './json_ld';
+import JsonLd from '../../components/json_ld';
 import KhataCompare from './khata_compare';
 import PriceSlip from '../../components/price_slip';
 import PrintSlip from './print_slip';
@@ -30,8 +30,9 @@ export default function HomePage() {
         data={{
           '@context': 'https://schema.org',
           '@graph': [
-            { '@type': 'Organization', name: SITE.name, url: SITE.url, logo: `${SITE.url}/icon.svg`, email: SITE.email, contactPoint: { '@type': 'ContactPoint', telephone: `+${SITE.whatsapp}`, contactType: 'customer support', areaServed: 'PK', availableLanguage: ['en', 'ur'] } },
-            { '@type': 'SoftwareApplication', name: SITE.name, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Android, iOS', description: SITE.description, offers: { '@type': 'Offer', price: '0', priceCurrency: 'PKR' } },
+            { '@type': 'WebSite', '@id': `${SITE.url}/#website`, name: SITE.name, url: SITE.url, inLanguage: 'en-PK', publisher: { '@id': `${SITE.url}/#organization` } },
+            { '@type': 'Organization', '@id': `${SITE.url}/#organization`, name: SITE.name, url: SITE.url, logo: `${SITE.url}/apple-icon.png`, email: SITE.email, contactPoint: { '@type': 'ContactPoint', telephone: `+${SITE.whatsapp}`, contactType: 'customer support', areaServed: 'PK', availableLanguage: ['en', 'ur'] } },
+            { '@type': 'SoftwareApplication', name: SITE.name, url: SITE.url, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Android, iOS', description: SITE.description, publisher: { '@id': `${SITE.url}/#organization` }, offers: { '@type': 'Offer', price: '0', priceCurrency: 'PKR', url: `${SITE.url}/pricing` } },
             { '@type': 'FAQPage', mainEntity: FAQS.map((faq) => ({ '@type': 'Question', name: faq.q, acceptedAnswer: { '@type': 'Answer', text: faq.a } })) },
           ],
         }}
