@@ -1,6 +1,7 @@
 import { expo } from '@better-auth/expo';
 import { betterAuth } from 'better-auth';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
+import { emailOTP } from 'better-auth/plugins/email-otp';
 import { multiSession } from 'better-auth/plugins/multi-session';
 import { createAuthMiddleware } from 'better-auth/api';
 import mongoose from 'mongoose';
@@ -9,7 +10,10 @@ import { sendAccountEmail } from '../services/email';
 import { sessionWorkplace, toMe } from '../utils/workplace';
 
 /** Answers that start a sign-in also carry `me`, so the app has everything without a second request. */
-const CARRY_ME = new Set(['/sign-in/email', '/multi-session/set-active', '/multi-session/revoke']);
+const CARRY_ME = new Set(['/sign-in/email', '/email-otp/verify-email', '/multi-session/set-active', '/multi-session/revoke']);
+
+/** Emailed codes and links both work for 10 minutes. */
+const CODE_LIFETIME = 600;
 
 const DEV_SECRET = 'restaurant-v2-dev-only-secret-not-for-production';
 
@@ -40,38 +44,46 @@ function createAuth() {
     trustedOrigins: [...allowedOrigins, ...MOBILE_ORIGINS],
     emailAndPassword: {
       enabled: true,
-      // Nobody signs in until they open the link we email; invitations are bound to an email, so it must be theirs.
+      // Nobody signs in until they confirm their email; invitations are bound to an email, so it must be theirs.
       // Tests turn this off (they sign up and continue straight away).
       requireEmailVerification: process.env.NODE_ENV !== 'test',
       revokeSessionsOnPasswordReset: true,
+      resetPasswordTokenExpiresIn: CODE_LIFETIME,
+      // POST /request-password-reset sends a code (for /email-otp/reset-password) and the old link, which older apps use.
       sendResetPassword: async ({ user, url }) => {
+        const code = await getAuth().api.createVerificationOTP({ body: { email: user.email, type: 'forget-password' } });
         await sendAccountEmail({
           to: user.email,
-          subject: 'Reset your Restora password',
+          subject: `${code} is your Restora password reset code`,
           art: 'reset',
           heading: 'Reset your password',
-          body: 'Someone asked to reset the password of your Restora account. If it was you, choose a new one below.',
-          buttonLabel: 'Choose a new password',
+          body: 'Someone asked to reset the password of your Restora account. If it was you, enter this code in Restora to choose a new one.',
+          code,
+          buttonLabel: 'Or choose a new password here',
           url,
-          note: 'The link works for one hour. Did not ask for this? Ignore this email; your password stays the same.',
+          note: 'The code and the link work for 10 minutes. Did not ask for this? Ignore this email; your password stays the same.',
         });
       },
     },
     emailVerification: {
       sendOnSignUp: true,
-      // Signing in before verifying sends a fresh link.
+      // Signing in before verifying sends a fresh email.
       sendOnSignIn: true,
       autoSignInAfterVerification: true,
+      expiresIn: CODE_LIFETIME,
+      // A code for /email-otp/verify-email, and the old one-tap link, which older apps use.
       sendVerificationEmail: async ({ user, url }) => {
+        const code = await getAuth().api.createVerificationOTP({ body: { email: user.email, type: 'email-verification' } });
         await sendAccountEmail({
           to: user.email,
-          subject: 'Confirm your email for Restora',
+          subject: `${code} is your Restora code`,
           art: 'verify',
           heading: 'Confirm your email',
-          body: 'One tap and you are in. Confirm this is your email address to start using Restora.',
-          buttonLabel: 'Confirm my email',
+          body: 'Enter this code in Restora to confirm your email and start using it.',
+          code,
+          buttonLabel: 'Or confirm with one tap',
           url,
-          note: 'The link works for one hour. Did not sign up for Restora? You can ignore this email.',
+          note: 'The code and the link work for 10 minutes. Did not sign up for Restora? You can ignore this email.',
         });
       },
     },
@@ -92,7 +104,30 @@ function createAuth() {
         return ctx.json({ ...(returned as object), me: toMe({ user: started.user, via: 'web', ...found }) });
       }),
     },
-    plugins: [multiSession(), expo()],
+    // Of the code routes only /email-otp/verify-email and /email-otp/reset-password are used. Signing in with a code
+    // would skip the password, so it stays off with the rest.
+    disabledPaths: [
+      '/email-otp/send-verification-otp',
+      '/email-otp/check-verification-otp',
+      '/email-otp/request-password-reset',
+      '/forget-password/email-otp',
+      '/sign-in/email-otp',
+      '/email-otp/request-email-change',
+      '/email-otp/change-email',
+    ],
+    plugins: [
+      multiSession(),
+      expo(),
+      // Codes are made in the two senders above; the plugin checks them. Only a hash is stored, 5 wrong tries end a code.
+      emailOTP({
+        expiresIn: CODE_LIFETIME,
+        allowedAttempts: 5,
+        storeOTP: 'hashed',
+        rateLimit: { window: 60, max: 5 },
+        // Never called: the plugin's own sending routes are switched off above.
+        sendVerificationOTP: async () => {},
+      }),
+    ],
   });
 }
 
