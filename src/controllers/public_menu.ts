@@ -17,11 +17,19 @@ import runInTransaction from '../utils/transaction';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 
 export async function getPublicMenu(c: Context) {
-  const table = await tableForCode(c.req.param('code'));
+  const menu = await findPublicMenu(c.req.param('code'));
+  if (menu === 'no_table') return c.json({ message: 'Table not found or has been removed' }, 404);
+  if (menu === 'closed') return c.json({ message: 'This restaurant is not taking orders here right now' }, 404);
+  return c.json(menu);
+}
 
-  if (!table) {
-    return c.json({ message: 'Table not found or has been removed' }, 404);
-  }
+/**
+ * What a guest sees behind a table's QR code: the restaurant, the table and the menu, with ids an order sends back.
+ * The API answers it, and the site renders it into the page (restora.live/t/:code) without a request.
+ */
+export async function findPublicMenu(code: string | undefined) {
+  const table = await tableForCode(code);
+  if (!table) return 'no_table';
 
   const { restaurantId, branchId } = table;
 
@@ -39,58 +47,50 @@ export async function getPublicMenu(c: Context) {
     }
   );
 
-  if (!restaurant || !branch) {
-    return c.json({ message: 'This restaurant is not taking orders here right now' }, 404);
-  }
+  if (!restaurant || !branch) return 'closed';
 
-  const publicCategories = categories.map((c) => ({
-    _id: String(c._id),
-    name: c.name,
-  }));
-
-  const publicAddonGroups = addonGroups.map((g) => ({
-    _id: String(g._id),
-    name: g.name,
-    min: g.min,
-    max: g.max,
-    // The ids are what a guest's order sends back.
-    options: g.options.map((o) => ({
-      _id: String(o._id),
-      name: o.name,
-      price: o.price,
-    })),
-  }));
-
-  const publicItems = items.map((it) => ({
-    _id: String(it._id),
-    categoryId: it.categoryId,
-    name: it.name,
-    description: it.description || undefined,
-    photo: it.photo || undefined,
-    sizes: it.sizes.map((s) => ({
-      _id: String(s._id),
-      name: s.name,
-      price: s.price,
-    })),
-    addonGroupIds: it.addonGroupIds,
-    soldOut: it.soldOutBranchIds.includes(branchId),
-  }));
-
-  return c.json({
+  return {
     restaurant: {
-      name: restaurant?.name || 'Restaurant',
-      logo: restaurant?.logo,
+      name: restaurant.name || 'Restaurant',
+      logo: restaurant.logo,
     },
     branch: {
-      name: branch?.name || 'Main Branch',
+      name: branch.name || 'Main Branch',
     },
     table: {
       name: table.name,
     },
-    categories: publicCategories,
-    addonGroups: publicAddonGroups,
-    items: publicItems,
-  });
+    categories: categories.map((cat) => ({
+      _id: String(cat._id),
+      name: cat.name,
+    })),
+    addonGroups: addonGroups.map((g) => ({
+      _id: String(g._id),
+      name: g.name,
+      min: g.min,
+      max: g.max,
+      // The ids are what a guest's order sends back.
+      options: g.options.map((o) => ({
+        _id: String(o._id),
+        name: o.name,
+        price: o.price,
+      })),
+    })),
+    items: items.map((it) => ({
+      _id: String(it._id),
+      categoryId: it.categoryId,
+      name: it.name,
+      description: it.description || undefined,
+      photo: it.photo || undefined,
+      sizes: it.sizes.map((s) => ({
+        _id: String(s._id),
+        name: s.name,
+        price: s.price,
+      })),
+      addonGroupIds: it.addonGroupIds,
+      soldOut: it.soldOutBranchIds.includes(branchId),
+    })),
+  };
 }
 
 const CODE = /^[a-zA-Z0-9_-]{3,64}$/;

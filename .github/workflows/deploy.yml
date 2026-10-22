@@ -89,6 +89,18 @@ jobs:
           done
           echo "✗ public URL did not become healthy" >&2; exit 1
 
+      # restora.live is rendered by the same server (site/). Checked once SITE_URL (https://restora.live) is set.
+      - name: Site smoke test
+        if: ${{ vars.SITE_URL != '' }}
+        env:
+          URL: ${{ vars.SITE_URL }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$URL" | grep -q '<title>'; then echo "✓ $URL"; exit 0; fi
+            echo "waiting for $URL ($i/12)"; sleep 5
+          done
+          echo "✗ the site did not answer" >&2; exit 1
+
       - name: Clean up SSH material
         if: always()
         run: rm -rf ~/.ssh/id_ed25519 ~/.ssh/known_hosts /tmp/release.tgz
