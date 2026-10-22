@@ -9,7 +9,7 @@ const SITE = {
   whatsappDisplay: '0347 6262068',
   tagline: 'Orders, tables and khata for your restaurant',
   description:
-    'Restora runs your restaurant from your phone: take orders, serve tables with QR codes, keep khata, and bring customers back on WhatsApp. It keeps working when the internet doesn\'t. Free for now.',
+    'Restora runs your restaurant from your phone: guests order from a QR code on their table, staff see a live orders board, and you keep khata, bookings and WhatsApp customers in one place. It keeps working when the internet doesn\'t. Free for now.',
 } as const;
 
 export default SITE;

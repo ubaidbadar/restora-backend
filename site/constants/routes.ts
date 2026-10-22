@@ -3,12 +3,12 @@ import SITE from './site';
 
 /** Every page of the site. The table's menu is not here: it loads its data per request (see site/server.tsx). */
 const ROUTES: SiteRoute[] = [
-  { path: '/', page: 'home_page', load: () => import('../pages/home_page'), meta: { description: 'Restaurant software for Pakistan: orders, table QR menus, khata and WhatsApp in one app on your phone. Keeps working offline. Free, no card needed.', canonical: '/' } },
+  { path: '/', page: 'home_page', load: () => import('../pages/home_page'), meta: { description: 'Restaurant software for Pakistan: QR ordering at the table, a live orders board, khata, bookings and WhatsApp in one app. Works offline. Free, no card needed.', canonical: '/' } },
   {
     path: '/features',
     page: 'features_page',
     load: () => import('../pages/features_page'),
-    meta: { title: 'Restaurant POS features: orders, QR tables, khata', description: 'Orders, table QR codes, khata, customers and WhatsApp, offline orders, staff roles, branches, menu and payments: everything Restora does for your restaurant.', canonical: '/features' },
+    meta: { title: 'Restaurant POS features: orders, QR tables, khata', description: 'Orders, QR ordering at the table, reservations, khata, customers and WhatsApp, offline orders, a POS with PINs, staff roles, branches, menu and payments: everything Restora does.', canonical: '/features' },
   },
   {
     path: '/pricing',

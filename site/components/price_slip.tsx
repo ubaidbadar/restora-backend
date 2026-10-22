@@ -1,7 +1,8 @@
 const INCLUDED = [
   ['Orders, tables and customers', 'no limit'],
   ['Branches and staff', 'no limit'],
-  ['Table QR codes', 'included'],
+  ['QR ordering at the table', 'included'],
+  ['Reservations', 'included'],
   ['Khata and WhatsApp statements', 'included'],
   ['Offline orders', 'included'],
   ['Setup help on WhatsApp', 'included'],
