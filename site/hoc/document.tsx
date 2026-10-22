@@ -6,7 +6,7 @@ import type PageMeta from '../types/page_meta';
 import type SiteAssets from '../types/site_assets';
 
 const OG_IMAGE = `${SITE.url}/opengraph-image.png`;
-const OG_ALT = `${SITE.name}: ${SITE.tagline}`;
+const OG_ALT = `${SITE.name}: run your restaurant from your phone. A table's QR menu, a waiter call and a paid receipt.`;
 const PRELOAD_FONTS = ['bricolage_grotesque', 'instrument_sans', 'plex_mono_400', 'plex_mono_600'];
 
 /** Home › this page, so search results show where the page sits on the site. */

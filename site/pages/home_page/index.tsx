@@ -1,15 +1,16 @@
+import { Play } from 'lucide-react';
 import Button from '../../ui/button';
 import ClosingCta from '../../components/closing_cta';
-import EveningTimeline from './evening_timeline';
+import FeatureBento from './feature_bento';
 import FaqList from '../../components/faq_list';
 import JsonLd from '../../components/json_ld';
 import KhataCompare from './khata_compare';
 import PriceSlip from '../../components/price_slip';
-import PrintSlip from './print_slip';
+import HeroStage from './hero_stage';
+import OrderTour from './order_tour';
 import ProductShots from './product_shots';
 import FAQS from '../../constants/faqs';
 import SITE from '../../constants/site';
-import WhatsappIcon from '../../icons/whatsapp_icon';
 import appLink from '../../utils/app_link';
 import whatsappLink from '../../utils/whatsapp_link';
 
@@ -19,10 +20,10 @@ const FOR_HERE = [
   { title: 'JazzCash, Easypaisa, cash and card', text: 'Every way your customers pay, with tax set per payment method.' },
   { title: 'Phones you already own', text: 'Android, iPhone, tablet or laptop. No till to buy, nothing to install on a PC.' },
   { title: 'Waiters, not IT staff', text: 'Tables, orders and calls on their own phone, with only what their role needs.' },
-  { title: 'More than one branch', text: 'Switch branch in a tap, and see every branch\'s numbers together.' },
+  { title: 'Families, regulars and big tables', text: 'Bookings for the evening, and the regulars who haven\'t been back, on WhatsApp.' },
 ];
 
-/** restora.live: a receipt printing, one evening on Restora, khata, the real app, what it costs, questions. */
+/** restora.live: the hero, how an order goes through Restora, everything else, khata, the real app, the price, questions. */
 export default function HomePage() {
   return (
     <>
@@ -38,29 +39,49 @@ export default function HomePage() {
         }}
       />
 
-      {/* The hero: the headline, and a receipt printing out of the counter printer. */}
-      <section className="mx-auto grid max-w-[76rem] items-start gap-14 px-5 pt-14 pb-20 sm:px-8 lg:grid-cols-[1.25fr_0.75fr] lg:pt-20 lg:pb-32">
+      {/* The hero: the headline, and the owner's phone with the restaurant's evening arriving around it. */}
+      <section className="mx-auto grid max-w-[76rem] items-center gap-14 px-5 pt-12 pb-20 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:pt-16 lg:pb-28">
         <div>
-          <h1 className="display text-[clamp(3.25rem,9.5vw,7.5rem)] text-ink">Run your restaurant from your phone.</h1>
-          <p className="mt-8 max-w-xl text-xl text-ink-2">
-            Orders, tables, khata and WhatsApp in one app your waiters can use on the first night. It keeps working when the internet doesn&apos;t, and it is free.
+          <a href="#tour" className="inline-flex items-center gap-2 rounded-full bg-paper py-1.5 ps-1.5 pe-4 text-sm font-semibold text-ink shadow-slip hover:text-indigo">
+            <span className="rounded-full bg-haldi px-2.5 py-0.5 text-ink">New</span>
+            Guests now order from their table
+          </a>
+          <h1 className="display mt-7 text-[clamp(3.25rem,8.5vw,7rem)] text-ink">Run your restaurant from your phone.</h1>
+          <p className="mt-7 max-w-xl text-xl text-ink-2">
+            Guests order from the table, the board updates live on every phone, the kitchen slip prints, and the day adds itself up. Khata, bookings and WhatsApp too. It keeps working when the internet doesn&apos;t, and it is free.
           </p>
-          <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <Button as="a" href={appLink('/signup', 'home-hero')} size="lg">
               Start free
             </Button>
-            <Button as="a" href={whatsappLink()} target="_blank" rel="noopener" size="lg" variant="outline">
-              <WhatsappIcon className="size-5" />
-              WhatsApp us
+            <Button as="a" href="#tour" size="lg" variant="outline">
+              <Play className="size-4 fill-current" aria-hidden="true" />
+              See how it works
             </Button>
           </div>
+          <p className="mt-5 text-sm text-ink-3">
+            No card, no till to buy. Or{' '}
+            <a href={whatsappLink()} target="_blank" rel="noopener" className="font-semibold text-indigo underline decoration-2 underline-offset-4">
+              ask us on WhatsApp
+            </a>
+            .
+          </p>
         </div>
-        <div className="lg:pt-6">
-          <PrintSlip />
-        </div>
+        <HeroStage />
       </section>
 
-      <EveningTimeline />
+      <OrderTour />
+
+      {/* Everything else, as tiles */}
+      <section className="mx-auto max-w-[76rem] px-5 py-24 sm:px-8 lg:py-32">
+        <div className="grid gap-6 lg:grid-cols-[1fr_1fr] lg:items-end">
+          <h2 className="display text-[clamp(2.6rem,6vw,4.75rem)]">Everything else a busy night needs.</h2>
+          <p className="max-w-md text-lg text-ink-2 lg:justify-self-end">Bookings, the counter, the team and every branch, in the same app your waiters already know.</p>
+        </div>
+        <div className="mt-14">
+          <FeatureBento />
+        </div>
+      </section>
 
       {/* Khata */}
       <section className="mx-auto grid max-w-[76rem] items-center gap-14 px-5 py-24 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:py-32">

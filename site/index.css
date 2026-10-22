@@ -125,21 +125,131 @@
   background-image: repeating-linear-gradient(to bottom, transparent 0 39px, rgb(61 66 96 / 0.18) 39px 40px);
 }
 
-/* The hero slip prints itself once: it grows down out of the printer, line by line. */
-@keyframes print {
-  from { clip-path: inset(0 0 100% 0); translate: 0 -12px; }
-  to { clip-path: inset(0 0 0 0); translate: 0 0; }
+/* The hero: the phone settles in, then the live notes around it arrive one by one (--at) and drift a little. */
+@keyframes rise {
+  from { opacity: 0; translate: 0 28px; scale: 0.97; }
+  to { opacity: 1; translate: 0 0; scale: 1; }
 }
-@keyframes stamp {
+@keyframes drift {
+  50% { translate: 0 -6px; }
+}
+@utility animate-rise {
+  animation: rise 900ms var(--ease-print) var(--at, 0s) both;
+}
+@utility animate-note {
+  animation: rise 700ms var(--ease-print) var(--at, 0s) both, drift 6s ease-in-out calc(var(--at, 0s) + 700ms) infinite;
+}
+
+/* A section rises into place as it scrolls into view, where the browser can tie animation to scrolling. */
+@keyframes reveal {
+  from { opacity: 0; translate: 0 40px; }
+}
+@utility reveal {
+  @supports (animation-timeline: view()) {
+    animation: reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 55%;
+  }
+}
+
+/*
+  The order tour: one evening order in five steps, played on a phone in CSS alone (the home page has no script).
+  Everything runs on one 20s loop. Step i starts at --d (i × 4s), so its keyframes live in the first 20% (its 4s);
+  things inside a step start later by --at and use keyframes that hold for 60% (12s), long after the step has faded,
+  then reset unseen before their next turn. Pausing (the toggle, or hovering the phone) pauses all of it together.
+*/
+@keyframes tour-scene {
+  0% { opacity: 0; translate: 0 18px; scale: 0.98; }
+  2.5% { opacity: 1; translate: 0 0; scale: 1; }
+  19% { opacity: 1; translate: 0 0; scale: 1; }
+  21%, 100% { opacity: 0; translate: 0 -10px; scale: 1; }
+}
+@keyframes tour-step {
+  0%, 20%, 100% { opacity: 0.45; }
+  1%, 19% { opacity: 1; }
+}
+@keyframes tour-bar {
+  0% { scale: 0 1; }
+  20% { scale: 1 1; }
+  20.01%, 100% { scale: 0 1; }
+}
+@keyframes tour-pop {
+  0% { opacity: 0; scale: 0.85; translate: 0 8px; }
+  1.5%, 60% { opacity: 1; scale: 1; translate: 0 0; }
+  61%, 100% { opacity: 0; }
+}
+@keyframes tour-hide {
+  0%, 61%, 100% { opacity: 1; }
+  1%, 60% { opacity: 0; }
+}
+@keyframes tour-tap {
+  0%, 3%, 100% { scale: 1; background-color: var(--color-indigo); }
+  1% { scale: 0.86; background-color: var(--color-haldi); }
+}
+@keyframes tour-scan {
+  0%, 100% { top: 12%; }
+  5% { top: 82%; }
+  10% { top: 12%; }
+}
+@keyframes tour-ring {
+  0%, 12%, 100% { box-shadow: 0 0 0 0 rgb(245 181 48 / 0.7); }
+  6% { box-shadow: 0 0 0 14px rgb(245 181 48 / 0); }
+}
+@keyframes tour-print {
+  0% { clip-path: inset(0 0 100% 0); }
+  8%, 60% { clip-path: inset(0 0 0 0); }
+  61%, 100% { clip-path: inset(0 0 100% 0); }
+}
+@keyframes tour-stamp {
   0% { opacity: 0; scale: 1.6; rotate: -14deg; }
-  70% { opacity: 1; scale: 0.94; rotate: -9deg; }
-  100% { opacity: 1; scale: 1; rotate: -9deg; }
+  1.2% { opacity: 1; scale: 0.94; rotate: -9deg; }
+  2%, 60% { opacity: 1; scale: 1; rotate: -9deg; }
+  61%, 100% { opacity: 0; }
 }
-@utility animate-print {
-  animation: print 2.4s var(--ease-print) 0.3s both;
+/* The steps beside the phone: the one playing is lit. Under the phone (narrow screens) only that one shows. */
+@utility tour-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  @media (prefers-reduced-motion: no-preference) and (width < 64rem) {
+    display: grid;
+  }
 }
-@utility animate-stamp {
-  animation: stamp 420ms var(--ease-print) 2.9s both;
+@utility tour-step {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: tour-step var(--tour) linear var(--d) infinite both;
+  }
+  @media (prefers-reduced-motion: no-preference) and (width < 64rem) {
+    grid-area: 1 / 1;
+    animation-name: tour-scene;
+    animation-timing-function: ease;
+  }
+}
+@utility tour-bar {
+  transform-origin: left;
+  animation: tour-bar var(--tour) linear var(--d) infinite both;
+  &:dir(rtl) { transform-origin: right; }
+}
+@utility tour-pop {
+  animation: tour-pop var(--tour) var(--ease-print) calc(var(--d) + var(--at, 0s)) infinite both;
+}
+@utility tour-hide {
+  animation: tour-hide var(--tour) linear calc(var(--d) + var(--at, 0s)) infinite both;
+}
+@utility tour-tap {
+  animation: tour-tap var(--tour) ease-out calc(var(--d) + var(--at, 0s)) infinite both;
+}
+@utility tour-scan {
+  animation: tour-scan var(--tour) ease-in-out var(--d) infinite both;
+}
+@utility tour-ring {
+  animation: tour-ring var(--tour) ease-out calc(var(--d) + var(--at, 0s)) infinite both;
+}
+@utility tour-print {
+  animation: tour-print var(--tour) var(--ease-print) calc(var(--d) + var(--at, 0s)) infinite both;
+}
+@utility tour-stamp {
+  animation: tour-stamp var(--tour) var(--ease-print) calc(var(--d) + var(--at, 0s)) infinite both;
 }
 
 /* A sheet over the guest menu rises from the bottom edge (reduced motion turns it off, above). */
@@ -149,4 +259,54 @@
 }
 @utility animate-sheet-up {
   animation: sheet-up 280ms var(--ease-print) backwards; /* not "both": the pulled position must win once it has risen */
+}
+
+/* The order tour runs on one loop, and stops all together: paused by its toggle, or while the phone is hovered. */
+@utility tour {
+  --tour: 20s;
+  &:has(.tour-pause:checked) *,
+  &:has([data-tour-stage]:hover) * {
+    animation-play-state: paused;
+  }
+}
+
+/*
+  The tour's phone, and the five screens in it. Still (reduced motion, or no animation): the screens sit side by side
+  in a strip that scrolls sideways. Moving: one phone, the screens stacked inside it and taking turns.
+*/
+@utility tour-stage {
+  display: flex;
+  gap: 1rem;
+  width: 100%;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 1rem;
+  @media (prefers-reduced-motion: no-preference) {
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+    width: 18.5rem;
+    height: 37rem;
+    padding: 0;
+    overflow: visible;
+    border-radius: 3rem;
+    background: var(--color-ink);
+    box-shadow: 0 40px 90px -30px rgb(0 0 0 / 0.7), inset 0 0 0 2px rgb(255 255 255 / 0.12);
+  }
+}
+@utility tour-screen {
+  flex-shrink: 0;
+  width: 17rem;
+  height: 34rem;
+  overflow: hidden;
+  border-radius: 2rem;
+  scroll-snap-align: center;
+  @media (prefers-reduced-motion: no-preference) {
+    position: absolute;
+    inset: 9px;
+    width: auto;
+    height: auto;
+    border-radius: 2.45rem;
+    animation: tour-scene var(--tour) var(--d) infinite both;
+  }
 }
