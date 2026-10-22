@@ -20,7 +20,7 @@ import webManifest from './utils/web_manifest';
 /**
  * restora.live, rendered by this server: every page is React rendered to HTML here, with its data already in it.
  * Marketing pages are plain HTML (rendered once, then served from memory); the demo form and a table's menu also
- * hydrate in the browser. Answers only for the site's hosts (SITE_HOSTS), so api.restora.live stays the API.
+ * hydrate in the browser. Answers only for the site's hosts (SITE_HOSTS), so restora.live stays the API.
  */
 const site = new Hono();
 
