@@ -1,0 +1,35 @@
+name: Diagnose public TLS (temporary)
+on:
+  push:
+    branches: [claude/focused-ramanujan-rx1jbf]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: DNS
+        run: |
+          for h in restora.live www.restora.live api.restora.live app.restora.live; do
+            echo "== $h"; dig +noall +answer "$h" A; dig +noall +answer "$h" AAAA; dig +noall +answer "$h" CNAME
+          done
+          echo "== NS"; dig +short NS restora.live
+          echo "== CAA"; dig +short CAA restora.live
+      - name: HTTPS through public DNS
+        run: |
+          for u in https://api.restora.live/health https://restora.live/health https://restora.live/ https://www.restora.live/; do
+            echo "== $u"; curl -sS -o /dev/null -w "%{http_code} ip=%{remote_ip} server-cert-ok\n" --max-time 15 "$u" || true
+          done
+      - name: Certificates offered per name (public DNS)
+        run: |
+          for h in api.restora.live restora.live; do
+            echo "== $h"; echo | timeout 15 openssl s_client -connect "$h:443" -servername "$h" 2>&1 | grep -E "subject=|issuer=|verify return|alert|error|Verification" | head -8 || true
+          done
+      - name: Origin server directly (187.127.119.116)
+        run: |
+          for h in api.restora.live restora.live; do
+            echo "== https $h via origin"; curl -sS -o /dev/null -w "%{http_code}\n" --max-time 15 --resolve "$h:443:187.127.119.116" "https://$h/health" || true
+            echo | timeout 15 openssl s_client -connect 187.127.119.116:443 -servername "$h" 2>&1 | grep -E "subject=|issuer=|alert|error" | head -5 || true
+            echo "== http $h via origin"; curl -sS -o /dev/null -D - --max-time 15 --resolve "$h:80:187.127.119.116" "http://$h/health" | grep -iE "^HTTP|^server|^location" || true
+          done
