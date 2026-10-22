@@ -267,6 +267,35 @@ describe('Hardening', () => {
     expect(((await (await api(a, 'POST', `/tables/${tables[1]!._id}/restore`)).json()) as Json).archived).toBe(false);
   });
 
+  it("takes a guest's order from the table as pending until staff accept it", async () => {
+    const [table] = (await (await api(a, 'POST', '/tables/batch', { names: ['G1'], section: 'Hall' })).json()) as Json[];
+    const guest = (body: unknown) =>
+      app.request(`/api/v1/public/t/${table!.qrCode}/order`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const items = [{ itemId: dishId, addonIds: [], qty: 2 }];
+
+    const sent = await guest({ items, clientId: 'guest-order-1' });
+    expect(sent.status).toBe(201);
+    const order = (await sent.json()) as Json;
+    expect(order.status).toBe('pending');
+    expect(order.total).toBeGreaterThan(0);
+    // Sending it again (a retry) is the same order.
+    expect(((await (await guest({ items, clientId: 'guest-order-1' })).json()) as Json)._id).toBe(order._id);
+
+    const saved = (await (await api(a, 'GET', `/orders/${order._id}`)).json()) as Json;
+    expect(saved.tableId).toBe(table!._id);
+    expect(saved.type).toBe('dine_in');
+    // Not paid, and not counted, before it is accepted.
+    expect((await api(a, 'POST', `/orders/${order._id}/payment`, { paymentMethod: 'cash' })).status).toBe(400);
+    expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'new' })).status).toBe(200);
+    expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'pending' })).status).toBe(400);
+
+    // At most three wait at once.
+    for (let i = 0; i < 3; i++) expect((await guest({ items })).status).toBe(201);
+    expect((await guest({ items })).status).toBe(429);
+    expect((await guest({ items: [] })).status).toBe(400);
+    expect((await app.request('/api/v1/public/t/nope-not-a-code/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) })).status).toBe(404);
+  });
+
   it("imports customers in the client's shape", async () => {
     const res = await api(a, 'POST', '/customers/import', {
       customers: [{ name: 'Row One', phone: '03001230001' }, { name: 'Bad', phone: '123' }, { phone: '03001230002' }],

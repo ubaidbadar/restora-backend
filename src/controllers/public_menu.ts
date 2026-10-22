@@ -7,6 +7,13 @@ import AddonGroup from '../models/addon_group';
 import MenuItem from '../models/menu_item';
 import GuestRequest from '../models/guest_request';
 import Customer from '../models/customer';
+import Order from '../models/order';
+import DailyCounter from '../models/daily_counter';
+import { priceItems } from './order';
+import calcTotals from '../utils/calc_totals';
+import dayKey from '../utils/day_key';
+import httpError from '../utils/http_error';
+import runInTransaction from '../utils/transaction';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 
 export async function getPublicMenu(c: Context) {
@@ -46,7 +53,9 @@ export async function getPublicMenu(c: Context) {
     name: g.name,
     min: g.min,
     max: g.max,
+    // The ids are what a guest's order sends back.
     options: g.options.map((o) => ({
+      _id: String(o._id),
       name: o.name,
       price: o.price,
     })),
@@ -59,6 +68,7 @@ export async function getPublicMenu(c: Context) {
     description: it.description || undefined,
     photo: it.photo || undefined,
     sizes: it.sizes.map((s) => ({
+      _id: String(s._id),
       name: s.name,
       price: s.price,
     })),
@@ -106,6 +116,7 @@ export async function createGuestCall(c: Context) {
     return GuestRequest.create({
       branchId: table.branchId,
       tableId: String(table._id),
+      tableName: table.name,
       type,
       resolved: false,
     });
@@ -116,6 +127,74 @@ export async function createGuestCall(c: Context) {
     requestId: String(request._id),
     message: `${type === 'waiter' ? 'Staff' : 'Bill'} requested for table ${table.name}`,
   });
+}
+
+/** How many of a table's orders may wait for staff at once: a photographed QR cannot flood the board. */
+const MAX_PENDING = 3;
+
+/**
+ * A guest's order from the table's QR page. It waits as `pending` until staff accept it (or cancel it), so nothing
+ * reaches the kitchen unchecked. Prices come from the menu; tax is added when the bill is paid, as for any unpaid order.
+ */
+export async function placeGuestOrder(c: Context) {
+  const table = await tableForCode(c.req.param('code'));
+  if (!table) {
+    return c.json({ message: 'Table not found' }, 404);
+  }
+
+  const { items, clientId } = c.get('validatedJson') as { items: Parameters<typeof priceItems>[0]; clientId?: string };
+  const tableId = String(table._id);
+  const today = dayKey();
+
+  const order = await runWithTenant(table.restaurantId, async () => {
+    // One query: the same order sent before (a retry), and how many of the table's orders still wait.
+    const waiting = await Order.aggregate<{ _id: unknown; clientId?: string; dailyToken: number; status: string; total: number }>([
+      { $match: { tableId, dayKey: today, $or: [{ status: 'pending' }, ...(clientId ? [{ clientId }] : [])] } },
+      { $project: { clientId: 1, dailyToken: 1, status: 1, total: 1 } },
+    ]);
+    const sent = clientId && waiting.find((o) => o.clientId === clientId);
+    if (sent) return sent;
+    if (waiting.length >= MAX_PENDING) throw httpError(429, 'Your earlier orders are still waiting for the staff. Please call a waiter.');
+
+    const priced = await priceItems(items, table.branchId);
+    if (typeof priced === 'string') throw httpError(400, priced);
+    const totals = calcTotals(priced, 0, 0, 0);
+
+    return runInTransaction(async (session) => {
+      const counter = await DailyCounter.findOneAndUpdate(
+        { restaurantId: table.restaurantId, branchId: table.branchId, dayKey: today },
+        { $inc: { seq: 1 } },
+        { upsert: true, returnDocument: 'after', session }
+      );
+      const [saved] = await Order.create(
+        [
+          {
+            dailyToken: counter?.seq || 1,
+            branchId: table.branchId,
+            type: 'dine_in',
+            status: 'pending',
+            items: priced,
+            subtotal: totals.subtotal,
+            discount: 0,
+            taxRate: 0,
+            tax: 0,
+            deliveryFee: 0,
+            total: totals.total,
+            paymentStatus: 'unpaid',
+            tableId,
+            tableName: table.name,
+            takenBy: 'Guest (table QR)',
+            dayKey: today,
+            clientId,
+          },
+        ],
+        { session }
+      );
+      return saved!;
+    });
+  });
+
+  return c.json({ _id: String(order._id), dailyToken: order.dailyToken, status: order.status, total: order.total }, 201);
 }
 
 /** A guest agrees to WhatsApp offers: saved as a customer (or the existing one is marked as agreeing). */
@@ -158,6 +237,7 @@ export async function resolveGuestRequest(c: Context) {
 export default {
   getMenu: getPublicMenu,
   call: createGuestCall,
+  order: placeGuestOrder,
   optIn,
   resolve: resolveGuestRequest,
 };

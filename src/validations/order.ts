@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import ORDER_STATUSES from '../constants/order_status';
 import ORDER_TYPES from '../constants/order_types';
 import PAYMENT_METHODS from '../constants/payment_methods';
 import PAYMENT_STATUSES from '../constants/payment_statuses';
@@ -51,7 +52,7 @@ export const orderCreateSchema = z
   });
 
 export const orderUpdateSchema = z.object({
-  status: z.enum(['new', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']).optional(),
+  status: z.enum(ORDER_STATUSES).optional(),
   rider: z.string().optional().nullable(),
   area: z.string().optional().nullable(),
   address: z.string().optional().nullable(),

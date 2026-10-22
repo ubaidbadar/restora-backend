@@ -47,7 +47,10 @@ async function signupAndOnboard(email: string, name: string) {
         body: JSON.stringify({ type: 'takeaway', paymentStatus: 'unpaid', items: [{ itemId: item._id, qty: 1, addonIds: [] }] }),
       })
     ).json()) as any;
-  return { headers, placeOrder };
+  const [table] = (await (await app.request('/api/v1/tables/batch', { method: 'POST', headers, body: JSON.stringify({ names: ['T1'] }) })).json()) as any[];
+  const guest = (path: string, body: unknown) =>
+    app.request(`/api/v1/public/t/${table.qrCode}/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return { headers, placeOrder, item, guest };
 }
 
 /** Reads SSE events off a response until `count` have arrived. */
@@ -100,5 +103,26 @@ describe('Live orders stream', () => {
     expect(updated!.event).toBe('order.updated');
     expect(updated!.data._id).toBe(order._id);
     expect(updated!.data.status).toBe('preparing');
+  });
+
+  it("sends a guest's order from the table and the guest's calls", async () => {
+    const gamma = await signupAndOnboard('gamma@stream.com', 'Gamma');
+    const res = await app.request('/api/v1/orders/stream', { headers: gamma.headers });
+    const events = readEvents(res, 3);
+    await Bun.sleep(300);
+
+    const order = (await (await gamma.guest('order', { items: [{ itemId: gamma.item._id, qty: 1, addonIds: [] }] })).json()) as any;
+    const { requestId } = (await (await gamma.guest('call', { kind: 'waiter' })).json()) as any;
+    await app.request(`/api/v1/guest-requests/${requestId}/resolve`, { method: 'POST', headers: gamma.headers });
+
+    const [placed, called, resolved] = await events;
+    expect(placed!.event).toBe('order.created');
+    expect(placed!.data._id).toBe(order._id);
+    expect(placed!.data.status).toBe('pending');
+    expect(called!.event).toBe('call.created');
+    expect(called!.data._id).toBe(requestId);
+    expect(called!.data.tableName).toBe('T1');
+    expect(resolved!.event).toBe('call.updated');
+    expect(resolved!.data.resolved).toBe(true);
   });
 });
