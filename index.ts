@@ -45,23 +45,17 @@ app.use('*', secureHeaders());
 app.use('*', compress());
 app.use('*', trimTrailingSlash());
 
-// CORS Configuration with Credentials support
-
-app.use(
-  '*',
-  cors({
-    // Only the app's own origins may make credentialed requests. Any other origin gets no CORS headers.
-    origin: (origin) => (allowedOrigins.includes(origin) ? origin : null),
-    allowHeaders: [
-      'Content-Type',
-      'Authorization',
-      'x-device-token',
-    ],
-    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    exposeHeaders: ['Content-Length'],
-    credentials: true,
-  })
-);
+// CORS. Only the app's own origins may make credentialed requests; any other origin gets no CORS headers. The guest
+// pages behind a table QR (on the marketing site's domain) send no cookies, so the public routes take any origin.
+const appCors = cors({
+  origin: (origin) => (allowedOrigins.includes(origin) ? origin : null),
+  allowHeaders: ['Content-Type', 'Authorization', 'x-device-token'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  exposeHeaders: ['Content-Length'],
+  credentials: true,
+});
+const publicCors = cors({ origin: '*', allowHeaders: ['Content-Type'], allowMethods: ['GET', 'POST', 'OPTIONS'] });
+app.use('*', (c, next) => (c.req.path.startsWith('/api/v1/public/') ? publicCors : appCors)(c, next));
 
 // Global Error Handler
 app.onError(errorHandler);

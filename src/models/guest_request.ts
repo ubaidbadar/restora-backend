@@ -6,6 +6,8 @@ export interface IGuestRequest {
   restaurantId?: string;
   branchId: string;
   tableId: string;
+  /** The table's name when the guest called, so a live alert can say where without a lookup. */
+  tableName?: string;
   type: 'waiter' | 'bill';
   resolved?: boolean;
   createdAt?: string;
@@ -16,6 +18,7 @@ const GuestRequestSchema = new Schema<IGuestRequest>(
   {
     branchId: { type: String, required: true, index: true },
     tableId: { type: String, required: true, index: true },
+    tableName: { type: String },
     type: { type: String, enum: ['waiter', 'bill'], required: true },
     resolved: { type: Boolean, default: false, index: true },
   },

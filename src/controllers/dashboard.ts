@@ -26,7 +26,7 @@ export async function getDashboard(c: Context) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const orderMatch: Record<string, any> = {
     dayKey: today,
-    status: { $ne: 'cancelled' },
+    status: { $nin: ['cancelled', 'pending'] },
   };
 
   if (!isAllBranches) {
@@ -156,7 +156,7 @@ export async function getDashboard(c: Context) {
         foreignField: 'branchId',
         as: 'stats',
         pipeline: [
-          { $match: { restaurantId: c.get('restaurantId'), dayKey: today, status: { $ne: 'cancelled' } } },
+          { $match: { restaurantId: c.get('restaurantId'), dayKey: today, status: { $nin: ['cancelled', 'pending'] } } },
           { $group: { _id: null, sales: { $sum: '$total' }, orderCount: { $sum: 1 } } },
         ],
       }),

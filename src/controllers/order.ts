@@ -98,10 +98,12 @@ const STREAM_MS = 5 * 60_000;
 /**
  * Orders created or changed from now on, as Server-Sent Events: `order.created` and `order.updated`, each with the order
  * as GET /orders answers it. Scoped like GET /orders. After a reconnect the app loads /orders again for what it missed.
+ * People who see the tables also get the guests' calls: `call.created` and `call.updated` (resolved once seen to).
  */
-export function streamOrders(c: Context) {
+export async function streamOrders(c: Context) {
   const restaurantId = c.get('restaurantId') as string;
   const branchId = c.get('branchId') as string | undefined;
+  const calls = await hasPermission(c, 'tables:view');
   // Bun closes a connection that is quiet for 10 seconds; this one is meant to wait. The pings find dead connections.
   (c.env as { timeout?: (req: Request, seconds: number) => void } | undefined)?.timeout?.(c.req.raw, 0);
   c.header('X-Accel-Buffering', 'no');
@@ -110,7 +112,8 @@ export function streamOrders(c: Context) {
     const off = onOrderEvent({
       restaurantId,
       branchId,
-      send: ({ type, order }) => void stream.writeSSE({ event: type, data: JSON.stringify(order) }),
+      calls,
+      send: ({ type, data }) => void stream.writeSSE({ event: type, data: JSON.stringify(data) }),
     });
     const ping = setInterval(() => void stream.write(': ping\n\n'), 25_000);
     // Open until the app goes away or the time is up.
@@ -169,7 +172,7 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
  * add-on rules. The ids are kept on the line so the order can be opened for editing later. Answers an error message
  * when a dish is gone, sold out or picked wrongly.
  */
-async function priceItems(rawItems: RawItem[], branchId: string): Promise<IOrderItem[] | string> {
+export async function priceItems(rawItems: RawItem[], branchId: string): Promise<IOrderItem[] | string> {
   // One aggregation: the dishes with their add-on groups (of the same restaurant).
   const ids = rawItems.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
   const menuItems = await MenuItem.aggregate<IMenuItem & { _id: unknown; groups: (IAddonGroup & { _id: unknown })[] }>([
@@ -336,6 +339,8 @@ export async function createOrder(c: Context) {
 /** Moves an order along the board. Cancelling has its own route and permission. */
 async function setStatus(c: Context, id: string, status: IOrder['status']) {
   if (status === 'cancelled') throw httpError(400, 'Use Cancel order for that');
+  // Only a guest's order from the table starts as pending; accepting it moves it to new, and it never goes back.
+  if (status === 'pending') throw httpError(400, 'An order cannot go back to waiting for acceptance');
   const order = await Order.findOneAndUpdate(
     { _id: id, status: { $ne: 'cancelled' } },
     { $set: { status } },
@@ -373,6 +378,9 @@ export async function recordPayment(c: Context) {
   }
   if (order.status === 'cancelled') {
     return c.json({ message: 'A cancelled order cannot be paid' }, 400);
+  }
+  if (order.status === 'pending') {
+    return c.json({ message: 'Accept the order from the table first' }, 400);
   }
   if (order.paymentStatus !== 'unpaid') {
     return c.json({ message: `Order #${order.dailyToken} is already ${order.paymentStatus === 'paid' ? 'paid' : 'on khata'}` }, 409);
@@ -467,8 +475,8 @@ export async function updateOrder(c: Context) {
   return c.json(updated);
 }
 
-/** Statuses an order can still be edited in: until it is on the way or done. */
-const EDITABLE_STATUSES: IOrder['status'][] = ['new', 'preparing', 'ready'];
+/** Statuses an order can still be edited in: until it is on the way or done. A guest's order can be fixed before accepting it. */
+const EDITABLE_STATUSES: IOrder['status'][] = ['pending', 'new', 'preparing', 'ready'];
 
 /**
  * Changes what a placed order is and what is in it (dishes, type, table, customer, discount), priced again from the menu.

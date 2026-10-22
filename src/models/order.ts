@@ -1,5 +1,6 @@
 import mongoose, { Schema, type Document, type Model } from 'mongoose';
 import tenantPlugin from './plugins/tenant_plugin';
+import ORDER_STATUSES, { type OrderStatus } from '../constants/order_status';
 
 export interface IOrderItem {
   itemId: string;
@@ -28,7 +29,7 @@ export interface IOrder {
   customerId?: string;
   customer?: IOrderCustomer;
   type: 'dine_in' | 'takeaway' | 'delivery';
-  status: 'new' | 'preparing' | 'ready' | 'out_for_delivery' | 'completed' | 'cancelled';
+  status: OrderStatus;
   items: IOrderItem[];
   subtotal: number;
   discount: number;
@@ -87,7 +88,7 @@ const OrderSchema = new Schema<IOrder>(
     type: { type: String, enum: ['dine_in', 'takeaway', 'delivery'], required: true },
     status: {
       type: String,
-      enum: ['new', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'],
+      enum: ORDER_STATUSES,
       default: 'new',
       index: true,
     },
