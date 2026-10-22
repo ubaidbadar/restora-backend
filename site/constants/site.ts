@@ -1,8 +1,8 @@
-/** Where things are, said once. The app's address can be changed per build (APP_URL). */
+/** Where things are, said once. The app's address can be changed per build (CLIENT_ORIGIN). */
 const SITE = {
   name: 'Restora',
   url: 'https://restora.live',
-  appUrl: process.env.APP_URL ?? 'https://app.restora.live',
+  appUrl: process.env.CLIENT_ORIGIN ?? 'https://app.restora.live',
   email: 'admin@restora.live',
   /** International format for links, the local way for people. */
   whatsapp: '923476262068',

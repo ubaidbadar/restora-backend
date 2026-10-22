@@ -21,7 +21,7 @@ const js = await Bun.build({
   naming: { entry: '[name]-[hash].[ext]', chunk: 'chunk-[hash].[ext]' },
   define: {
     'process.env.NODE_ENV': '"production"',
-    'process.env.APP_URL': JSON.stringify(process.env.APP_URL ?? 'https://app.restora.live'),
+    'process.env.CLIENT_ORIGIN': JSON.stringify(process.env.CLIENT_ORIGIN ?? 'https://app.restora.live'),
   },
 });
 if (!js.success) {
