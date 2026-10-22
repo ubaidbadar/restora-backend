@@ -97,6 +97,8 @@ interface EmailLayout {
   body: string;
   /** Already-escaped HTML for an optional panel of facts under the text (e.g. the restaurant and role). */
   details?: string;
+  /** A one-time code shown big above the button, which then becomes the fallback. */
+  code?: string;
   buttonLabel: string;
   url: string;
   /** Small print under the button: how long the link works, and what to do if it was not you. */
@@ -104,11 +106,12 @@ interface EmailLayout {
 }
 
 /**
- * Every Restora email: the logo, a drawing, a heading, a few lines, one big button, the link written out, small print.
+ * Every Restora email: the logo, a drawing, a heading, a few lines, a code if there is one, a big button, the link
+ * written out, small print.
  * Built from tables with inline styles, the only layout every inbox (Gmail, Outlook, phones) shows the same way.
  * The pictures are PNGs from the web app (SVG does not show in Gmail); each has alt text for inboxes that block images.
  */
-function emailLayout({ preheader, art, heading, body, details, buttonLabel, url, note }: EmailLayout): string {
+function emailLayout({ preheader, art, heading, body, details, code, buttonLabel, url, note }: EmailLayout): string {
   const origin = escapeHtml(appOrigin());
   const link = escapeHtml(url);
   return `<!doctype html>
@@ -130,6 +133,7 @@ function emailLayout({ preheader, art, heading, body, details, buttonLabel, url,
         <h1 style="margin:0 0 12px;font-size:22px;line-height:30px;font-weight:700;color:${INK};">${escapeHtml(heading)}</h1>
         <div style="font-size:16px;line-height:24px;color:#374151;">${body}</div>
         ${details ? `<div style="margin-top:20px;padding:14px 16px;border-radius:12px;background:#EEF2FF;text-align:left;font-size:14px;line-height:22px;color:#374151;">${details}</div>` : ''}
+        ${code ? `<div style="margin-top:24px;padding:16px;border-radius:12px;background:#EEF2FF;font-family:Menlo,Consolas,monospace;font-size:34px;line-height:40px;font-weight:700;letter-spacing:10px;color:${INK};">${escapeHtml(code)}</div>` : ''}
         <table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px auto 0;">
           <tr><td style="border-radius:12px;background:${PRIMARY};">
             <a href="${link}" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:12px;">${escapeHtml(buttonLabel)}</a>
@@ -148,13 +152,14 @@ function emailLayout({ preheader, art, heading, body, details, buttonLabel, url,
 </html>`;
 }
 
-/** A short account email (verify email, reset password) with one button. */
+/** A short account email (verify email, reset password): a 6-digit code, and a button for those who would rather tap. */
 export async function sendAccountEmail(params: {
   to: string;
   subject: string;
   art: 'verify' | 'reset';
   heading: string;
   body: string;
+  code: string;
   buttonLabel: string;
   url: string;
   note: string;
@@ -164,11 +169,12 @@ export async function sendAccountEmail(params: {
     art: params.art,
     heading: params.heading,
     body: `<p style="margin:0;">${escapeHtml(params.body)}</p>`,
+    code: params.code,
     buttonLabel: params.buttonLabel,
     url: params.url,
     note: params.note,
   });
-  const text = `${params.heading}\n\n${params.body}\n\n${params.buttonLabel}: ${params.url}\n\n${params.note}`;
+  const text = `${params.heading}\n\n${params.body}\n\nYour code: ${params.code}\n\n${params.buttonLabel}: ${params.url}\n\n${params.note}`;
   const result = await sendEmail({ to: params.to, subject: params.subject, html, text });
   return result.success;
 }

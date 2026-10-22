@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun --watch index.ts",
     "start": "bun run index.ts",
-    "test": "NODE_ENV=test bun test tests/backend.test.ts && NODE_ENV=test bun test tests/auth_team.test.ts && NODE_ENV=test bun test tests/hardening.test.ts && NODE_ENV=test bun test tests/order_stream.test.ts && NODE_ENV=test bun test tests/site.test.ts",
+    "test": "NODE_ENV=test bun test tests/backend.test.ts && NODE_ENV=test bun test tests/auth_team.test.ts && NODE_ENV=test bun test tests/hardening.test.ts && NODE_ENV=test bun test tests/order_stream.test.ts && NODE_ENV=test bun test tests/email_code.test.ts && NODE_ENV=test bun test tests/site.test.ts",
     "build": "bun site/build.ts",
     "typecheck": "tsc --noEmit"
   },
