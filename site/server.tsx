@@ -31,7 +31,30 @@ const IMMUTABLE = 'public, max-age=31536000, immutable';
 
 // Built by `bun run build` (site/build.ts). Read once; the deploy restarts the server with a new build.
 let assets: SiteAssets | undefined;
-const getAssets = async (): Promise<SiteAssets> => (assets ??= await Bun.file(path.join(DIST, 'manifest.json')).json());
+let assetsPromise: Promise<SiteAssets> | undefined;
+
+const getAssets = async (): Promise<SiteAssets> => {
+  if (assets) return assets;
+  if (!assetsPromise) {
+    assetsPromise = (async (): Promise<SiteAssets> => {
+      const manifestPath = path.join(DIST, 'manifest.json');
+      if (!(await Bun.file(manifestPath).exists())) {
+        const proc = Bun.spawn([process.execPath || 'bun', path.join(import.meta.dir, 'build.ts')], {
+          stdout: 'inherit',
+          stderr: 'inherit',
+        });
+        await proc.exited;
+      }
+      const data = (await Bun.file(manifestPath).json()) as SiteAssets;
+      assets = data;
+      return data;
+    })().catch((err) => {
+      assetsPromise = undefined;
+      throw err;
+    });
+  }
+  return await assetsPromise;
+};
 
 // Locally every host is the site; in production only the site's own hosts are.
 const isSite = (c: Context) => process.env.NODE_ENV !== 'production' || HOSTS.includes((c.req.header('host') ?? '').split(':')[0]!);
