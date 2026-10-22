@@ -45,22 +45,36 @@ type Found = IStaffMember & {
 };
 
 /**
- * One aggregation: the open restaurants of the matched memberships (the switcher's list), and one of them (the wanted
- * restaurant if they still work there, else the oldest) with its roles, open branches and settings. The current branch
- * is the wanted one if it is theirs, else their first; on a terminal (`pos`) only the wanted one.
+ * One aggregation: every restaurant of the matched memberships (the restaurants page and the switcher), and one of them
+ * (the wanted restaurant if they still work there, else the oldest open one) with its roles, open branches and settings.
+ * The current branch is the wanted one if it is theirs, else their first; on a terminal (`pos`) only the wanted one.
  */
 export async function loadWorkplace(match: Record<string, unknown>, restaurantId?: string | null, branchId?: string | null, pos = false) {
   const [result] = await runWithoutTenant(() =>
     StaffMember.aggregate<{ restaurants: Me['restaurants']; current: Found[] }>([
       { $match: match },
-      ...lookup({ from: Restaurant, localField: 'restaurantId', as: 'restaurant', pipeline: [{ $match: { status: 'active' } }, { $project: { _id: { $toString: '$_id' }, name: 1, logo: 1 } }] }),
-      // Memberships of closed (being deleted) restaurants drop out here.
+      ...lookup({ from: Restaurant, localField: 'restaurantId', as: 'restaurant', pipeline: [{ $project: { _id: { $toString: '$_id' }, name: 1, logo: 1, status: 1, deleteAfter: 1 } }] }),
       { $unwind: '$restaurant' },
       { $sort: { joinedAt: 1 } },
       {
         $facet: {
-          restaurants: [{ $project: { _id: '$restaurant._id', name: '$restaurant.name' } }],
+          restaurants: [
+            // A restaurant being deleted is listed only for its owner, who can keep it.
+            { $match: { $or: [{ 'restaurant.status': 'active' }, { 'restaurant.status': 'deleting', isPrimaryOwner: true }] } },
+            {
+              $project: {
+                _id: '$restaurant._id',
+                name: '$restaurant.name',
+                logo: { $cond: [{ $eq: [{ $ifNull: ['$restaurant.logo', ''] }, ''] }, '$$REMOVE', '$restaurant.logo'] },
+                isOwner: { $cond: [{ $or: ['$isOwner', '$isPrimaryOwner'] }, true, '$$REMOVE'] },
+                status: { $cond: [{ $eq: ['$restaurant.status', 'deleting'] }, 'deleting', { $cond: [{ $eq: ['$status', 'suspended'] }, 'suspended', '$$REMOVE'] }] },
+                deleteAfter: { $cond: [{ $eq: ['$restaurant.status', 'deleting'] }, '$restaurant.deleteAfter', '$$REMOVE'] },
+              },
+            },
+          ],
           current: [
+            // Only an active membership of an open restaurant is a workplace.
+            { $match: { status: 'active', 'restaurant.status': 'active' } },
             { $addFields: { __wanted: { $eq: ['$restaurantId', restaurantId ?? null] } } },
             { $sort: { __wanted: -1, joinedAt: 1 } },
             { $limit: 1 },
@@ -107,7 +121,7 @@ export async function loadWorkplace(match: Record<string, unknown>, restaurantId
   const { restaurant, roleNames, owner, granted, openBranches, branches, settings, ...member } = found;
   const workplace: Workplace = {
     member: StaffMember.hydrate(member),
-    restaurant,
+    restaurant: { _id: restaurant._id, name: restaurant.name, logo: restaurant.logo || undefined },
     roleNames,
     isOwner: owner,
     permissions: owner ? ALL_PERMISSIONS : ALL_PERMISSIONS.filter((permission) => granted.includes(permission)),
@@ -146,7 +160,7 @@ export async function saveWorkplace(sessionToken: string, restaurantId: string |
  */
 export async function sessionWorkplace(userId: string, session: { token: string; activeRestaurantId?: string | null; activeBranchId?: string | null }) {
   const wanted = session.activeRestaurantId || null;
-  const found = await loadWorkplace({ userId, status: 'active' }, wanted, session.activeBranchId);
+  const found = await loadWorkplace({ userId }, wanted, session.activeBranchId);
   const restaurantId = found.workplace?.restaurant._id ?? null;
   if (restaurantId !== wanted) await saveWorkplace(session.token, restaurantId);
   return found;
@@ -162,13 +176,15 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
   const member = workplace?.member;
   const branch = workplace?.branch;
   const saved = workplace?.settings;
+  const receipt = saved?.receipt;
+  // Empty fields are left out.
   return {
-    user: { id: user.id, name: user.name, email: user.email, image: user.image ?? null },
+    user: { id: user.id, name: user.name, email: user.email, image: user.image || undefined },
     mode: via === 'pos' ? 'pos' : 'web',
     workplace:
       workplace && member
         ? {
-            restaurant: { _id: workplace.restaurant._id, name: workplace.restaurant.name, logo: workplace.restaurant.logo || undefined },
+            restaurant: workplace.restaurant,
             roleNames: workplace.roleNames,
             isOwner: workplace.isOwner,
             isPrimaryOwner: Boolean(member.isPrimaryOwner),
@@ -184,14 +200,14 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
               taxSet: Boolean(saved?.taxSet),
               taxByPaymentMethod: { ...DEFAULT_SETTINGS.taxByPaymentMethod, ...saved?.taxByPaymentMethod },
               whatsappTemplates: { ...DEFAULT_SETTINGS.whatsappTemplates, ...saved?.whatsappTemplates },
-              receipt: { ...saved?.receipt },
-              updatedAt: saved?.updatedAt ? String(saved.updatedAt) : undefined,
+              receipt: receipt?.ntn || receipt?.strn || receipt?.footer ? { ntn: receipt.ntn || undefined, strn: receipt.strn || undefined, footer: receipt.footer || undefined } : undefined,
+              updatedAt: saved?.updatedAt ? new Date(saved.updatedAt).toISOString() : undefined,
             },
           }
         : null,
-    // The switcher's list: only for someone's own sign-in.
+    // The restaurants page and the switcher: only for someone's own sign-in.
     restaurants: via === 'pos' ? [] : (restaurants ?? []),
-    device: device ? { _id: String(device._id), name: device.name, settings: device.settings } : null,
+    device: device ? { _id: String(device._id), name: device.name, settings: device.settings } : undefined,
   };
 }
 
@@ -200,7 +216,7 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
  * Without a restaurant they move to their oldest open one (or none). Null when a named restaurant is not theirs.
  */
 export async function moveTo(c: Context, restaurantId?: string | null, branchId?: string | null): Promise<Me | null> {
-  const found = await loadWorkplace({ userId: c.get('user').id, status: 'active' }, restaurantId, branchId);
+  const found = await loadWorkplace({ userId: c.get('user').id }, restaurantId, branchId);
   if (restaurantId && found.workplace?.restaurant._id !== restaurantId) return null;
   enterWorkplace(c, found);
   const session = c.get('session');

@@ -207,6 +207,8 @@ paths:
     get:
       tags: [Restaurants]
       summary: Restaurants I work at (web only)
+      description: Old app versions only. The apps read `restaurants` from `GET /api/v1/me` instead.
+      deprecated: true
       responses:
         '200': { $ref: '#/components/responses/Json' }
   /api/v1/restaurants/{id}/keep:
@@ -1728,15 +1730,29 @@ components:
             id: { type: string }
             name: { type: string }
             email: { type: string }
-            image: { type: [string, 'null'] }
+            image: { type: string, description: Left out when there is none }
         mode: { type: string, enum: [web, pos] }
         workplace:
           oneOf:
             - { $ref: '#/components/schemas/Workplace' }
             - { type: 'null' }
-        restaurants: { type: array, items: { $ref: '#/components/schemas/Ref' } }
+        restaurants:
+          type: array
+          description: |
+            Every restaurant they belong to, oldest first (empty on a terminal). One without `status` can be opened.
+            A restaurant being deleted is listed only for its owner, who can keep it. Empty fields are left out.
+          items:
+            type: object
+            properties:
+              _id: { type: string }
+              name: { type: string }
+              logo: { type: string }
+              isOwner: { type: boolean, enum: [true] }
+              status: { type: string, enum: [suspended, deleting] }
+              deleteAfter: { type: string, format: date-time }
         device:
-          type: [object, 'null']
+          type: object
+          description: Only in `pos` mode
           properties:
             _id: { type: string }
             name: { type: string }
