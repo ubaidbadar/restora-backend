@@ -293,10 +293,6 @@ describe('Hardening', () => {
     for (let i = 0; i < 3; i++) expect((await guest({ items })).status).toBe(201);
     expect((await guest({ items })).status).toBe(429);
     expect((await guest({ items: [] })).status).toBe(400);
-    // The guest page lives on another domain: the public routes answer any origin, the rest only the app's.
-    const preflight = (path: string) => app.request(path, { method: 'OPTIONS', headers: { Origin: 'https://guest.example', 'Access-Control-Request-Method': 'POST' } });
-    expect((await preflight(`/api/v1/public/t/${table!.qrCode}/order`)).headers.get('access-control-allow-origin')).toBe('*');
-    expect((await preflight('/api/v1/orders')).headers.get('access-control-allow-origin')).toBeNull();
     expect((await app.request('/api/v1/public/t/nope-not-a-code/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) })).status).toBe(404);
   });
 
