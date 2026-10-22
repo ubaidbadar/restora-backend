@@ -10,7 +10,7 @@ import { sendAccountEmail } from '../services/email';
 import { sessionWorkplace, toMe } from '../utils/workplace';
 
 /** Answers that start a sign-in also carry `me`, so the app has everything without a second request. */
-const CARRY_ME = new Set(['/sign-in/email', '/email-otp/verify-email', '/multi-session/set-active', '/multi-session/revoke']);
+const CARRY_ME = new Set(['/sign-in/email', '/sign-in/social', '/email-otp/verify-email', '/multi-session/set-active', '/multi-session/revoke']);
 
 /** Emailed codes and links both work for 10 minutes. */
 const CODE_LIFETIME = 600;
@@ -19,6 +19,15 @@ const DEV_SECRET = 'restaurant-v2-dev-only-secret-not-for-production';
 
 /** The mobile app's own scheme; in development also Expo Go's. */
 const MOBILE_ORIGINS = process.env.NODE_ENV === 'production' ? ['restora://'] : ['restora://', 'exp://'];
+
+/** Which sign-in buttons the apps show. The web needs Google's client secret; the app only sends Google's ID token. */
+export function signInProviders() {
+  const google = Boolean(process.env.GOOGLE_CLIENT_ID);
+  return {
+    web: google && process.env.GOOGLE_CLIENT_SECRET ? ['google'] : [],
+    app: google ? ['google'] : [],
+  };
+}
 
 function authSecret(): string {
   const secret = process.env.BETTER_AUTH_SECRET;
@@ -85,6 +94,26 @@ function createAuth() {
           url,
           note: 'The code and the link work for 10 minutes. Did not sign up for Restora? You can ignore this email.',
         });
+      },
+    },
+    // Google: the web goes through Google's page and back to /callback/google; the app signs in natively and sends the
+    // ID token to /sign-in/social. Android's token is issued to the web client, the iPhone's to the iOS client.
+    // Off until GOOGLE_CLIENT_ID is set. A Google email joins an existing account only once that account confirmed it.
+    socialProviders: process.env.GOOGLE_CLIENT_ID
+      ? {
+          google: {
+            clientId: [process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_IOS_CLIENT_ID].filter((id): id is string => Boolean(id)),
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+            prompt: 'select_account',
+          },
+        }
+      : {},
+    databaseHooks: {
+      user: {
+        create: {
+          // An account is bound to its email (invitations), so one made by Google needs Google to have confirmed it.
+          before: async (user, ctx) => (ctx?.path === '/sign-up/email' || user.emailVerified ? undefined : false),
+        },
       },
     },
     session: {

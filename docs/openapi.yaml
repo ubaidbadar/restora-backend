@@ -91,6 +91,11 @@ paths:
         `POST /send-verification-email {email}` and `POST /request-password-reset {email}` send them;
         `POST /email-otp/verify-email {email, otp}` confirms and signs in (the answer carries `me`), and
         `POST /email-otp/reset-password {email, otp, password}` sets a new password and signs out every device.
+
+        Google: the web calls `POST /sign-in/social {provider: google, callbackURL, errorCallbackURL}`, follows the answer's
+        `url` to Google, and comes back through `/callback/google` signed in (or to `errorCallbackURL?error=…`). The app
+        signs in natively and sends `POST /sign-in/social {provider: google, idToken: {token}}`; the answer carries `me`.
+        A Google email joins an existing account only once that account confirmed its email.
       security: []
       parameters:
         - { name: path, in: path, required: true, schema: { type: string } }
@@ -1541,6 +1546,22 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- Public
+  /api/v1/public/sign-in-providers:
+    get:
+      tags: [Public]
+      summary: The sign-in buttons to show
+      description: Providers configured on this server, for the web and for the app. Empty lists hide the buttons.
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  web: { type: array, items: { type: string, enum: [google] } }
+                  app: { type: array, items: { type: string, enum: [google] } }
   /api/v1/public/t/{code}:
     get:
       tags: [Public]
