@@ -76,6 +76,10 @@ describe('Auth, onboarding and team management', () => {
     expect(me.user.email).toBe('team-owner@test.com');
     expect(me.mode).toBe('web');
     expect(me.workplace).toBeNull();
+    expect(me.restaurants).toEqual([]);
+    // Empty fields are left out.
+    expect('image' in me.user).toBe(false);
+    expect('device' in me).toBe(false);
     expect((await call(owner, 'GET', '/customers')).status).toBe(403);
   });
 
@@ -89,7 +93,8 @@ describe('Auth, onboarding and team management', () => {
     expect(wp.permissions).toContain('roles:manage');
     expect(wp.branch._id).toBe(mainBranchId);
     expect(wp.settings.taxSet).toBe(false);
-    expect(data.me.restaurants.map((r: Json) => r.name)).toEqual(['Team Grill']);
+    expect(data.me.restaurants).toEqual([{ _id: restaurantId, name: 'Team Grill', isOwner: true }]);
+    expect('receipt' in wp.settings).toBe(false);
     expect(wp.roleNames).toEqual(['Owner']);
   });
 
@@ -98,7 +103,12 @@ describe('Auth, onboarding and team management', () => {
     expect(saved.taxSet).toBe(true);
     expect(saved.taxByPaymentMethod.cash).toBe(15);
     expect(saved.me).toBeUndefined();
-    expect((await json(await call(owner, 'GET', '/me'))).workplace.settings.taxSet).toBe(true);
+    const { settings } = (await json(await call(owner, 'GET', '/me'))).workplace;
+    expect(settings.taxSet).toBe(true);
+    expect(settings.updatedAt).toBe(new Date(settings.updatedAt).toISOString());
+
+    await call(owner, 'PATCH', '/settings', { receipt: { ntn: '1234567-8' } });
+    expect((await json(await call(owner, 'GET', '/me'))).workplace.settings.receipt).toEqual({ ntn: '1234567-8' });
   });
 
   it('switches branch only to an open branch', async () => {
@@ -175,6 +185,12 @@ describe('Auth, onboarding and team management', () => {
     expect(joined.me.workplace.restaurant._id).toBe(otherRestaurant.restaurantId);
     expect(joined.me.workplace.isOwner).toBe(false);
 
+    // The restaurants page reads /me: oldest first, and which ones they own.
+    expect(joined.me.restaurants).toEqual([
+      { _id: restaurantId, name: 'Team Grill', isOwner: true },
+      { _id: otherRestaurant.restaurantId, name: 'Other Place' },
+    ]);
+    // Old app versions still read GET /restaurants.
     const list = (await json(await call(owner, 'GET', '/restaurants'))) as Json[];
     expect(list.map((m) => m.restaurant.name).sort()).toEqual(['Other Place', 'Team Grill']);
 
@@ -256,7 +272,11 @@ describe('Auth, onboarding and team management', () => {
     expect(lostBody.code).toBe('context_lost');
     // It carries where they can work now (nowhere), so the app needs no second request.
     expect(lostBody.me.workplace).toBeNull();
+    // Their restaurants page shows it as suspended, and it cannot be opened.
+    expect(lostBody.me.restaurants).toEqual([{ _id: restaurantId, name: 'Team Grill', status: 'suspended' }]);
+    expect((await call(waiter, 'POST', '/me/workplace', { restaurantId })).status).toBe(403);
     await call(owner, 'POST', `/members/${person.membershipId}/activate`);
+    expect((await json(await call(waiter, 'GET', '/me'))).restaurants).toEqual([{ _id: restaurantId, name: 'Team Grill' }]);
   });
 
   it('transfer and delete need a recent sign-in', async () => {
@@ -301,10 +321,18 @@ describe('Auth, onboarding and team management', () => {
 
     const deleted = await call(newOwner, 'POST', '/restaurant/delete', { confirmName: 'Team Grill' });
     expect(deleted.status).toBe(200);
-    expect((await json(deleted)).me.workplace).toBeNull();
+    const afterDelete = (await json(deleted)).me;
+    expect(afterDelete.workplace).toBeNull();
+    // Its owner still sees it, to keep it.
+    const [listed] = afterDelete.restaurants;
+    expect(listed).toMatchObject({ _id: restaurantId, name: 'Team Grill', isOwner: true, status: 'deleting' });
+    expect(Date.parse(listed.deleteAfter)).toBeGreaterThan(Date.now());
+    expect((await call(newOwner, 'POST', '/me/workplace', { restaurantId })).status).toBe(403);
 
-    // The former owner (still a member) is moved off it.
-    expect((await json(await call(owner, 'GET', '/me'))).workplace?.restaurant._id).not.toBe(restaurantId);
+    // The former owner (still a member) is moved off it, and no longer sees it.
+    const former = await json(await call(owner, 'GET', '/me'));
+    expect(former.workplace?.restaurant._id).not.toBe(restaurantId);
+    expect(former.restaurants.map((r: Json) => r._id)).not.toContain(restaurantId);
 
     expect((await call(owner, 'POST', `/restaurants/${restaurantId}/keep`)).status).toBe(403);
     expect((await call(newOwner, 'POST', `/restaurants/${restaurantId}/keep`)).status).toBe(200);

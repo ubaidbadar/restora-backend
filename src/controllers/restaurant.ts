@@ -16,7 +16,10 @@ const DELETE_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 /** Into their oldest open restaurant, or none. */
 const moveOn = (c: Context) => moveTo(c);
 
-/** Every restaurant the person belongs to, with its state and their roles there, for /restaurants. One aggregation. */
+/**
+ * Every restaurant the person belongs to, with its state and their roles there. One aggregation. The apps now read
+ * `/me`'s `restaurants`; old app versions still call this, so it stays until they have updated.
+ */
 export async function listRestaurants(c: Context) {
   const list = await runWithoutTenant(() =>
     StaffMember.aggregate([
