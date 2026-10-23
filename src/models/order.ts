@@ -133,6 +133,8 @@ const OrderSchema = new Schema<IOrder>(
 );
 
 OrderSchema.plugin(tenantPlugin);
+// Live updates on a standalone MongoDB read what changed lately (services/order_events).
+OrderSchema.index({ updatedAt: 1 });
 OrderSchema.index({ restaurantId: 1, branchId: 1, dayKey: 1, dailyToken: 1 });
 OrderSchema.index({ restaurantId: 1, createdAt: -1 });
 // One order per device-made id: an order synced twice is saved once.

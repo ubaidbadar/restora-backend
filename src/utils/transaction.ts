@@ -1,4 +1,5 @@
 import mongoose, { type ClientSession } from 'mongoose';
+import isReplicaSet from './is_replica_set';
 
 /**
  * Runs operations within a MongoDB transaction.
@@ -6,17 +7,7 @@ import mongoose, { type ClientSession } from 'mongoose';
  * it seamlessly falls back to non-transactional execution.
  */
 export async function runInTransaction<T>(fn: (session?: ClientSession) => Promise<T>): Promise<T> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = mongoose.connection.getClient?.() as any;
-  const topology = client?.topology?.description;
-  const isReplicaOrSharded = Boolean(
-    topology?.setName ||
-      topology?.type === 'ReplicaSetWithPrimary' ||
-      topology?.type === 'ReplicaSetNoPrimary' ||
-      topology?.type === 'Sharded'
-  );
-
-  if (!isReplicaOrSharded) {
+  if (!isReplicaSet()) {
     // Standalone deployment - transactions unsupported
     return await fn(undefined);
   }
