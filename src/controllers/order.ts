@@ -108,7 +108,7 @@ export async function streamOrders(c: Context) {
   (c.env as { timeout?: (req: Request, seconds: number) => void } | undefined)?.timeout?.(c.req.raw, 0);
   c.header('X-Accel-Buffering', 'no');
 
-  return streamSSE(c, async (stream) => {
+  const res = streamSSE(c, async (stream) => {
     const off = onOrderEvent({
       restaurantId,
       branchId,
@@ -127,6 +127,9 @@ export async function streamOrders(c: Context) {
     clearInterval(ping);
     off();
   });
+  // A proxy in front (Caddy's encode, nginx's gzip) must pass each event on as it comes, not hold it to compress.
+  res.headers.set('Cache-Control', 'no-cache, no-transform');
+  return res;
 }
 
 export async function getOrder(c: Context) {

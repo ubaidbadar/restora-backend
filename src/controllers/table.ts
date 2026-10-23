@@ -5,12 +5,13 @@ import Reservation from '../models/reservation';
 import GuestRequest from '../models/guest_request';
 import logAudit from '../utils/audit';
 import dayKey from '../utils/day_key';
-import randomToken from '../utils/random_token';
+import Restaurant from '../models/restaurant';
 import resolveBranchId from '../utils/resolve_branch';
 import lookup from '../utils/lookup';
+import tableCode from '../utils/table_code';
 
-/** The random part of a table's QR link (/t/<code>): 96 bits from the CSPRNG, URL-safe. */
-const newQrCode = () => randomToken(12);
+/** The restaurant's name, for its tables' QR links. */
+const restaurantName = async (c: Context) => (await Restaurant.findById(c.get('restaurantId')))?.name ?? '';
 
 export async function listTables(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
@@ -79,6 +80,7 @@ export async function getFloorTables(c: Context) {
         section: 1,
         seats: 1,
         qrCode: 1,
+        oldCodes: 1,
         archived: 1,
         orders: { $cond: ['$archived', [], '$orders'] },
         requests: { $cond: ['$archived', [], '$requests'] },
@@ -94,7 +96,7 @@ export async function createTable(c: Context) {
   const body = c.get('validatedJson');
   const branchId = await resolveBranchId(c, body.branchId);
 
-  const qrCode = newQrCode();
+  const qrCode = tableCode(await restaurantName(c), body.name);
   const table = await Table.create({
     name: body.name,
     section: body.section,
@@ -121,11 +123,12 @@ export async function batchCreateTables(c: Context) {
   const existingTables = await Table.find({ branchId, archived: false });
   const usedNames = new Set(existingTables.map((t) => t.name.toLowerCase()));
 
+  const restaurant = await restaurantName(c);
   const toInsert: Array<Record<string, unknown>> = [];
   for (const name of body.names) {
     if (usedNames.has(name.toLowerCase())) continue;
     usedNames.add(name.toLowerCase());
-    toInsert.push({ branchId, name, section: body.section, seats: body.seats ?? null, qrCode: newQrCode(), archived: false });
+    toInsert.push({ branchId, name, section: body.section, seats: body.seats ?? null, qrCode: tableCode(restaurant, name), archived: false });
   }
 
   const created = toInsert.length > 0 ? await Table.insertMany(toInsert) : [];
@@ -168,7 +171,9 @@ export async function regenerateTableQr(c: Context) {
     return c.json({ message: 'Table not found' }, 404);
   }
 
-  table.qrCode = newQrCode();
+  // A new code is for a card that went missing: the earlier ones stop opening the table.
+  table.qrCode = tableCode(await restaurantName(c), table.name);
+  table.oldCodes = undefined;
   await table.save();
 
   const user = c.get('user');

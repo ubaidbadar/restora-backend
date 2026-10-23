@@ -38,6 +38,7 @@
   --color-moon: #C9C6F4;         /* body text on night (9.7:1) */
   --color-haldi: #F5B530;        /* the highlighter */
   --color-haldi-soft: #FCEBC4;
+  --color-haldi-deep: #8F5A00;   /* the app's guest-call pill, drawn in the tour (white on it 6.3:1) */
   --color-chili: #C8412A;        /* unpaid, alarms (5.1:1 on paper) */
   --color-leaf: #1F7A4A;         /* paid, online (5.6:1 on paper) */
   --color-leaf-soft: #DDF1E5;
@@ -182,18 +183,21 @@
   0%, 61%, 100% { opacity: 1; }
   1%, 60% { opacity: 0; }
 }
+/* A finger's tap: the control dips and a haldi ring flashes round it, whatever its own color. */
 @keyframes tour-tap {
-  0%, 3%, 100% { scale: 1; background-color: var(--color-indigo); }
-  1% { scale: 0.86; background-color: var(--color-haldi); }
+  0%, 3%, 100% { scale: 1; outline: 0 solid rgb(245 181 48 / 0); }
+  1% { scale: 0.93; outline: 4px solid rgb(245 181 48 / 0.85); }
 }
 @keyframes tour-scan {
   0%, 100% { top: 12%; }
   5% { top: 82%; }
   10% { top: 12%; }
 }
+/* A pulse round something new. An outline, so the element keeps its own shadow and ring. */
 @keyframes tour-ring {
-  0%, 12%, 100% { box-shadow: 0 0 0 0 rgb(245 181 48 / 0.7); }
-  6% { box-shadow: 0 0 0 14px rgb(245 181 48 / 0); }
+  0%, 12%, 100% { outline: 0 solid rgb(245 181 48 / 0); outline-offset: 0; }
+  1% { outline: 3px solid rgb(245 181 48 / 0.9); outline-offset: 0; }
+  6% { outline: 3px solid rgb(245 181 48 / 0); outline-offset: 12px; }
 }
 @keyframes tour-print {
   0% { clip-path: inset(0 0 100% 0); }

@@ -1,66 +1,86 @@
-import { TrendingUp } from 'lucide-react';
-import WhatsappIcon from '../../../icons/whatsapp_icon';
+import { Check } from 'lucide-react';
+import StaffNav from './staff_nav';
 import StatusBar from './status_bar';
 import tourAt from '../../../utils/tour_at';
 
-const LINES = [
-  ['1', 'Chicken karahi (half)', '1,200'],
-  ['1', 'Tandoori roti', '40'],
-  ['1', 'Fresh lime', '180'],
+/** Each way to pay with its own total: tax is set per payment method (here 16% cash, 5% the rest). */
+const METHODS = [
+  ['Cash', 'Rs 1,276'],
+  ['Card', 'Rs 1,155'],
+  ['JazzCash', 'Rs 1,155'],
+  ['Easypaisa', 'Rs 1,155'],
 ];
 
-/** Step 5: table 4 pays by JazzCash, the receipt goes to them on WhatsApp, and the day's sales already include it. */
+/**
+ * Step 5, on the counter's phone, as the real app: Pay opens how the guest paid, each with its total after tax; JazzCash
+ * is tapped, and Home already counts the sale.
+ */
 export default function PaidScene() {
   return (
     <div className="relative flex h-full flex-col bg-canvas">
       <StatusBar time="8:12" />
-      <div className="relative mx-auto mt-3 w-[86%]">
-        <div className="tear-bottom bg-paper px-4 pt-4 pb-7 font-slip text-[0.7rem] leading-[1.6] text-ink shadow-slip">
-          <p className="text-center font-semibold tracking-wide">LAHORI KARAHI HOUSE</p>
-          <p className="text-center text-ink-3">Order #28 · Table 4</p>
-          <div className="my-2 border-t-2 border-dashed border-ink/25" />
-          {LINES.map(([qty, item, amount]) => (
-            <p key={item} className="flex gap-2">
-              <span className="w-3">{qty}</span>
-              <span className="flex-1">{item}</span>
-              <span>{amount}</span>
-            </p>
-          ))}
-          <div className="my-2 border-t-2 border-dashed border-ink/25" />
-          <p className="flex justify-between">
-            <span>Tax 5% (JazzCash)</span>
-            <span>71</span>
+      <div className="px-4 pt-1">
+        <p className="text-[1.05rem] font-bold text-ink">Lahori Karahi House</p>
+        <p className="text-[0.65rem] text-ink-3">Fri, 23 Oct · Gulberg</p>
+      </div>
+      <div className="mx-3 mt-3 grid grid-cols-2 overflow-hidden rounded-[12px] bg-paper text-ink shadow-slip">
+        <div className="border-e border-b border-rule p-3">
+          <p className="text-[0.6rem] text-ink-3">Sales today</p>
+          <p className="grid text-[1.05rem] font-bold">
+            <span className="[grid-area:1/1] motion-safe:tour-hide motion-reduce:hidden" style={tourAt(2.3)}>Rs 83,195</span>
+            <span className="[grid-area:1/1] motion-safe:tour-pop" style={tourAt(2.3)}>Rs 84,350</span>
           </p>
-          <p className="mt-1 flex justify-between text-[0.85rem] font-semibold">
-            <span>TOTAL</span>
-            <span>Rs 1,491</span>
-          </p>
+          <p className="text-[0.58rem] text-ink-3">61 orders</p>
         </div>
-        <div className="absolute end-3 -bottom-14 grid size-20 place-items-center rounded-full border-[3px] border-leaf text-center font-display text-leaf mix-blend-multiply motion-safe:tour-stamp" style={tourAt(0.8)}>
-          <span className="leading-none">
-            <span className="block text-lg font-extrabold">PAID</span>
-            <span className="block text-[0.55rem] font-semibold">JazzCash</span>
-          </span>
+        <div className="border-b border-rule p-3">
+          <p className="text-[0.6rem] text-ink-3">Average order</p>
+          <p className="text-[1.05rem] font-bold">Rs 1,383</p>
+        </div>
+        <div className="border-e border-rule p-3">
+          <p className="text-[0.6rem] text-ink-3">New customers</p>
+          <p className="text-[1.05rem] font-bold">7</p>
+        </div>
+        <div className="p-3">
+          <p className="text-[0.6rem] text-ink-3">Khata outstanding</p>
+          <p className="text-[1.05rem] font-bold">Rs 6,050</p>
+        </div>
+      </div>
+      <div className="mx-3 mt-2 rounded-[12px] bg-paper p-3 text-[0.65rem] text-ink-2 shadow-slip">
+        <p className="text-[0.75rem] font-bold text-ink">Cash vs digital</p>
+        <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-canvas">
+          <span className="w-[46%] bg-indigo" />
+          <span className="w-[54%] bg-leaf" />
+        </div>
+        <p className="mt-1.5 flex justify-between"><span>Cash (46%)</span><span>Rs 38,800</span></p>
+        <p className="flex justify-between"><span>Card, JazzCash, Easypaisa, bank (54%)</span><span>Rs 45,550</span></p>
+      </div>
+
+      {/* Order #1's Pay sheet, over the board. */}
+      <div className="absolute inset-0 flex flex-col justify-end bg-ink/40 motion-safe:tour-hide motion-reduce:hidden" style={tourAt(2.1)}>
+        <div className="rounded-t-[20px] bg-paper px-4 pt-2 pb-5">
+          <span className="mx-auto mb-2 block h-1 w-8 rounded-full bg-rule" />
+          <p className="text-[0.85rem] font-bold text-ink">Order #1 · Table T4</p>
+          <p className="mt-1 text-[0.62rem] text-ink-3">How did the customer pay? Tax depends on it, so each way shows its own total.</p>
+          <ul className="mt-2.5 flex flex-col gap-1.5">
+            {METHODS.map(([method, total]) => (
+              <li
+                key={method}
+                className={`flex justify-between rounded-control px-3 py-2 text-[0.72rem] text-ink ring-1 ring-rule ${method === 'JazzCash' ? 'motion-safe:tour-tap' : ''}`}
+                style={method === 'JazzCash' ? tourAt(1.4) : undefined}
+              >
+                <span>{method}</span>
+                <span>{total}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
-      <div className="mt-auto flex flex-col gap-2 p-3">
-        <div className="flex items-center gap-2 rounded-[14px] bg-leaf-soft p-3 text-[0.8rem] font-semibold text-leaf motion-safe:tour-pop" style={tourAt(1.6)}>
-          <WhatsappIcon className="size-4" />
-          Receipt sent to the guest on WhatsApp
-        </div>
-        <div className="flex items-center gap-3 rounded-[14px] bg-night p-3 text-white motion-safe:tour-pop" style={tourAt(2.3)}>
-          <TrendingUp className="size-5 text-haldi" />
-          <span className="flex-1">
-            <span className="block text-[0.7rem] text-moon">Sales today</span>
-            <span className="block font-display text-lg font-bold">Rs 84,350</span>
-          </span>
-          <span className="text-end">
-            <span className="block text-[0.7rem] text-moon">Orders</span>
-            <span className="block font-display text-lg font-bold">61</span>
-          </span>
-        </div>
+      <div className="absolute inset-x-3 bottom-[4.5rem] flex items-center gap-2 rounded-control bg-paper px-3 py-2.5 text-[0.68rem] text-ink shadow-lift ring-1 ring-rule motion-safe:tour-pop" style={tourAt(2.1)}>
+        <Check className="size-3.5 text-leaf" strokeWidth={3} />
+        Order #1 paid by JazzCash
       </div>
+      <StaffNav active="Home" />
     </div>
   );
 }

@@ -93,17 +93,20 @@ for (const route of ROUTES) {
   });
 }
 
-// A table's menu, read from the database while the page renders: fresh on every visit (sold-out dishes change).
-site.get('/t/:code', async (c) => {
+// A table's menu, read from the database while the page renders: fresh on every visit (sold-out dishes change). Its
+// link is /t/:restaurant/:table (tables made before that: /t/:code, still printed on cards).
+const tablePage = async (c: Context) => {
   if (!isSite(c)) return c.notFound();
-  const code = c.req.param('code');
+  const code = c.req.param('code') ?? `${c.req.param('restaurant')}/${c.req.param('table')}`;
   const menu = await findPublicMenu(code);
   if (typeof menu === 'string') {
     return html(c, await renderHtml({ title: 'Menu', noindex: true }, <TableNotFoundPage />), 404, 'no-store');
   }
   const props = { code, menu };
   return html(c, await renderHtml({ title: 'Menu', noindex: true }, <TablePage {...props} />, { page: 'table_page', path: c.req.path, layout: false, props }), 200, 'no-store');
-});
+};
+site.get('/t/:code', tablePage);
+site.get('/t/:restaurant/:table', tablePage);
 
 const text = (type: string, make: () => string) => (c: Context) => (isSite(c) ? c.body(make(), 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=0, must-revalidate' }) : c.notFound());
 site.get('/robots.txt', text('text/plain; charset=utf-8', robotsTxt));

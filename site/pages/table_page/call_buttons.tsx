@@ -21,9 +21,9 @@ export default function CallButtons({ code, sentNote }: { code: string; sentNote
 
   if (call.status) {
     return (
-      <div role="status" className={`flex min-h-12 items-center justify-between gap-3 rounded-control px-4 ${call.status.ok ? 'bg-leaf-soft text-leaf' : 'bg-haldi-soft text-ink'}`}>
+      <div role="status" className={`flex min-h-12 items-center justify-between gap-3 rounded-full ps-5 pe-2 ${call.status.ok ? 'bg-leaf-soft text-leaf' : 'bg-haldi-soft text-ink'}`}>
         <p className="font-semibold">{call.status.message}</p>
-        <button type="button" onClick={() => setCall({})} className="min-h-10 rounded-control px-3 font-semibold underline-offset-4 hover:underline">
+        <button type="button" onClick={() => setCall({})} className="min-h-10 rounded-full px-4 font-semibold hover:bg-ink/5">
           OK
         </button>
       </div>
@@ -43,8 +43,13 @@ export default function CallButtons({ code, sentNote }: { code: string; sentNote
 
 function CallButton({ icon: Icon, label, busy, disabled, onClick }: { icon: typeof BellRing; label: string; busy: boolean; disabled: boolean; onClick: () => void }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-control border-2 border-ink font-semibold text-ink hover:bg-ink hover:text-white disabled:opacity-60">
-      <Icon aria-hidden="true" className={`size-5 ${busy ? 'animate-pulse' : ''}`} />
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-canvas font-semibold text-ink ring-1 ring-rule transition-colors hover:bg-indigo-wash hover:ring-indigo/30 disabled:opacity-60"
+    >
+      <Icon aria-hidden="true" className={`size-5 text-indigo ${busy ? 'animate-pulse' : ''}`} />
       {busy ? 'Calling…' : label}
     </button>
   );

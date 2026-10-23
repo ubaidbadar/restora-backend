@@ -44,6 +44,8 @@ const GuestRequestSchema = new Schema<IGuestRequest>(
 );
 
 GuestRequestSchema.plugin(tenantPlugin);
+// Live updates on a standalone MongoDB read what changed lately (services/order_events).
+GuestRequestSchema.index({ updatedAt: 1 });
 GuestRequestSchema.index({ restaurantId: 1, tableId: 1, resolved: 1 });
 
 const GuestRequest: Model<IGuestRequest> =

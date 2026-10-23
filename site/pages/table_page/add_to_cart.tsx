@@ -35,11 +35,15 @@ export default function AddToCart({ dish, groups }: { dish: Dish; groups: AddonG
 
 function AddButton({ label, count = 0, onClick }: { label: string; count?: number; onClick: () => void }) {
   return (
-    <button type="button" aria-label={label} onClick={onClick} className="relative inline-flex min-h-11 items-center gap-1.5 rounded-control bg-indigo px-4 font-semibold text-white transition-colors hover:bg-indigo-deep active:scale-[0.97]">
-      <Plus aria-hidden="true" className="size-4.5" strokeWidth={2.5} />
-      Add
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="relative grid size-11 shrink-0 place-items-center rounded-full bg-indigo-wash text-indigo transition-[background-color,color,scale] hover:bg-indigo hover:text-white active:scale-95"
+    >
+      <Plus aria-hidden="true" className="size-5" strokeWidth={2.5} />
       {count > 0 && (
-        <span className="absolute -top-2 -right-2 grid min-w-6 place-items-center rounded-full bg-haldi px-1.5 text-xs font-bold tabular-nums text-ink" aria-label={`${count} in your order`}>
+        <span className="absolute -top-1 -end-1 grid min-w-5 place-items-center rounded-full bg-indigo px-1 text-xs font-bold tabular-nums text-white ring-2 ring-paper" aria-label={`${count} in your order`}>
           {count}
         </span>
       )}

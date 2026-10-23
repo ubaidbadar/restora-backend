@@ -20,7 +20,7 @@ export default function TablePage({ code, menu }: { code: string; menu: TableMen
 
   return (
     <>
-      <div className="min-h-dvh pb-40">
+      <div className="min-h-dvh pb-[calc(12rem+env(safe-area-inset-bottom))]">
         <header className="bg-night px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-6 text-white">
           <div className="mx-auto flex max-w-xl items-center gap-3.5">
             {menu.restaurant.logo && <img src={menu.restaurant.logo} alt="" className="size-14 shrink-0 rounded-control bg-paper object-contain p-1" />}

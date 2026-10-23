@@ -48,7 +48,7 @@ export default function HomePage() {
           </a>
           <h1 className="display mt-7 text-[clamp(3.25rem,8.5vw,7rem)] text-ink">Run your restaurant from your phone.</h1>
           <p className="mt-7 max-w-xl text-xl text-ink-2">
-            Guests order from the table, the board updates live on every phone, the kitchen slip prints, and the day adds itself up. Khata, bookings and WhatsApp too. It keeps working when the internet doesn&apos;t, and it is free.
+            Guests order from their table, the orders board updates live on every phone, and the day adds itself up. Khata, bookings and WhatsApp too. It keeps working when the internet doesn&apos;t, and it is free.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <Button as="a" href={appLink('/signup', 'home-hero')} size="lg">

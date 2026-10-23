@@ -8,17 +8,19 @@ import TablesScene from './tables_scene';
 
 interface Step {
   time: string;
+  /** Whose phone the step is on. */
+  device: string;
   title: string;
   text: string;
   scene: ReactNode;
 }
 
 const STEPS: Step[] = [
-  { time: '7:02 pm', title: 'Guests scan the code on their table', text: 'Your menu opens on their phone, with your prices and what is sold out tonight. No app to download.', scene: <ScanScene /> },
-  { time: '7:03 pm', title: 'They order by themselves', text: 'Half or full, extra raita, "less spicy". Then Send. Or a waiter takes the order on their own phone.', scene: <MenuScene /> },
-  { time: '7:03 pm', title: 'It lands on every screen at once', text: 'The orders board is live on every phone and the counter. Accept it, and the kitchen slip prints.', scene: <BoardScene /> },
-  { time: '7:31 pm', title: 'One tap calls a waiter', text: 'Calls and bill requests pop up on every waiter\'s phone, whatever page they are on. One of them takes it.', scene: <TablesScene /> },
-  { time: '8:12 pm', title: 'Paid, and the day adds itself up', text: 'Cash, card, JazzCash, Easypaisa or khata. The receipt goes on WhatsApp, and today\'s sales already count it.', scene: <PaidScene /> },
+  { time: '7:02 pm', device: "Guest's phone", title: 'Guests scan the code on their table', text: 'Your menu opens on their phone, with your prices and what is sold out tonight. No app, no sign-in.', scene: <ScanScene /> },
+  { time: '7:03 pm', device: "Guest's phone", title: 'They order by themselves', text: 'They add dishes and tap Send to the kitchen. They get the order\'s number; a waiter confirms it before the kitchen starts.', scene: <MenuScene /> },
+  { time: '7:03 pm', device: "Waiter's phone", title: 'It shows up on every screen at once', text: 'The order lands in New on every phone and the counter, with a chime. Accept it, and print the kitchen slip from its menu.', scene: <BoardScene /> },
+  { time: '7:31 pm', device: "Waiter's phone", title: 'One tap calls a waiter', text: 'Calls and bill requests show for every waiter, on whatever page they are on. Done clears the call for everyone.', scene: <TablesScene /> },
+  { time: '8:12 pm', device: "Counter's phone", title: 'Paid, and the day adds itself up', text: 'Pick how they paid: each way shows its own total, with its own tax. Today\'s sales already count it.', scene: <PaidScene /> },
 ];
 
 /** Each step starts 4s after the one before it, on the tour's 20s loop (index.css). */
@@ -37,14 +39,14 @@ export default function OrderTour() {
         <h2 id="tour-title" className="display mt-3 max-w-3xl text-[clamp(2.6rem,6vw,4.75rem)]">
           From the table&apos;s QR code to the day&apos;s total.
         </h2>
-        <p className="mt-6 max-w-xl text-lg text-moon">One order at Lahori Karahi House, as it happens. Nobody writes anything twice.</p>
+        <p className="mt-6 max-w-xl text-lg text-moon">One order at Lahori Karahi House, on the guest&apos;s phone and the staff&apos;s, screen by screen as Restora shows it.</p>
 
         <div className="mt-14 grid items-center gap-12 lg:mt-20 lg:grid-cols-[1fr_auto] lg:gap-20">
           <ol className="tour-steps lg:order-first">
             {STEPS.map((step, index) => (
               <li key={step.title} style={delayOf(index)} className="tour-step relative rounded-[18px] p-4 sm:p-5">
                 <p className="font-display text-sm font-bold text-haldi tabular-nums">
-                  <span className="text-moon">{String(index + 1).padStart(2, '0')}</span> · {step.time}
+                  <span className="text-moon">{String(index + 1).padStart(2, '0')}</span> · {step.time} <span className="font-sans font-semibold text-moon">· {step.device}</span>
                 </p>
                 <h3 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">{step.title}</h3>
                 <p className="mt-1.5 max-w-md text-moon">{step.text}</p>
