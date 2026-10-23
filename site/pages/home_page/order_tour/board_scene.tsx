@@ -1,76 +1,89 @@
-import { Smartphone } from 'lucide-react';
+import { ArrowRight, Banknote, Clock, Info, MoreHorizontal, Plus } from 'lucide-react';
+import StaffNav from './staff_nav';
 import StatusBar from './status_bar';
 import tourAt from '../../../utils/tour_at';
 
-const PREPARING = [
-  { no: '#25', where: 'Table 9', items: '2× Mutton karahi, 8× Naan' },
-  { no: '#26', where: 'Takeaway', items: '3× Chicken biryani' },
-];
-
-/** Step 3, on a waiter's phone: table 4's order arrives on the live board, is accepted, and the kitchen slip prints. */
+/**
+ * Step 3, on a waiter's phone, as the real Orders board: table T4's order arrives in New with a chime and a notice,
+ * marked From table QR, and is accepted; Pay and Start take its place.
+ */
 export default function BoardScene() {
   return (
-    <div className="flex h-full flex-col bg-canvas">
+    <div className="relative flex h-full flex-col bg-canvas">
       <StatusBar time="7:03" />
-      <div className="flex items-center justify-between px-5 pt-1">
-        <p className="font-display text-xl font-bold tracking-tight text-ink">Orders</p>
-        <span className="flex items-center gap-1.5 rounded-full bg-leaf-soft px-2.5 py-1 text-[0.7rem] font-semibold text-leaf">
-          <span className="size-1.5 rounded-full bg-leaf" />
-          Live
+      <div className="flex items-start justify-between px-4 pt-1">
+        <div>
+          <p className="text-[1.05rem] font-bold text-ink">Orders</p>
+          <p className="text-[0.65rem] text-ink-3">Today · Gulberg</p>
+        </div>
+        <span className="flex items-center gap-1 rounded-control bg-indigo px-2.5 py-1.5 text-[0.65rem] font-semibold text-white">
+          <Plus className="size-3" /> New order
         </span>
       </div>
-      <div className="mt-3 flex gap-1.5 px-5 text-[0.7rem] font-semibold">
-        <span className="rounded-full bg-haldi px-2.5 py-1 text-ink">New 1</span>
-        <span className="rounded-full bg-paper px-2.5 py-1 text-ink-2">Preparing 2</span>
-        <span className="rounded-full bg-paper px-2.5 py-1 text-ink-2">Ready 3</span>
+      <div className="mt-3 flex gap-1.5 px-4 text-[0.65rem] font-semibold">
+        <span className="flex items-center gap-1 rounded-control bg-indigo px-2.5 py-1 text-white">
+          New
+          <span className="grid">
+            <span className="[grid-area:1/1] motion-safe:tour-hide motion-reduce:hidden" style={tourAt(0.3)}>0</span>
+            <span className="[grid-area:1/1] motion-safe:tour-pop" style={tourAt(0.3)}>1</span>
+          </span>
+        </span>
+        <span className="rounded-control bg-paper px-2.5 py-1 text-ink-2 ring-1 ring-rule">Preparing 0</span>
+        <span className="rounded-control bg-paper px-2.5 py-1 text-ink-2 ring-1 ring-rule">Ready 0</span>
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 px-3">
-        {/* The new order, from the guest's own phone. */}
-        <div className="rounded-[14px] bg-paper p-3 ring-2 ring-haldi motion-safe:tour-pop" style={tourAt(0.3)}>
-          <div className="rounded-[14px] motion-safe:tour-ring" style={tourAt(0.5)}>
-            <div className="flex items-baseline justify-between">
-              <span className="font-display text-lg font-bold text-ink">#28</span>
-              <span className="text-[0.75rem] font-semibold text-ink-2">Table 4</span>
+      <div className="mx-3 mt-3 motion-safe:tour-pop" style={tourAt(0.3)}>
+        <div className="rounded-[12px] bg-paper p-3 shadow-slip motion-safe:tour-ring" style={tourAt(0.4)}>
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[1.3rem] leading-none font-bold text-ink">#1</p>
+              <p className="mt-1 text-[0.62rem] text-ink-3">Dine-in · Table T4</p>
             </div>
-            <p className="flex items-center gap-1 text-[0.7rem] text-ink-3">
-              <Smartphone className="size-3" />
-              Sent from the table&apos;s QR menu
-            </p>
-            <p className="mt-1.5 text-[0.75rem] text-ink-2">Chicken karahi (half), Tandoori roti, Fresh lime</p>
-            <div className="mt-2.5 grid">
-              <span className="[grid-area:1/1] rounded-control bg-indigo py-1.5 text-center text-[0.75rem] font-semibold text-white motion-safe:tour-tap" style={tourAt(1.3)}>
-                <span className="block motion-safe:tour-hide motion-reduce:hidden" style={tourAt(1.5)}>Accept</span>
+            <div className="flex flex-col items-end gap-1 text-[0.58rem] font-semibold">
+              <span className="flex items-center gap-0.5 rounded-full bg-canvas px-1.5 py-0.5 text-ink-2">
+                <Clock className="size-2.5" /> 0 min
               </span>
-              <span className="[grid-area:1/1] rounded-control bg-leaf-soft py-1.5 text-center text-[0.75rem] font-semibold text-leaf motion-safe:tour-pop" style={tourAt(1.5)}>
-                Accepted · preparing
+              <span className="rounded-[5px] bg-haldi-soft px-1.5 py-0.5 text-ink">Unpaid</span>
+              <span className="rounded-[5px] bg-haldi-soft px-1.5 py-0.5 text-ink motion-safe:tour-hide motion-reduce:hidden" style={tourAt(1.9)}>
+                From table QR
+              </span>
+            </div>
+          </div>
+          <p className="mt-2 text-[0.68rem] text-ink-2">1 × Seekh Kabab (4 pcs)</p>
+          <p className="text-[0.68rem] text-ink-2">1 × Chicken Tikka</p>
+          <div className="mt-2 flex items-center justify-between border-t border-rule pt-2">
+            <span className="text-[0.75rem] font-semibold text-ink">
+              Rs 1,100
+              <span className="block text-[0.55rem] font-normal text-ink-3">+ tax when paid</span>
+            </span>
+            <MoreHorizontal className="size-4 text-ink-3" />
+          </div>
+          <div className="mt-2 grid text-[0.68rem] font-semibold">
+            <div className="[grid-area:1/1] grid grid-cols-2 gap-1.5 motion-safe:tour-hide motion-reduce:hidden" style={tourAt(1.9)}>
+              <span className="rounded-control py-2 text-center text-ink ring-1 ring-rule">Turn down</span>
+              <span className="flex items-center justify-center gap-1 rounded-control bg-indigo py-2 text-white motion-safe:tour-tap" style={tourAt(1.5)}>
+                Accept <ArrowRight className="size-3" />
+              </span>
+            </div>
+            <div className="[grid-area:1/1] grid grid-cols-2 gap-1.5 bg-paper motion-safe:tour-pop" style={tourAt(1.9)}>
+              <span className="flex items-center justify-center gap-1 rounded-control py-2 text-ink ring-1 ring-rule">
+                <Banknote className="size-3" /> Pay
+              </span>
+              <span className="flex items-center justify-center gap-1 rounded-control bg-indigo py-2 text-white">
+                Start <ArrowRight className="size-3" />
               </span>
             </div>
           </div>
         </div>
-        {PREPARING.map((order) => (
-          <div key={order.no} className="rounded-[14px] bg-paper p-3 opacity-70">
-            <div className="flex items-baseline justify-between">
-              <span className="font-display text-base font-bold text-ink">{order.no}</span>
-              <span className="text-[0.75rem] text-ink-3">{order.where}</span>
-            </div>
-            <p className="text-[0.75rem] text-ink-2">{order.items}</p>
-          </div>
-        ))}
       </div>
 
-      {/* The kitchen slip prints as soon as it is accepted. */}
-      <div className="mx-auto mt-auto mb-4 w-[85%] motion-safe:tour-print" style={tourAt(1.8)}>
-        <div className="tear-bottom bg-paper px-4 pt-3 pb-5 font-slip text-[0.7rem] leading-relaxed text-ink shadow-slip">
-          <p className="flex justify-between font-semibold">
-            <span>KITCHEN #28</span>
-            <span>Table 4</span>
-          </p>
-          <p>1 Chicken karahi (half)</p>
-          <p className="text-ink-3">&nbsp;&nbsp;less spicy</p>
-          <p>1 Tandoori roti · 1 Fresh lime</p>
-        </div>
+      {/* The notice every signed-in screen shows, with a chime. */}
+      <div className="absolute inset-x-3 bottom-[4.5rem] flex items-center gap-2 rounded-control bg-paper px-3 py-2.5 text-[0.68rem] text-ink shadow-lift ring-1 ring-rule motion-safe:tour-pop" style={tourAt(0.5)}>
+        <Info className="size-3.5 text-indigo" />
+        <span className="flex-1">Table T4 sent order #1</span>
+        <span className="font-semibold text-indigo">Open</span>
       </div>
+      <StaffNav active="Orders" />
     </div>
   );
 }

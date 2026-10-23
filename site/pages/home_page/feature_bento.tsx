@@ -39,7 +39,7 @@ const TILES: Tile[] = [
         <div className="flex min-w-0 flex-col gap-2 text-[0.8rem]">
           <span className="rounded-full bg-white/10 px-3 py-1.5">Chicken karahi (half) · Rs 1,200</span>
           <span className="rounded-full bg-white/10 px-3 py-1.5">Fresh lime · Rs 180</span>
-          <span className="self-start rounded-full bg-haldi px-3 py-1.5 font-semibold text-ink">Send order</span>
+          <span className="self-start rounded-full bg-haldi px-3 py-1.5 font-semibold text-ink">Send to the kitchen</span>
         </div>
       </div>
     ),
@@ -132,7 +132,7 @@ const TILES: Tile[] = [
           <span className="grid size-4 place-items-center rounded-[4px] bg-indigo text-white">
             <Check className="size-3" strokeWidth={3} aria-hidden="true" />
           </span>
-          Yes, send me offers
+          Send me offers on WhatsApp
         </p>
       </div>
     ),
