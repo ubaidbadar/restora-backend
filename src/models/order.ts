@@ -1,6 +1,7 @@
 import mongoose, { Schema, type Document, type Model } from 'mongoose';
 import tenantPlugin from './plugins/tenant_plugin';
 import ORDER_STATUSES, { type OrderStatus } from '../constants/order_status';
+import CANCEL_REASONS, { type CancelReason } from '../constants/cancel_reasons';
 
 export interface IOrderItem {
   itemId: string;
@@ -19,6 +20,14 @@ export interface IOrderCustomer {
   _id: string;
   name: string;
   phone: string;
+}
+
+/** Who cancelled the order, when and why. Older cancellations have no reason. */
+export interface IOrderCancellation {
+  reason?: CancelReason;
+  note?: string;
+  byName?: string;
+  at: Date;
 }
 
 export interface IOrder {
@@ -51,6 +60,8 @@ export interface IOrder {
   clientId?: string;
   /** When the order was taken, if that was before it reached the server (taken offline). */
   placedAt?: string;
+  /** Set when the order is cancelled. */
+  cancellation?: IOrderCancellation;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -75,6 +86,16 @@ const OrderCustomerSchema = new Schema(
     _id: { type: String, required: true },
     name: { type: String, required: true },
     phone: { type: String, required: true },
+  },
+  { _id: false }
+);
+
+const OrderCancellationSchema = new Schema(
+  {
+    reason: { type: String, enum: CANCEL_REASONS },
+    note: { type: String },
+    byName: { type: String },
+    at: { type: Date, required: true },
   },
   { _id: false }
 );
@@ -110,6 +131,7 @@ const OrderSchema = new Schema<IOrder>(
     dayKey: { type: String, required: true, index: true },
     clientId: { type: String },
     placedAt: { type: String },
+    cancellation: { type: OrderCancellationSchema },
   },
   {
     timestamps: true,
