@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import type { PipelineStage } from 'mongoose';
 import Order from '../models/order';
 import Customer from '../models/customer';
 import Branch from '../models/branch';
@@ -22,22 +23,25 @@ export async function getDashboard(c: Context) {
     return c.json({ message: 'You can only see the numbers of your branch' }, 403);
   }
 
-  // 1. Order Aggregation Pipeline
+  // 1. Order Aggregation Pipeline: sales from the day's orders, cancelled ones counted apart (guests' orders waiting to
+  // be accepted are in neither).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const orderMatch: Record<string, any> = {
     dayKey: today,
-    status: { $nin: ['cancelled', 'pending'] },
+    status: { $ne: 'pending' },
   };
+  const notCancelled: PipelineStage.Match = { $match: { status: { $ne: 'cancelled' } } };
 
   if (!isAllBranches) {
     orderMatch.branchId = branchId;
   }
 
-  const orderStatsPipeline = [
+  const orderStatsPipeline: PipelineStage[] = [
     { $match: orderMatch },
     {
       $facet: {
         summary: [
+          notCancelled,
           {
             $group: {
               _id: null,
@@ -84,6 +88,7 @@ export async function getDashboard(c: Context) {
           },
         ],
         byType: [
+          notCancelled,
           {
             $group: {
               _id: '$type',
@@ -91,6 +96,13 @@ export async function getDashboard(c: Context) {
               sales: { $sum: '$total' },
             },
           },
+        ],
+        // Why orders were cancelled: how many and what they were worth, per reason (none for older cancellations).
+        cancelled: [
+          { $match: { status: 'cancelled' } },
+          { $group: { _id: { $ifNull: ['$cancellation.reason', null] }, count: { $sum: 1 }, value: { $sum: '$total' } } },
+          { $sort: { count: -1, value: -1 } },
+          { $project: { _id: 0, reason: '$_id', count: 1, value: 1 } },
         ],
       },
     },
@@ -104,6 +116,13 @@ export async function getDashboard(c: Context) {
     cash: 0,
     digital: 0,
     notCollected: 0,
+  };
+
+  const cancelledByReason: { reason: string | null; count: number; value: number }[] = orderResults?.cancelled ?? [];
+  const cancelled = {
+    count: cancelledByReason.reduce((sum, row) => sum + row.count, 0),
+    value: cancelledByReason.reduce((sum, row) => sum + row.value, 0),
+    byReason: cancelledByReason,
   };
 
   const types = ['dine_in', 'takeaway', 'delivery'] as const;
@@ -156,8 +175,15 @@ export async function getDashboard(c: Context) {
         foreignField: 'branchId',
         as: 'stats',
         pipeline: [
-          { $match: { restaurantId: c.get('restaurantId'), dayKey: today, status: { $nin: ['cancelled', 'pending'] } } },
-          { $group: { _id: null, sales: { $sum: '$total' }, orderCount: { $sum: 1 } } },
+          { $match: { restaurantId: c.get('restaurantId'), dayKey: today, status: { $ne: 'pending' } } },
+          {
+            $group: {
+              _id: null,
+              sales: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 0, '$total'] } },
+              orderCount: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 0, 1] } },
+              cancelledCount: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
+            },
+          },
         ],
       }),
       { $set: { stats: { $first: '$stats' } } },
@@ -167,6 +193,7 @@ export async function getDashboard(c: Context) {
           branch: { $unsetField: { field: 'stats', input: '$$ROOT' } },
           sales: { $ifNull: ['$stats.sales', 0] },
           orderCount: { $ifNull: ['$stats.orderCount', 0] },
+          cancelledCount: { $ifNull: ['$stats.cancelledCount', 0] },
         },
       },
     ]);
@@ -183,6 +210,7 @@ export async function getDashboard(c: Context) {
       newCustomers: newCustomersCount,
       khataTotal: khataStats.khataTotal,
       khataCustomers: khataStats.khataCustomers,
+      cancelled,
     },
     perBranch,
     slipping: slippingCustomers,

@@ -1482,6 +1482,10 @@ paths:
     get:
       tags: [Dashboard]
       summary: Today's numbers
+      description: >-
+        Sales, orders, payments and order types leave out cancelled orders; `stats.cancelled` counts them apart
+        (`count`, `value`, and `byReason` with each reason's count and value). In `perBranch`, each branch also has its
+        `cancelledCount`.
       x-permission: reports:view
       parameters:
         - { name: scope, in: query, description: '`all` needs reports:view_all_branches', schema: { type: string, enum: [branch, all], default: branch } }

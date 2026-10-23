@@ -173,6 +173,19 @@ describe('Hardening', () => {
     expect(list.find((item) => item._id === order._id)?.cancellation?.reason).toBe('out_of_stock');
   });
 
+  it('counts cancelled orders apart on the dashboard, by reason', async () => {
+    const before = ((await (await api(a, 'GET', '/dashboard')).json()) as Json).stats;
+    const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
+    expect((await api(a, 'POST', `/orders/${order._id}/cancel`, { reason: 'customer_left' })).status).toBe(200);
+    const after = ((await (await api(a, 'GET', '/dashboard')).json()) as Json).stats;
+    expect(after.sales).toBe(before.sales);
+    expect(after.orderCount).toBe(before.orderCount);
+    expect(after.cancelled.count).toBe(before.cancelled.count + 1);
+    expect(after.cancelled.value).toBe(before.cancelled.value + order.total);
+    const left = (stats: Json) => stats.cancelled.byReason.find((row: Json) => row.reason === 'customer_left')?.count ?? 0;
+    expect(left(after)).toBe(left(before) + 1);
+  });
+
   it('cannot cancel through the status route', async () => {
     const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
     expect((await api(a, 'PATCH', `/orders/${order._id}`, { status: 'cancelled' })).status).toBe(400);
