@@ -157,6 +157,22 @@ describe('Hardening', () => {
     expect(((await again.json()) as Json)._id).toBe(order._id);
   });
 
+  it('saves why, by whom and when an order was cancelled', async () => {
+    const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
+    expect((await api(a, 'POST', `/orders/${order._id}/cancel`, { reason: 'other' })).status).toBe(400);
+    expect((await api(a, 'POST', `/orders/${order._id}/cancel`, { reason: 'lost' })).status).toBe(400);
+    const res = await api(a, 'POST', `/orders/${order._id}/cancel`, { reason: 'out_of_stock', note: ' No chicken left ' });
+    expect(res.status).toBe(200);
+    const cancelled = (await res.json()) as Json;
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.cancellation).toMatchObject({ reason: 'out_of_stock', note: 'No chicken left' });
+    expect(cancelled.cancellation.byName).toBeTruthy();
+    expect(Number.isNaN(Date.parse(cancelled.cancellation.at))).toBe(false);
+    // Cancelled orders stay in the day's list, so the board can show them.
+    const list = (await (await api(a, 'GET', '/orders')).json()) as Json[];
+    expect(list.find((item) => item._id === order._id)?.cancellation?.reason).toBe('out_of_stock');
+  });
+
   it('cannot cancel through the status route', async () => {
     const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
     expect((await api(a, 'PATCH', `/orders/${order._id}`, { status: 'cancelled' })).status).toBe(400);

@@ -21,6 +21,7 @@ import resolveBranchId from '../utils/resolve_branch';
 import { hasPermission } from '../middlewares/permission_guard';
 import { getTenantId } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
+import orderCancelSchema from '../validations/order_cancel';
 
 type PaymentMethod = NonNullable<IOrder['paymentMethod']>;
 
@@ -554,14 +555,20 @@ export async function editOrder(c: Context) {
   return c.json(updated);
 }
 
+/** Cancels an order (or turns down a guest's), saving who did it, when and why. */
 export async function cancelOrder(c: Context) {
   const id = c.req.param('id') ?? '';
   const user = c.get('user');
+  // Apps from before cancel reasons send no body at all.
+  const parsed = orderCancelSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ message: parsed.error.issues[0]?.message ?? 'Invalid input', issues: parsed.error.issues }, 400);
+  const { reason, note } = parsed.data;
+  const cancellation = { reason, note: note || undefined, byName: user?.name, at: new Date() };
 
   const cancelled = await runInTransaction(async (session) => {
     const order = await Order.findOneAndUpdate(
       { _id: id, status: { $ne: 'cancelled' } },
-      { $set: { status: 'cancelled' } },
+      { $set: { status: 'cancelled', cancellation } },
       { returnDocument: 'after', session }
     ).catch(() => null);
     if (!order) throw httpError(404, 'Order not found or already cancelled');
@@ -588,6 +595,7 @@ export async function cancelOrder(c: Context) {
     action: 'order.cancelled',
     actor: auditActor(c),
     target: { type: 'order', id, label: `#${cancelled.dailyToken}` },
+    changes: reason ? { after: { reason, note } } : undefined,
   });
 
   return c.json(cancelled);

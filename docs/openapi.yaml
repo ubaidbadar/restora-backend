@@ -732,11 +732,23 @@ paths:
     post:
       tags: [Orders]
       summary: Cancel an order
+      description: >-
+        Saves who cancelled it, when and why in `cancellation`. A khata order stops being owed, with a reversal line.
+        The body is optional, so apps from before reasons existed can still cancel.
       x-permission: orders:cancel
       parameters:
         - $ref: '#/components/parameters/Id'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { $ref: '#/components/schemas/CancelReason' }
+                note: { type: string, maxLength: 200, description: Required when the reason is `other` }
       responses:
         '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- Tables
@@ -1796,6 +1808,7 @@ components:
         - audit:view
     OrderType: { type: string, enum: [dine_in, takeaway, delivery] }
     OrderStatus: { type: string, enum: [pending, new, preparing, ready, out_for_delivery, completed, cancelled] }
+    CancelReason: { type: string, enum: [customer_left, wrong_order, out_of_stock, duplicate, other] }
     PaymentMethod: { type: string, enum: [cash, card, jazzcash, easypaisa, bank] }
     PaymentStatus: { type: string, enum: [paid, unpaid, khata] }
     ReservationStatus: { type: string, enum: [pending, confirmed, seated, cancelled] }
@@ -2095,6 +2108,14 @@ components:
         dayKey: { type: string, description: YYYY-MM-DD in Pakistan time }
         clientId: { type: string }
         placedAt: { type: string, format: date-time }
+        cancellation:
+          type: object
+          description: Set when the order is cancelled
+          properties:
+            reason: { $ref: '#/components/schemas/CancelReason' }
+            note: { type: string }
+            byName: { type: string }
+            at: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 
