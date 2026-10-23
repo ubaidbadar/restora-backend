@@ -1,5 +1,6 @@
 import mongoose, { Schema, type Document, type Model } from 'mongoose';
 import tenantPlugin from './plugins/tenant_plugin';
+import PhotoSizesSchema, { type IPhotoSizes } from './photo_sizes_schema';
 
 export interface IMenuSize {
   _id: string;
@@ -13,7 +14,10 @@ export interface IMenuItem {
   categoryId: string;
   name: string;
   description?: string;
+  /** The large photo (1200px); older apps read only this. */
   photo?: string;
+  /** Its smaller sizes and blurred preview; missing on photos saved before sizes existed until the upgrade worker runs. */
+  photoSizes?: IPhotoSizes;
   sizes: IMenuSize[];
   addonGroupIds: string[];
   soldOutBranchIds: string[];
@@ -45,6 +49,7 @@ const MenuItemSchema = new Schema<IMenuItem>(
     name: { type: String, required: true, trim: true },
     description: { type: String, trim: true, default: '' },
     photo: { type: String },
+    photoSizes: { type: PhotoSizesSchema },
     sizes: { type: [MenuSizeSchema], default: [] },
     addonGroupIds: { type: [String], default: [] },
     soldOutBranchIds: { type: [String], default: [] },

@@ -82,6 +82,7 @@ export async function findPublicMenu(code: string | undefined) {
       name: it.name,
       description: it.description || undefined,
       photo: it.photo || undefined,
+      photoSizes: it.photoSizes,
       sizes: it.sizes.map((s) => ({
         _id: String(s._id),
         name: s.name,

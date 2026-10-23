@@ -37,6 +37,7 @@ import site from './site/server';
 
 import startRestaurantCleanupWorker from './src/workers/restaurant_cleanup';
 import upgradeTableCodes from './src/workers/table_codes';
+import upgradePhotoSizes from './src/workers/photo_sizes';
 
 const app = new Hono();
 
@@ -167,6 +168,7 @@ if (process.env.NODE_ENV !== 'test' && mongoose.connection.readyState === 0) {
       console.log('[Database] Connected to MongoDB successfully');
       startRestaurantCleanupWorker();
       upgradeTableCodes().catch((err) => console.error('[Tables] Making QR links readable failed:', err));
+      upgradePhotoSizes().catch((err) => console.error('[Photos] Making small sizes failed:', err));
     })
     .catch((err) => {
       console.error('[Database] Failed to connect to MongoDB:', err);

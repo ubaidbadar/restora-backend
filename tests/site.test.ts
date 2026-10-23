@@ -4,6 +4,9 @@ import mongoose from 'mongoose';
 import { app } from '../index';
 import Table from '../src/models/table';
 import upgradeTableCodes from '../src/workers/table_codes';
+import upgradePhotoSizes from '../src/workers/photo_sizes';
+import MenuItem from '../src/models/menu_item';
+import sharp from 'sharp';
 
 // restora.live, rendered by this server: the pages answer as HTML, and a table's menu is read into the page.
 
@@ -136,5 +139,45 @@ describe('Site', () => {
     expect((await app.request('/t/oldRandomCode123')).status).toBe(404);
     expect((await app.request(`/t/${upgraded.qrCode}`)).status).toBe(404);
     expect((await app.request(`/t/${fresh.qrCode}`)).status).toBe(200);
+  });
+
+  it('saves a dish photo in small sizes for the menus, and gives older photos theirs', async () => {
+    const api = await owner('photo-owner@test.com');
+    const cat = (await (await api('POST', '/menu/categories', { name: 'BBQ' })).json()) as Json;
+    // A phone photo, sideways in its EXIF like a camera saves it.
+    const jpeg = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: '#b5532c' } }).jpeg({ quality: 95 }).withMetadata({ orientation: 6 }).toBuffer();
+    const dish = (await (await api('POST', '/menu/items', { categoryId: cat._id, name: 'Malai boti', sizes: [{ price: 750 }], photo: `data:image/jpeg;base64,${jpeg.toString('base64')}` })).json()) as Json;
+    expect(dish.photo).toMatch(/-1200\.webp$/);
+    expect(dish.photoSizes.sm).toMatch(/-160\.webp$/);
+    expect(dish.photoSizes.md).toMatch(/-480\.webp$/);
+    expect(dish.photoSizes.blur).toMatch(/^data:image\/webp;base64,/);
+    expect(dish.photoSizes.blur.length).toBeLessThan(1000);
+    // Turned upright: taller than wide, and never more than 1200px wide.
+    expect(dish.photoSizes.width).toBe(1200);
+    expect(dish.photoSizes.height).toBe(1800);
+    const small = await app.request(dish.photoSizes.sm);
+    expect(small.headers.get('content-type')).toBe('image/webp');
+    expect((await small.arrayBuffer()).byteLength).toBeLessThan(15_000);
+
+    // The guest menu sends the sizes, and the page asks for the one that fits.
+    const [table] = (await (await api('POST', '/tables/batch', { names: ['P1'], section: 'Hall' })).json()) as Json[];
+    const html = await (await app.request(`/t/${table!.qrCode}`)).text();
+    expect(html).toContain(`srcSet="${dish.photoSizes.sm} 160w, ${dish.photoSizes.md} 480w, ${dish.photo} 1200w"`);
+
+    // Clearing the photo removes both fields.
+    const cleared = (await (await api('PATCH', `/menu/items/${dish._id}`, { photo: null })).json()) as Json;
+    expect(cleared.photo).toBeUndefined();
+    expect(cleared.photoSizes).toBeUndefined();
+
+    // A photo saved before sizes existed gets them from the upgrade worker; one that can't be read is left alone.
+    await Bun.write(`${process.env.UPLOAD_DIR || './uploads'}/old_dish.jpg`, jpeg);
+    await MenuItem.updateOne({ _id: dish._id }, { $set: { photo: '/uploads/old_dish.jpg' } });
+    const lost = (await (await api('POST', '/menu/items', { categoryId: cat._id, name: 'Lost photo', sizes: [{ price: 100 }] })).json()) as Json;
+    await MenuItem.updateOne({ _id: lost._id }, { $set: { photo: '/uploads/missing.jpg' } });
+    await upgradePhotoSizes();
+    const upgraded = (await MenuItem.findById(dish._id))!;
+    expect(upgraded.photo).toMatch(/-1200\.webp$/);
+    expect(upgraded.photoSizes?.md).toMatch(/-480\.webp$/);
+    expect((await MenuItem.findById(lost._id))!.photoSizes).toBeUndefined();
   });
 });

@@ -49,14 +49,14 @@ export default function TablePage({ code, menu }: { code: string; menu: TableMen
 
         <main className="mx-auto flex max-w-xl flex-col gap-8 px-4 pt-6">
           {categories.length === 0 && <p className="rounded-panel bg-paper p-6 text-center text-ink-2">The menu is being updated. Please ask a waiter.</p>}
-          {categories.map((category) => (
+          {categories.map((category, categoryIndex) => (
             <section key={category._id} id={`c-${category._id}`} aria-labelledby={`h-${category._id}`} className="scroll-mt-20">
               <h2 id={`h-${category._id}`} className="mb-3 text-[1.35rem] font-bold">
                 {category.name}
               </h2>
               <ul className="flex flex-col gap-3">
-                {category.dishes.map((dish) => (
-                  <DishCard key={dish._id} dish={dish} groups={dish.addonGroupIds.map((id) => groupsById.get(id)).filter((group) => group !== undefined)} />
+                {category.dishes.map((dish, index) => (
+                  <DishCard key={dish._id} dish={dish} priority={categoryIndex === 0 && index < 4} groups={dish.addonGroupIds.map((id) => groupsById.get(id)).filter((group) => group !== undefined)} />
                 ))}
               </ul>
             </section>
