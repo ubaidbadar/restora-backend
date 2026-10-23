@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import { app } from '../index';
+import Table from '../src/models/table';
+import upgradeTableCodes from '../src/workers/table_codes';
 
 // restora.live, rendered by this server: the pages answer as HTML, and a table's menu is read into the page.
 
@@ -25,11 +27,11 @@ afterAll(async () => {
 
 type Json = Record<string, any>;
 
-async function owner() {
+async function owner(email = 'site-owner@test.com') {
   const signup = await app.request('/api/v1/auth/sign-up/email', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'site-owner@test.com', name: 'Sana Owner', password: 'StrongPassword123!' }),
+    body: JSON.stringify({ email, name: 'Sana Owner', password: 'StrongPassword123!' }),
   });
   const cookie = signup.headers.get('set-cookie') || '';
   const onboarding = await app.request('/api/v1/onboarding', {
@@ -108,5 +110,31 @@ describe('Site', () => {
     const gone = await app.request('/t/not-a-table-code');
     expect(gone.status).toBe(404);
     expect(await gone.text()).toContain('menu isn&#x27;t here');
+  });
+
+  it('gives a table a readable link, and an older code keeps opening it until a new QR code', async () => {
+    const api = await owner('links-owner@test.com');
+    const [table] = (await (await api('POST', '/tables/batch', { names: ['Family Hall 2'], section: 'Hall' })).json()) as Json[];
+    expect(table!.qrCode).toMatch(/^lahori-karahi-house\/family-hall-2-[2-9a-z]{6}$/);
+    expect((await app.request(`/t/${table!.qrCode}`)).status).toBe(200);
+    expect((await app.request(`/api/v1/public/t/${table!.qrCode}`)).status).toBe(200);
+
+    // A table from before readable links: it gets one, and the code on its printed card still opens it.
+    await Table.updateOne({ _id: table!._id }, { $set: { qrCode: 'oldRandomCode123' } });
+    await upgradeTableCodes();
+    const upgraded = (await Table.findById(table!._id))!;
+    expect(upgraded.qrCode).toMatch(/^lahori-karahi-house\/family-hall-2-[2-9a-z]{6}$/);
+    expect(upgraded.oldCodes).toEqual(['oldRandomCode123']);
+    expect((await app.request('/t/oldRandomCode123')).status).toBe(200);
+    expect((await app.request(`/t/${upgraded.qrCode}`)).status).toBe(200);
+    const call = await app.request(`/api/v1/public/t/${upgraded.qrCode}/call`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'waiter' }) });
+    expect(call.status).toBeLessThan(300);
+
+    // A new QR code is for a lost card: the earlier codes stop opening the table.
+    const fresh = (await (await api('POST', `/tables/${table!._id}/qr`)).json()) as Json;
+    expect(fresh.qrCode).not.toBe(upgraded.qrCode);
+    expect((await app.request('/t/oldRandomCode123')).status).toBe(404);
+    expect((await app.request(`/t/${upgraded.qrCode}`)).status).toBe(404);
+    expect((await app.request(`/t/${fresh.qrCode}`)).status).toBe(200);
   });
 });

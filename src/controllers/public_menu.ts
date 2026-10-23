@@ -17,7 +17,7 @@ import runInTransaction from '../utils/transaction';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 
 export async function getPublicMenu(c: Context) {
-  const menu = await findPublicMenu(c.req.param('code'));
+  const menu = await findPublicMenu(codeOf(c));
   if (menu === 'no_table') return c.json({ message: 'Table not found or has been removed' }, 404);
   if (menu === 'closed') return c.json({ message: 'This restaurant is not taking orders here right now' }, 404);
   return c.json(menu);
@@ -93,16 +93,20 @@ export async function findPublicMenu(code: string | undefined) {
   };
 }
 
-const CODE = /^[a-zA-Z0-9_-]{3,64}$/;
+// `restaurant/table-key` (restora.live/t/ubaids-tandoor-house/t1-7k2m9q), or an older table's random code.
+const CODE = /^[a-zA-Z0-9_-]{3,64}(\/[a-z0-9-]{3,64})?$/;
 
-/** The open (not archived) table behind a QR code, from any restaurant. */
+/** The code in the address: one part (/t/:code, older links) or two (/t/:restaurant/:table). */
+const codeOf = (c: Context) => c.req.param('code') ?? `${c.req.param('restaurant')}/${c.req.param('table')}`;
+
+/** The open (not archived) table behind a QR code, from any restaurant. Codes printed before a table got its current one open it too. */
 async function tableForCode(code: string | undefined) {
   if (!code || !CODE.test(code)) return null;
-  return runWithoutTenant(() => Table.findOne({ qrCode: code, archived: false }));
+  return runWithoutTenant(() => Table.findOne({ $or: [{ qrCode: code }, { oldCodes: code }], archived: false }));
 }
 
 export async function createGuestCall(c: Context) {
-  const table = await tableForCode(c.req.param('code'));
+  const table = await tableForCode(codeOf(c));
   if (!table) {
     return c.json({ message: 'Table not found' }, 404);
   }
@@ -137,7 +141,7 @@ const MAX_PENDING = 3;
  * reaches the kitchen unchecked. Prices come from the menu; tax is added when the bill is paid, as for any unpaid order.
  */
 export async function placeGuestOrder(c: Context) {
-  const table = await tableForCode(c.req.param('code'));
+  const table = await tableForCode(codeOf(c));
   if (!table) {
     return c.json({ message: 'Table not found' }, 404);
   }
@@ -199,7 +203,7 @@ export async function placeGuestOrder(c: Context) {
 
 /** A guest agrees to WhatsApp offers: saved as a customer (or the existing one is marked as agreeing). */
 export async function optIn(c: Context) {
-  const table = await tableForCode(c.req.param('code'));
+  const table = await tableForCode(codeOf(c));
   if (!table) {
     return c.json({ message: 'Table not found' }, 404);
   }

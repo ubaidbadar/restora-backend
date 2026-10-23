@@ -1691,7 +1691,10 @@ components:
       name: code
       in: path
       required: true
-      description: The code in the table's QR link
+      description: >-
+        The code in the table's QR link: `restaurant/table-key` (e.g. `ubaids-tandoor-house/t1-7k2m9q`, sent as two
+        path segments), or the single random code of a table made before readable links. A code printed before the
+        table's current one still works until its QR code is made new.
       schema: { type: string }
 
   responses:

@@ -36,6 +36,7 @@ import uploadRouter from './src/routes/upload';
 import site from './site/server';
 
 import startRestaurantCleanupWorker from './src/workers/restaurant_cleanup';
+import upgradeTableCodes from './src/workers/table_codes';
 
 const app = new Hono();
 
@@ -165,6 +166,7 @@ if (process.env.NODE_ENV !== 'test' && mongoose.connection.readyState === 0) {
     .then(() => {
       console.log('[Database] Connected to MongoDB successfully');
       startRestaurantCleanupWorker();
+      upgradeTableCodes().catch((err) => console.error('[Tables] Making QR links readable failed:', err));
     })
     .catch((err) => {
       console.error('[Database] Failed to connect to MongoDB:', err);

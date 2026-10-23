@@ -11,9 +11,12 @@ const publicRouter = new Hono();
 // The sign-in buttons the apps show: { web: ['google'], app: ['google'] }, empty while a provider is not configured.
 publicRouter.get('/sign-in-providers', (c) => c.json(signInProviders()));
 
-publicRouter.get('/t/:code', publicMenuController.getMenu);
-publicRouter.post('/t/:code/call', validateBody(publicCallSchema), publicMenuController.call);
-publicRouter.post('/t/:code/order', validateBody(publicOrderSchema), publicMenuController.order);
-publicRouter.post('/t/:code/opt-in', validateBody(publicOptInSchema), publicMenuController.optIn);
+// A table's code is `restaurant/table-key` (two parts); tables made before that have one random part.
+for (const table of ['/t/:code', '/t/:restaurant/:table']) {
+  publicRouter.get(table, publicMenuController.getMenu);
+  publicRouter.post(`${table}/call`, validateBody(publicCallSchema), publicMenuController.call);
+  publicRouter.post(`${table}/order`, validateBody(publicOrderSchema), publicMenuController.order);
+  publicRouter.post(`${table}/opt-in`, validateBody(publicOptInSchema), publicMenuController.optIn);
+}
 
 export default publicRouter;

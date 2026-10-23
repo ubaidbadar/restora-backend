@@ -8,7 +8,10 @@ export interface ITable {
   name: string;
   section?: string;
   seats?: number | null;
+  /** What follows /t/ in its QR link: `restaurant/table-key` (older tables: a random code). */
   qrCode: string;
+  /** Earlier codes still printed on cards, which open the table too. A new QR code clears them. */
+  oldCodes?: string[];
   archived?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
@@ -21,6 +24,7 @@ const TableSchema = new Schema<ITable>(
     section: { type: String, trim: true, default: '' },
     seats: { type: Number, default: null },
     qrCode: { type: String, required: true, unique: true },
+    oldCodes: { type: [String], default: undefined, index: true },
     archived: { type: Boolean, default: false, index: true },
   },
   {
