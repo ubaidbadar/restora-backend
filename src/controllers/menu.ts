@@ -3,7 +3,7 @@ import MenuCategory from '../models/menu_category';
 import AddonGroup from '../models/addon_group';
 import MenuItem from '../models/menu_item';
 import logAudit from '../utils/audit';
-import storeImage from '../utils/store_image';
+import storePhoto from '../utils/store_photo';
 import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
 
@@ -16,6 +16,7 @@ function dishJson(item: InstanceType<typeof MenuItem>, branchId?: string) {
     name: item.name,
     description: item.description,
     photo: item.photo,
+    photoSizes: item.photoSizes,
     sizes: obj.sizes,
     addonGroupIds: item.addonGroupIds,
     soldOut: branchId ? item.soldOutBranchIds.includes(branchId) : item.soldOutBranchIds.length > 0,
@@ -121,7 +122,8 @@ export async function deleteAddonGroup(c: Context) {
 export async function createMenuItem(c: Context) {
   const body = c.get('validatedJson');
   await checkDishLinks(body.categoryId, body.addonGroupIds);
-  body.photo = (await storeImage(c, body.photo, 'dishes')) ?? undefined;
+  const { photo, photoSizes } = (await storePhoto(c, body.photo, 'dishes')) ?? {};
+  Object.assign(body, { photo, photoSizes });
 
   const item = await MenuItem.create(body);
 
@@ -139,10 +141,14 @@ export async function updateMenuItem(c: Context) {
   const id = c.req.param('id') ?? '';
   const body = c.get('validatedJson');
   await checkDishLinks(body.categoryId, body.addonGroupIds);
-  const photo = await storeImage(c, body.photo, 'dishes');
-  if (photo !== undefined) body.photo = photo;
-
-  const item = await MenuItem.findByIdAndUpdate(id, photo === null ? { $set: { ...body, photo: undefined }, $unset: { photo: 1 } } : { $set: body }, { returnDocument: 'after' });
+  const stored = await storePhoto(c, body.photo, 'dishes');
+  delete body.photo;
+  // A new photo sets both fields; clearing removes both. A URL sent back as it is (the apps never do) keeps its sizes.
+  const update =
+    stored === null
+      ? { $set: body, $unset: { photo: 1, photoSizes: 1 } }
+      : { $set: { ...body, ...(stored && { photo: stored.photo }), ...(stored?.photoSizes && { photoSizes: stored.photoSizes }) } };
+  const item = await MenuItem.findByIdAndUpdate(id, update, { returnDocument: 'after' });
   if (!item) return c.json({ message: 'Menu item not found' }, 404);
   return c.json(dishJson(item, c.get('branchId')));
 }

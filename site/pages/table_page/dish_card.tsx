@@ -2,9 +2,10 @@ import type AddonGroup from '../../types/addon_group';
 import type Dish from '../../types/dish';
 import formatRs from '../../utils/format_rs';
 import AddToCart from './add_to_cart';
+import Photo from '../../components/photo';
 
 /** A dish as a guest reads it: name, what it is, its price (from the smallest size), a photo, and the way to add it. */
-export default function DishCard({ dish, groups }: { dish: Dish; groups: AddonGroup[] }) {
+export default function DishCard({ dish, groups, priority = false }: { dish: Dish; groups: AddonGroup[]; priority?: boolean }) {
   const from = Math.min(...dish.sizes.map((size) => size.price));
   const orderable = !dish.soldOut && dish.sizes.length > 0;
 
@@ -21,9 +22,7 @@ export default function DishCard({ dish, groups }: { dish: Dish; groups: AddonGr
           {orderable ? <AddToCart dish={dish} groups={groups} /> : <span className="rounded-full bg-canvas px-3 py-1 text-sm font-semibold text-ink-3">Sold out</span>}
         </div>
       </div>
-      {dish.photo && (
-        <img src={dish.photo} alt="" loading="lazy" decoding="async" className="size-28 shrink-0 rounded-control bg-canvas object-cover" />
-      )}
+      {dish.photo && <Photo src={dish.photo} sizes={dish.photoSizes} shownAt="112px" priority={priority} className="size-28 shrink-0 rounded-control" />}
     </li>
   );
 }
