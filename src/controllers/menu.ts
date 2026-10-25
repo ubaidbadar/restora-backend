@@ -122,8 +122,11 @@ export async function deleteAddonGroup(c: Context) {
 export async function createMenuItem(c: Context) {
   const body = c.get('validatedJson');
   await checkDishLinks(body.categoryId, body.addonGroupIds);
-  const { photo, photoSizes } = (await storePhoto(c, body.photo, 'dishes')) ?? {};
-  Object.assign(body, { photo, photoSizes });
+  const stored = await storePhoto(c, body.photo, 'dishes');
+  delete body.photo;
+  if (stored) {
+    Object.assign(body, { photo: stored.photo, ...(stored.photoSizes && { photoSizes: stored.photoSizes }) });
+  }
 
   const item = await MenuItem.create(body);
 

@@ -96,16 +96,20 @@ export async function uploadToCloudflare(
   const size = buffer.byteLength;
 
   if (client) {
-    // Upload directly to Cloudflare R2 using Bun's built-in S3Client
-    await client.write(key, buffer, {
-      type: options.contentType || `image/${ext === 'jpg' ? 'jpeg' : ext}`,
-    });
-    return {
-      url: getPublicUrl(key),
-      key,
-      size,
-      contentType: options.contentType,
-    };
+    try {
+      // Upload directly to Cloudflare R2 using Bun's built-in S3Client
+      await client.write(key, buffer, {
+        type: options.contentType || `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+      });
+      return {
+        url: getPublicUrl(key),
+        key,
+        size,
+        contentType: options.contentType,
+      };
+    } catch (err) {
+      console.warn('Cloudflare R2 write failed, falling back to local storage:', err);
+    }
   }
 
   // Local fallback when Cloudflare R2 credentials are not set: flat folder, prefix folded into the file name.
