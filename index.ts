@@ -126,6 +126,7 @@ api.route('/dashboard', dashboardRouter);
 api.route('/audit', auditRouter);
 api.route('/guest-requests', guestRequestRouter);
 api.route('/me', accountRouter);
+api.route('/account', accountRouter);
 api.route('/uploads', uploadRouter);
 
 app.route('/api/v1', api);

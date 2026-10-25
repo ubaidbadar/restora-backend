@@ -1,5 +1,9 @@
 import type { Context } from 'hono';
+import mongoose from 'mongoose';
 import auth from '../config/auth';
+import StaffMember from '../models/staff_member';
+import Restaurant from '../models/restaurant';
+import { runWithoutTenant } from '../middlewares/tenant_context';
 import logAudit from '../utils/audit';
 import validatePin from '../utils/validate_pin';
 import { moveTo, toMe, type Workplace } from '../utils/workplace';
@@ -110,6 +114,53 @@ export async function setStaffPin(c: Context) {
   return c.json({ success: true });
 }
 
+export async function deleteAccount(c: Context) {
+  const user = c.get('user');
+
+  if (c.get('via') !== 'web') {
+    return c.json({ message: 'Delete your account from the web application' }, 403);
+  }
+
+  // A primary owner cannot delete their account while owning active restaurants
+  const activeOwnedRestaurants = await runWithoutTenant(async () => {
+    const ownedMemberships = await StaffMember.find({ userId: user.id, isPrimaryOwner: true });
+    if (!ownedMemberships.length) return [];
+    const rids = ownedMemberships.map((m) => m.restaurantId);
+    return Restaurant.find({ _id: { $in: rids }, status: { $ne: 'deleting' } });
+  });
+
+  if (activeOwnedRestaurants.length > 0) {
+    const names = activeOwnedRestaurants.map((r) => r.name).join(', ');
+    return c.json(
+      { message: `You are the owner of ${names}. Transfer ownership or delete the restaurant first.` },
+      400
+    );
+  }
+
+  await logAudit({
+    action: 'account.deleted',
+    actor: { name: user.name, via: 'web' },
+    target: { type: 'user', id: user.id, label: user.email },
+  });
+
+  // Remove memberships across all restaurants
+  await runWithoutTenant(() => StaffMember.deleteMany({ userId: user.id }));
+
+  // Clean up user, sessions, and accounts from MongoDB
+  const db = mongoose.connection.getClient().db();
+  const userObjId = mongoose.Types.ObjectId.isValid(user.id) ? new mongoose.Types.ObjectId(user.id) : user.id;
+
+  await Promise.all([
+    db.collection('user').deleteMany({ $or: [{ _id: userObjId }, { _id: String(user.id) }] }),
+    db.collection('session').deleteMany({ $or: [{ userId: userObjId }, { userId: String(user.id) }] }),
+    db.collection('account').deleteMany({ $or: [{ userId: userObjId }, { userId: String(user.id) }] }),
+  ]);
+
+  c.header('Set-Cookie', 'better-auth.session_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax');
+
+  return c.json({ success: true, message: 'Account deleted' });
+}
+
 export default {
   getMe,
   switchWorkplace,
@@ -119,4 +170,5 @@ export default {
   revokeOtherSessions,
   updateProfile,
   setPin: setStaffPin,
+  deleteAccount,
 };

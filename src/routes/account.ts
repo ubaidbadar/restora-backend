@@ -20,5 +20,7 @@ accountRouter.post('/sessions/revoke-others', requireWeb, accountController.revo
 accountRouter.delete('/sessions/:token', requireWeb, accountController.revokeSession);
 accountRouter.patch('/profile', requireWeb, validateBody(profileSchema), accountController.updateProfile);
 accountRouter.post('/pin', requireWeb, requireFreshSession, validateBody(pinValidationSchema), accountController.setPin);
+accountRouter.delete('/', requireWeb, accountController.deleteAccount);
+accountRouter.post('/delete', requireWeb, accountController.deleteAccount);
 
 export default accountRouter;

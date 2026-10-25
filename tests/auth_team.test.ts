@@ -347,4 +347,27 @@ describe('Auth, onboarding and team management', () => {
     const me = (await json(res)).me;
     expect(me.workplace.restaurant.name).toBe('Other Place');
   });
+
+  it('account deletion: prevents owner of active restaurant, and allows deletion otherwise', async () => {
+    // A fresh owner with an active restaurant cannot delete account
+    const freshOwner = await signup('fresh-owner@test.com', 'Fresh Owner');
+    await onboard(freshOwner, 'Fresh Restaurant');
+    const deleteOwnerRes = await call(freshOwner, 'DELETE', '/me');
+    expect(deleteOwnerRes.status).toBe(400);
+    const err = await json(deleteOwnerRes);
+    expect(err.message).toContain('Transfer ownership or delete the restaurant first');
+
+    // Create a standalone user with no restaurants
+    const solo = await signup('solo-user@test.com', 'Solo User');
+    const soloMe = await call(solo, 'GET', '/me');
+    expect(soloMe.status).toBe(200);
+
+    // Delete account succeeds
+    const deleteRes = await call(solo, 'DELETE', '/me');
+    expect(deleteRes.status).toBe(200);
+
+    // After deletion, session no longer works
+    const afterRes = await call(solo, 'GET', '/me');
+    expect(afterRes.status).toBe(401);
+  });
 });
