@@ -9,7 +9,7 @@ export type OrderEvent =
   | { type: 'order.created' | 'order.updated'; data: IOrder }
   | { type: 'call.created' | 'call.updated'; data: IGuestRequest };
 /** `calls`: also the guests' waiter and bill calls (needs tables:view). */
-type Listener = { restaurantId: string; branchId?: string; calls: boolean; send: (event: OrderEvent) => void };
+type Listener = { restaurantId: string; branchId?: string; tableId?: string; calls: boolean; send: (event: OrderEvent) => void };
 
 const KINDS = ['order', 'call'] as const;
 const listeners = new Set<Listener>();
@@ -27,6 +27,7 @@ function announce(kind: Kind, data: OrderEvent['data'], created: boolean) {
   for (const listener of listeners) {
     if (listener.restaurantId !== data.restaurantId) continue;
     if (listener.branchId && listener.branchId !== data.branchId) continue;
+    if (listener.tableId && ('tableId' in data ? data.tableId !== listener.tableId : true)) continue;
     if (kind === 'call' && !listener.calls) continue;
     listener.send({ type, data } as OrderEvent);
   }

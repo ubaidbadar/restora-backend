@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import useCartStore from '../../store/cart_store';
 import type TableMenu from '../../types/table_menu';
+import type TableOrder from '../../types/table_order';
+import ActiveOrders from './active_orders';
 import CartBar from './cart_bar';
 import DishCard from './dish_card';
 import OffersCard from './offers_card';
@@ -12,6 +14,79 @@ import OffersCard from './offers_card';
 export default function TablePage({ code, menu }: { code: string; menu: TableMenu }) {
   // The cart lives in this tab, so the server renders it empty and the browser fills it in.
   useEffect(() => useCartStore.getState().load(code), [code]);
+
+  const [orders, setOrders] = useState<TableOrder[]>(menu.orders ?? []);
+
+  // Connects to the SSE stream in the browser and keeps table orders live in real time.
+  useEffect(() => {
+    setOrders(menu.orders ?? []);
+    if (typeof EventSource === 'undefined') return;
+
+    let source: EventSource | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+
+    const reload = async () => {
+      try {
+        const res = await fetch(`/api/v1/public/t/${code}/orders`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setOrders(data);
+        }
+      } catch {}
+    };
+
+    const upsert = (order: TableOrder) => {
+      setOrders((current) => {
+        const idx = current.findIndex((o) => o._id === order._id);
+        return idx >= 0 ? current.map((o) => (o._id === order._id ? order : o)) : [...current, order];
+      });
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      source?.close();
+      try {
+        source = new EventSource(`/api/v1/public/t/${code}/stream`);
+      } catch {
+        return;
+      }
+
+      source.addEventListener('order.created', (event) => {
+        try {
+          const order: TableOrder = JSON.parse(event.data);
+          upsert(order);
+          navigator.vibrate?.([20, 50, 20]);
+        } catch {}
+      });
+
+      source.addEventListener('order.updated', (event) => {
+        try {
+          const order: TableOrder = JSON.parse(event.data);
+          upsert(order);
+          navigator.vibrate?.(30);
+        } catch {}
+      });
+
+      source.onopen = () => reload();
+
+      source.onerror = () => {
+        source?.close();
+        if (!stopped) {
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(connect, 4_000);
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      stopped = true;
+      clearTimeout(retryTimer);
+      source?.close();
+    };
+  }, [code, menu.orders]);
 
   const groupsById = new Map(menu.addonGroups.map((group) => [group._id, group]));
   const categories = menu.categories
@@ -48,6 +123,7 @@ export default function TablePage({ code, menu }: { code: string; menu: TableMen
         )}
 
         <main className="mx-auto flex max-w-xl flex-col gap-8 px-4 pt-6">
+          <ActiveOrders orders={orders} tableName={menu.table.name} />
           {categories.length === 0 && <p className="rounded-panel bg-paper p-6 text-center text-ink-2">The menu is being updated. Please ask a waiter.</p>}
           {categories.map((category, categoryIndex) => (
             <section key={category._id} id={`c-${category._id}`} aria-labelledby={`h-${category._id}`} className="scroll-mt-20">
@@ -64,7 +140,7 @@ export default function TablePage({ code, menu }: { code: string; menu: TableMen
           {categories.length > 0 && <OffersCard code={code} restaurantName={menu.restaurant.name} />}
         </main>
       </div>
-      <CartBar code={code} tableName={menu.table.name} />
+      <CartBar code={code} tableName={menu.table.name} orders={orders} onOrderSent={(order) => setOrders((prev) => [...prev, order])} />
     </>
   );
 }

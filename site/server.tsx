@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import path from 'path';
 import type { ComponentType, ReactNode } from 'react';
 import { renderToReadableStream } from 'react-dom/server';
-import { findPublicMenu } from '../src/controllers/public_menu';
+import publicMenuController, { findPublicMenu } from '../src/controllers/public_menu';
 import ROUTES from './constants/routes';
 import Document from './hoc/document';
 import SiteLayout from './hoc/site_layout';
@@ -105,6 +105,10 @@ const tablePage = async (c: Context) => {
   const props = { code, menu };
   return html(c, await renderHtml({ title: 'Menu', noindex: true }, <TablePage {...props} />, { page: 'table_page', path: c.req.path, layout: false, props }), 200, 'no-store');
 };
+site.get('/t/:code/stream', publicMenuController.stream);
+site.get('/t/:restaurant/:table/stream', publicMenuController.stream);
+site.get('/t/:code/orders', publicMenuController.getOrders);
+site.get('/t/:restaurant/:table/orders', publicMenuController.getOrders);
 site.get('/t/:code', tablePage);
 site.get('/t/:restaurant/:table', tablePage);
 

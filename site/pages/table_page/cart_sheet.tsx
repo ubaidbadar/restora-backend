@@ -2,16 +2,21 @@ import { CircleCheck } from 'lucide-react';
 import withOverlay from '../../hoc/withOverlay';
 import useCartStore from '../../store/cart_store';
 import type ShowTools from '../../types/show_tools';
+import type TableOrder from '../../types/table_order';
 import BottomSheet from '../../ui/bottom_sheet';
 import formatRs from '../../utils/format_rs';
 import SendOrder from './send_order';
 import Stepper from './stepper';
 
+interface CartSheetProps extends ShowTools {
+  onOrderSent?: (order: TableOrder) => void;
+}
+
 /**
  * The cart: each line with its choices and how many, the total, and sending it. Once sent it shows the order's number,
  * so the guest can tell the waiter; the waiter confirms it before the kitchen starts.
  */
-function CartSheet({ close }: ShowTools) {
+function CartSheet({ close, onOrderSent }: CartSheetProps) {
   const cart = useCartStore();
 
   if (cart.justSent !== null) {
@@ -38,7 +43,7 @@ function CartSheet({ close }: ShowTools) {
   }
 
   return (
-    <BottomSheet title="Your order" onClose={close} footer={<SendOrder code={cart.code} lines={cart.lines} clientId={cart.clientId} />}>
+    <BottomSheet title="Your order" onClose={close} footer={<SendOrder code={cart.code} lines={cart.lines} clientId={cart.clientId} onOrderSent={onOrderSent} />}>
       <ul className="flex flex-col divide-y divide-rule">
         {cart.lines.map((line) => {
           const details = [line.sizeName, ...line.addonNames].filter(Boolean).join(', ');

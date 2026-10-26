@@ -2,13 +2,14 @@ import { useState } from 'react';
 import api from '../../config/api';
 import useCartStore from '../../store/cart_store';
 import type CartLine from '../../types/cart_line';
+import type TableOrder from '../../types/table_order';
 import formatRs from '../../utils/format_rs';
 
 /**
  * Sends the guest's cart to the kitchen's queue; staff accept it before it is cooked. `clientId` is made once per cart,
  * so a retry after a dropped connection gives the same order, not a second one. Prices are the API's, never the page's.
  */
-export default function SendOrder({ code, lines, clientId }: { code: string; lines: CartLine[]; clientId: string }) {
+export default function SendOrder({ code, lines, clientId, onOrderSent }: { code: string; lines: CartLine[]; clientId: string; onOrderSent?: (order: TableOrder) => void }) {
   const [send, setSend] = useState({ sending: false, error: '' });
   const total = lines.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
 
@@ -16,10 +17,13 @@ export default function SendOrder({ code, lines, clientId }: { code: string; lin
     setSend({ sending: true, error: '' });
     const items = lines.map(({ itemId, sizeId, addonIds, note, qty }) => ({ itemId, sizeId, addonIds, note, qty }));
     api
-      .post<{ dailyToken: number }>(`/public/t/${code}/order`, { items, clientId })
+      .post<TableOrder>(`/public/t/${code}/order`, { items, clientId })
       .then((res) => {
         navigator.vibrate?.([12, 60, 12]);
         useCartStore.getState().markSent(res.data.dailyToken);
+        if (res.data._id) {
+          onOrderSent?.(res.data);
+        }
       })
       .catch((err) => setSend({ sending: false, error: err.message }));
   };

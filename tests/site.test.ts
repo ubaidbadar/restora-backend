@@ -180,4 +180,75 @@ describe('Site', () => {
     expect(upgraded.photoSizes?.md).toMatch(/-480\.webp$/);
     expect((await MenuItem.findById(lost._id))!.photoSizes).toBeUndefined();
   });
+
+  it('provides realtime orders updates and SSE stream for table guests', async () => {
+    const api = await owner('stream-owner@test.com');
+    const cat = (await (await api('POST', '/menu/categories', { name: 'Desserts' })).json()) as Json;
+    const item = (await (await api('POST', '/menu/items', { categoryId: cat._id, name: 'Kheer', sizes: [{ price: 250 }] })).json()) as Json;
+    const [tableA, tableB] = (await (await api('POST', '/tables/batch', { names: ['T10', 'T20'], section: 'Hall' })).json()) as Json[];
+
+    // 1. Initially no active orders
+    const initialOrders = (await (await app.request(`/api/v1/public/t/${tableA!.qrCode}/orders`)).json()) as Json[];
+    expect(initialOrders).toEqual([]);
+
+    // 2. Open SSE stream for tableA
+    const streamRes = await app.request(`/api/v1/public/t/${tableA!.qrCode}/stream`);
+    expect(streamRes.status).toBe(200);
+    expect(streamRes.headers.get('content-type')).toContain('text/event-stream');
+
+    const reader = streamRes.body?.getReader();
+    expect(reader).toBeTruthy();
+    const decoder = new TextDecoder();
+
+    // 3. Guest places order on tableA
+    const placeRes = await app.request(`/api/v1/public/t/${tableA!.qrCode}/order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ itemId: item._id, qty: 2 }] }),
+    });
+    expect(placeRes.status).toBe(201);
+    const placedOrder = (await placeRes.json()) as Json;
+    expect(placedOrder.dailyToken).toBeGreaterThan(0);
+    expect(placedOrder.status).toBe('pending');
+
+    // 4. Guest on tableB places order
+    const tableBRes = await app.request(`/api/v1/public/t/${tableB!.qrCode}/order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ itemId: item._id, qty: 1 }] }),
+    });
+    expect(tableBRes.status).toBe(201);
+
+    // 5. Read stream chunk: should receive order.created for tableA, NOT tableB!
+    let receivedText = '';
+    const readStream = async () => {
+      while (!receivedText.includes('order.created')) {
+        const { value, done } = await reader!.read();
+        if (done) break;
+        receivedText += decoder.decode(value);
+      }
+    };
+    await Promise.race([readStream(), new Promise((resolve) => setTimeout(resolve, 3000))]);
+
+    expect(receivedText).toContain('event: order.created');
+    expect(receivedText).toContain(`"dailyToken":${placedOrder.dailyToken}`);
+    expect(receivedText).not.toContain(`Table 20`);
+
+    // 6. Check that GET /orders for tableA lists placed order
+    const activeOrders = (await (await app.request(`/api/v1/public/t/${tableA!.qrCode}/orders`)).json()) as Json[];
+    expect(activeOrders).toHaveLength(1);
+    expect(activeOrders[0].dailyToken).toBe(placedOrder.dailyToken);
+    expect(activeOrders[0].status).toBe('pending');
+    expect(activeOrders[0].items[0].name).toBe('Kheer');
+    expect(activeOrders[0].items[0].qty).toBe(2);
+
+    // 7. Check that SSR tablePage renders this active order into the page
+    const pageHtml = await (await app.request(`/t/${tableA!.qrCode}`)).text();
+    expect(pageHtml).toContain(`Order #${placedOrder.dailyToken}`);
+    expect(pageHtml).toContain('Waiting for staff');
+    expect(pageHtml).toContain('Kheer');
+
+    // Clean up stream
+    await reader!.cancel();
+  });
 });

@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import Table from '../models/table';
 import Branch from '../models/branch';
 import Restaurant from '../models/restaurant';
@@ -15,12 +16,32 @@ import dayKey from '../utils/day_key';
 import httpError from '../utils/http_error';
 import runInTransaction from '../utils/transaction';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
+import onOrderEvent from '../services/order_events';
 
 export async function getPublicMenu(c: Context) {
   const menu = await findPublicMenu(codeOf(c));
   if (menu === 'no_table') return c.json({ message: 'Table not found or has been removed' }, 404);
   if (menu === 'closed') return c.json({ message: 'This restaurant is not taking orders here right now' }, 404);
   return c.json(menu);
+}
+
+export function toPublicTableOrder(order: any) {
+  return {
+    _id: String(order._id),
+    dailyToken: order.dailyToken,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    items: (order.items || []).map((it: any) => ({
+      name: it.name,
+      qty: it.qty,
+      price: it.price,
+      sizeName: it.sizeName || undefined,
+      addonNames: it.addonNames || [],
+      note: it.note || undefined,
+    })),
+    total: order.total,
+    createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : String(order.createdAt),
+  };
 }
 
 /**
@@ -33,17 +54,26 @@ export async function findPublicMenu(code: string | undefined) {
 
   const { restaurantId, branchId } = table;
 
-  const [restaurant, branch, categories, addonGroups, items] = await runWithTenant(
+  const [restaurant, branch, categories, addonGroups, items, orders] = await runWithTenant(
     restaurantId,
     async () => {
       const r = await runWithoutTenant(() => Restaurant.findById(restaurantId));
       const b = await Branch.findById(branchId);
-      if (!r || !b || b.isActive === false) return [null, null, [], [], []] as const;
+      if (!r || !b || b.isActive === false) return [null, null, [], [], [], []] as const;
       const cats = await MenuCategory.find({}).sort({ sortOrder: 1 });
       const groups = await AddonGroup.find({}).sort({ createdAt: 1 });
       const rawItems = await MenuItem.find({ hidden: false }).sort({ createdAt: 1 });
+      const today = dayKey();
+      const tableId = String(table._id);
+      const activeOrders = await Order.find({
+        branchId,
+        tableId,
+        dayKey: today,
+        status: { $ne: 'cancelled' },
+        $or: [{ status: { $ne: 'completed' } }, { paymentStatus: { $ne: 'paid' } }],
+      }).sort({ createdAt: 1 });
 
-      return [r, b, cats, groups, rawItems];
+      return [r, b, cats, groups, rawItems, activeOrders];
     }
   );
 
@@ -60,6 +90,7 @@ export async function findPublicMenu(code: string | undefined) {
     table: {
       name: table.name,
     },
+    orders: orders.map(toPublicTableOrder),
     categories: categories.map((cat) => ({
       _id: String(cat._id),
       name: cat.name,
@@ -239,8 +270,65 @@ export async function resolveGuestRequest(c: Context) {
   return c.json({ success: true, message: 'Request resolved' });
 }
 
+export async function getTableOrders(c: Context) {
+  const table = await tableForCode(codeOf(c));
+  if (!table) return c.json({ message: 'Table not found' }, 404);
+
+  const orders = await runWithTenant(table.restaurantId, async () => {
+    const today = dayKey();
+    const tableId = String(table._id);
+    const activeOrders = await Order.find({
+      branchId: table.branchId,
+      tableId,
+      dayKey: today,
+      status: { $ne: 'cancelled' },
+      $or: [{ status: { $ne: 'completed' } }, { paymentStatus: { $ne: 'paid' } }],
+    }).sort({ createdAt: 1 });
+    return activeOrders.map(toPublicTableOrder);
+  });
+
+  return c.json(orders);
+}
+
+export async function streamTableOrders(c: Context) {
+  const table = await tableForCode(codeOf(c));
+  if (!table) return c.json({ message: 'Table not found' }, 404);
+
+  (c.env as { timeout?: (req: Request, seconds: number) => void } | undefined)?.timeout?.(c.req.raw, 0);
+  c.header('X-Accel-Buffering', 'no');
+
+  const tableId = String(table._id);
+  const res = streamSSE(c, async (stream) => {
+    const off = onOrderEvent({
+      restaurantId: table.restaurantId,
+      branchId: table.branchId,
+      tableId,
+      calls: false,
+      send: ({ type, data }) => {
+        if ('tableId' in data && data.tableId === tableId) {
+          void stream.writeSSE({ event: type, data: JSON.stringify(toPublicTableOrder(data)) });
+        }
+      },
+    });
+    const ping = setInterval(() => void stream.write(': ping\n\n'), 25_000);
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5 * 60_000);
+      stream.onAbort(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    clearInterval(ping);
+    off();
+  });
+  res.headers.set('Cache-Control', 'no-cache, no-transform');
+  return res;
+}
+
 export default {
   getMenu: getPublicMenu,
+  getOrders: getTableOrders,
+  stream: streamTableOrders,
   call: createGuestCall,
   order: placeGuestOrder,
   optIn,
