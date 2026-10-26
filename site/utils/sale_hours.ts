@@ -4,7 +4,11 @@ const time = (hhmm: string) => {
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
 };
 
-/** When a deal is sold, in words: "Mon, Tue · 12pm to 4pm" (the week from Monday), or '' when it is always sold. */
+/** When a deal is sold, in words: "Mon to Fri · 12pm to 4pm" or "Sat, Sun", or '' when it is always sold. */
 export default function saleHours({ days, from, to }: { days?: number[]; from?: string; to?: string }): string {
-  return [days?.length ? [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((day) => DAYS[day]).join(', ') : '', from && to ? `${time(from)} to ${time(to)}` : ''].filter(Boolean).join(' · ');
+  // The week from Monday: Monday is 0 here, Sunday 6.
+  const week = [...(days ?? [])].map((day) => (day + 6) % 7).sort((a, b) => a - b);
+  const run = week.length >= 3 && week.every((day, index) => index === 0 || day === week[index - 1]! + 1);
+  const named = week.map((day) => DAYS[(day + 1) % 7]);
+  return [run ? `${named[0]} to ${named[named.length - 1]}` : named.join(', '), from && to ? `${time(from)} to ${time(to)}` : ''].filter(Boolean).join(' · ');
 }
