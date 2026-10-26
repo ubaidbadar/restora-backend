@@ -6,6 +6,29 @@ export const menuSizeSchema = z.object({
   price: z.coerce.number().min(0, 'Price must be 0 or more'),
 });
 
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const time = z.union([z.literal(''), z.string().regex(HHMM, 'Use a time like 12:00')]);
+/** Both hours or neither: a deal is sold from one time to another, or all day. */
+const bothHours = (item: { from?: string; to?: string }) => (!item.from && !item.to) || (!!item.from && !!item.to && item.from !== item.to);
+const hoursIssue = { error: 'Enter both times, or neither for all day', path: ['to'] };
+
+/** A dish in a deal; the dish's first size when none is picked. */
+export const dealPartSchema = z.object({
+  itemId: z.string().min(1, 'Pick a dish'),
+  sizeId: z.string().nullish().transform((v) => v || undefined),
+  qty: z.coerce.number().int().min(1).max(20),
+});
+
+const dealFields = {
+  includes: z.array(dealPartSchema).max(20),
+  days: z
+    .array(z.number().int().min(0).max(6))
+    .max(7)
+    .transform((days) => [...new Set(days)].sort()),
+  from: time,
+  to: time,
+};
+
 export const menuItemSchema = z.object({
   categoryId: z.string().min(1, 'Pick a category'),
   name: z.string().trim().min(1, 'Enter the dish name').max(80),
@@ -16,8 +39,12 @@ export const menuItemSchema = z.object({
     .min(1, 'Add at least one price')
     .transform((sizes) => (sizes.length === 1 ? [{ ...sizes[0]!, name: '' }] : sizes)),
   addonGroupIds: z.array(z.string()).default([]),
+  includes: dealFields.includes.default([]),
+  days: dealFields.days.default([]),
+  from: dealFields.from.default(''),
+  to: dealFields.to.default(''),
   hidden: z.boolean().default(false),
-});
+}).refine(bothHours, hoursIssue);
 
 /** Editing a dish changes only the fields sent: no defaults, so a rename does not clear add-ons or unhide it. */
 export const menuItemUpdateSchema = z.object({
@@ -31,8 +58,12 @@ export const menuItemUpdateSchema = z.object({
     .transform((sizes) => (sizes.length === 1 ? [{ ...sizes[0]!, name: '' }] : sizes))
     .optional(),
   addonGroupIds: z.array(z.string()).optional(),
+  includes: dealFields.includes.optional(),
+  days: dealFields.days.optional(),
+  from: dealFields.from.optional(),
+  to: dealFields.to.optional(),
   hidden: z.boolean().optional(),
-});
+}).refine(bothHours, hoursIssue);
 
 export const menuCategorySchema = z.object({
   name: z.string().trim().min(1, 'Enter the category name').max(40),

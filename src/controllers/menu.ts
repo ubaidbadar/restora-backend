@@ -1,11 +1,13 @@
 import type { Context } from 'hono';
 import MenuCategory from '../models/menu_category';
 import AddonGroup from '../models/addon_group';
-import MenuItem from '../models/menu_item';
+import MenuItem, { type IDealPart } from '../models/menu_item';
 import logAudit from '../utils/audit';
 import storePhoto from '../utils/store_photo';
 import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
+import { toObjectId } from '../utils/auth_users';
+import { getTenantId } from '../middlewares/tenant_context';
 
 /** The dish as the client shows it: `soldOut` for the given branch instead of the raw branch list. */
 function dishJson(item: InstanceType<typeof MenuItem>, branchId?: string) {
@@ -19,19 +21,47 @@ function dishJson(item: InstanceType<typeof MenuItem>, branchId?: string) {
     photoSizes: item.photoSizes,
     sizes: obj.sizes,
     addonGroupIds: item.addonGroupIds,
+    includes: item.includes.map((part) => ({ itemId: part.itemId, sizeId: part.sizeId, qty: part.qty })),
+    days: item.days,
+    from: item.from,
+    to: item.to,
     soldOut: branchId ? item.soldOutBranchIds.includes(branchId) : item.soldOutBranchIds.length > 0,
     hidden: item.hidden,
   };
 }
 
-/** The category and add-on groups a dish points to must exist in this restaurant. */
-async function checkDishLinks(categoryId?: string, addonGroupIds?: string[]) {
-  if (categoryId && !(await MenuCategory.exists({ _id: categoryId }).catch(() => null))) {
-    throw httpError(400, 'Pick a category of this menu');
-  }
-  const ids = [...new Set(addonGroupIds ?? [])];
-  if (ids.length && (await AddonGroup.countDocuments({ _id: { $in: ids } }).catch(() => -1)) !== ids.length) {
-    throw httpError(400, 'One of the add-on groups does not exist');
+/**
+ * What a dish points to must exist in this restaurant: its category, its add-on groups and, for a deal, the dishes in it
+ * with their sizes. A deal is made of plain dishes, so a deal cannot hold a deal, and a dish in a deal cannot become one.
+ * One aggregation for all of it.
+ */
+async function checkDishLinks(body: { categoryId?: string; addonGroupIds?: string[]; includes?: IDealPart[] }, selfId?: string) {
+  const restaurantId = getTenantId();
+  const groupIds = [...new Set(body.addonGroupIds ?? [])];
+  const parts = body.includes ?? [];
+  const partIds = [...new Set(parts.map((part) => part.itemId))];
+  if (selfId && partIds.includes(selfId)) throw httpError(400, 'A deal cannot hold itself');
+
+  const found = await MenuCategory.aggregate<{ kind: 'category' | 'group' | 'dish' | 'holder'; _id: unknown; name?: string; sizes?: { _id: unknown }[]; includes?: IDealPart[] }>([
+    { $match: { _id: toObjectId(body.categoryId ?? '') } },
+    { $project: { kind: 'category' } },
+    { $unionWith: { coll: AddonGroup.collection.collectionName, pipeline: [{ $match: { restaurantId, _id: { $in: groupIds.map(toObjectId) } } }, { $project: { kind: 'group' } }] } },
+    { $unionWith: { coll: MenuItem.collection.collectionName, pipeline: [{ $match: { restaurantId, _id: { $in: partIds.map(toObjectId) } } }, { $project: { kind: 'dish', name: 1, sizes: 1, includes: 1 } }] } },
+    // A deal holding this dish: then this dish cannot become a deal.
+    ...(selfId && parts.length ? [{ $unionWith: { coll: MenuItem.collection.collectionName, pipeline: [{ $match: { restaurantId, 'includes.itemId': selfId } }, { $limit: 1 }, { $project: { kind: 'holder', name: 1 } }] } }] : []),
+  ]);
+  const of = (kind: string) => found.filter((doc) => doc.kind === kind);
+
+  if (body.categoryId && !of('category').length) throw httpError(400, 'Pick a category of this menu');
+  if (of('group').length !== groupIds.length) throw httpError(400, 'One of the add-on groups does not exist');
+  const holder = of('holder')[0];
+  if (holder) throw httpError(400, `This dish is in "${holder.name}", so it cannot be a deal itself`);
+  const dishes = new Map(of('dish').map((dish) => [String(dish._id), dish]));
+  for (const part of parts) {
+    const dish = dishes.get(part.itemId);
+    if (!dish) throw httpError(400, 'One of the dishes in the deal is not on the menu');
+    if (dish.includes?.length) throw httpError(400, `"${dish.name}" is a deal itself`);
+    if (part.sizeId && !dish.sizes?.some((size) => String(size._id) === part.sizeId)) throw httpError(400, `Pick a size of "${dish.name}"`);
   }
 }
 
@@ -121,7 +151,7 @@ export async function deleteAddonGroup(c: Context) {
 
 export async function createMenuItem(c: Context) {
   const body = c.get('validatedJson');
-  await checkDishLinks(body.categoryId, body.addonGroupIds);
+  await checkDishLinks(body);
   const stored = await storePhoto(c, body.photo, 'dishes');
   delete body.photo;
   if (stored) {
@@ -143,7 +173,7 @@ export async function createMenuItem(c: Context) {
 export async function updateMenuItem(c: Context) {
   const id = c.req.param('id') ?? '';
   const body = c.get('validatedJson');
-  await checkDishLinks(body.categoryId, body.addonGroupIds);
+  await checkDishLinks(body, id);
   const stored = await storePhoto(c, body.photo, 'dishes');
   delete body.photo;
   // A new photo sets both fields; clearing removes both. A URL sent back as it is (the apps never do) keeps its sizes.
@@ -158,6 +188,8 @@ export async function updateMenuItem(c: Context) {
 
 export async function deleteMenuItem(c: Context) {
   const id = c.req.param('id') ?? '';
+  const deal = await MenuItem.findOne({ 'includes.itemId': id }, { name: 1 });
+  if (deal) return c.json({ message: `Take it out of "${deal.name}" first` }, 400);
   const item = await MenuItem.findByIdAndDelete(id);
   if (!item) return c.json({ message: 'Menu item not found' }, 404);
   return c.json({ success: true, message: 'Menu item deleted' });

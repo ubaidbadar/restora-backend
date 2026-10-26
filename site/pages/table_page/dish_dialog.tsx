@@ -63,6 +63,7 @@ function DishDialog({ dish, groups, close }: { dish: Dish; groups: AddonGroup[] 
         </div>
       }
     >
+      {dish.includes && <p className="mb-2 text-ink">{dish.includes.map((part) => `${part.qty}× ${part.name}${part.sizeName ? ` (${part.sizeName})` : ''}`).join(' · ')}</p>}
       {dish.description && <p className="mb-4 text-ink-2">{dish.description}</p>}
 
       {dish.sizes.length > 1 && (

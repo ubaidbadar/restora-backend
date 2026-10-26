@@ -1946,6 +1946,10 @@ components:
         photo: { type: [string, 'null'], description: 'A data URL (a new photo, saved in three sizes: see docs/photos.md), a URL to keep, or null to remove it. Answers carry photoSizes { sm, md, width, height, blur }.' }
         sizes: { type: array, minItems: 1, items: { $ref: '#/components/schemas/MenuSize' } }
         addonGroupIds: { type: array, items: { type: string }, default: [] }
+        includes: { type: array, maxItems: 20, items: { $ref: '#/components/schemas/DealPart' }, description: 'A deal: the dishes in it (plain dishes, not deals). Empty for a dish. A dish in a deal cannot be deleted.' }
+        days: { type: array, items: { type: integer, minimum: 0, maximum: 6 }, description: 'Days it is sold on, 0 is Sunday; empty is every day' }
+        from: { type: string, description: "'HH:mm' in Pakistan time, with to; '' is all day. to before from runs past midnight. Orders outside are refused." }
+        to: { type: string }
         hidden: { type: boolean, default: false }
     MenuItemUpdate:
       type: object
@@ -1956,7 +1960,18 @@ components:
         photo: { type: [string, 'null'], description: 'A data URL (a new photo, saved in three sizes: see docs/photos.md), a URL to keep, or null to remove it. Answers carry photoSizes { sm, md, width, height, blur }.' }
         sizes: { type: array, minItems: 1, items: { $ref: '#/components/schemas/MenuSize' } }
         addonGroupIds: { type: array, items: { type: string } }
+        includes: { type: array, maxItems: 20, items: { $ref: '#/components/schemas/DealPart' }, description: 'A deal: the dishes in it (plain dishes, not deals). Empty for a dish. A dish in a deal cannot be deleted.' }
+        days: { type: array, items: { type: integer, minimum: 0, maximum: 6 }, description: 'Days it is sold on, 0 is Sunday; empty is every day' }
+        from: { type: string, description: "'HH:mm' in Pakistan time, with to; '' is all day. to before from runs past midnight. Orders outside are refused." }
+        to: { type: string }
         hidden: { type: boolean }
+    DealPart:
+      type: object
+      required: [itemId, qty]
+      properties:
+        itemId: { type: string }
+        sizeId: { type: string, description: "The dish's first size when not set" }
+        qty: { type: integer, minimum: 1, maximum: 20 }
     AddonOption:
       type: object
       required: [name]
@@ -2092,6 +2107,7 @@ components:
               sizeName: { type: string }
               addonIds: { type: array, items: { type: string } }
               addons: { type: array, items: { type: object, properties: { name: { type: string }, price: { type: number } } } }
+              includes: { type: array, description: 'A deal: the dishes in one deal, as they were when ordered', items: { type: object, properties: { name: { type: string }, sizeName: { type: string }, qty: { type: integer } } } }
               note: { type: string }
               price: { type: number }
               qty: { type: integer }
