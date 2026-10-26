@@ -128,7 +128,7 @@ export default function ActiveOrders({ orders, tableName }: ActiveOrdersProps) {
 
               {/* Items summary */}
               <ul className="flex flex-col divide-y divide-rule/60 border-t border-b border-rule/60 text-sm">
-                {order.items.map((item, idx) => {
+                {(order.items || []).map((item, idx) => {
                   const details = [
                     item.sizeName,
                     ...(item.addonNames || []),
@@ -140,14 +140,14 @@ export default function ActiveOrders({ orders, tableName }: ActiveOrdersProps) {
                   return (
                     <li key={idx} className="flex items-center justify-between py-1.5">
                       <span className="text-ink">
-                        <span className="font-semibold tabular-nums">{`${item.qty}×`}</span>{' '}
+                        <span className="font-semibold tabular-nums">{`${item.qty ?? 1}×`}</span>{' '}
                         {item.name}
                         {details && (
                           <span className="text-xs text-ink-3"> · {details}</span>
                         )}
                       </span>
                       <span className="tabular-nums text-ink-2">
-                        {formatRs(item.price * item.qty)}
+                        {formatRs((item.price ?? 0) * (item.qty ?? 1))}
                       </span>
                     </li>
                   );

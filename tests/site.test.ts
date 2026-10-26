@@ -210,6 +210,10 @@ describe('Site', () => {
     const placedOrder = (await placeRes.json()) as Json;
     expect(placedOrder.dailyToken).toBeGreaterThan(0);
     expect(placedOrder.status).toBe('pending');
+    expect(placedOrder.paymentStatus).toBe('unpaid');
+    expect(placedOrder.items).toBeDefined();
+    expect(Array.isArray(placedOrder.items)).toBe(true);
+    expect((placedOrder.items as Array<unknown>).length).toBe(1);
 
     // 4. Guest on tableB places order
     const tableBRes = await app.request(`/api/v1/public/t/${tableB!.qrCode}/order`, {

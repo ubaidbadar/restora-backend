@@ -200,31 +200,32 @@ const MAX_PENDING = 3;
  */
 export async function placeGuestOrder(c: Context) {
   const table = await tableForCode(codeOf(c));
-  if (!table) {
+  if (!table || !table.restaurantId) {
     return c.json({ message: 'Table not found' }, 404);
   }
 
   const { items, clientId } = c.get('validatedJson') as { items: Parameters<typeof priceItems>[0]; clientId?: string };
   const tableId = String(table._id);
   const today = dayKey();
+  const restaurantId = table.restaurantId;
+  const branchId = table.branchId;
 
-  const order = await runWithTenant(table.restaurantId, async () => {
-    // One query: the same order sent before (a retry), and how many of the table's orders still wait.
-    const waiting = await Order.aggregate<{ _id: unknown; clientId?: string; dailyToken: number; status: string; total: number }>([
-      { $match: { tableId, dayKey: today, $or: [{ status: 'pending' }, ...(clientId ? [{ clientId }] : [])] } },
-      { $project: { clientId: 1, dailyToken: 1, status: 1, total: 1 } },
-    ]);
-    const sent = clientId && waiting.find((o) => o.clientId === clientId);
-    if (sent) return sent;
-    if (waiting.length >= MAX_PENDING) throw httpError(429, 'Your earlier orders are still waiting for the staff. Please call a waiter.');
+  const order = await runWithTenant(restaurantId, async () => {
+    if (clientId) {
+      const sent = await Order.findOne({ branchId, tableId, dayKey: today, clientId });
+      if (sent) return sent;
+    }
 
-    const priced = await priceItems(items, table.branchId);
+    const pendingCount = await Order.countDocuments({ branchId, tableId, dayKey: today, status: 'pending' });
+    if (pendingCount >= MAX_PENDING) throw httpError(429, 'Your earlier orders are still waiting for the staff. Please call a waiter.');
+
+    const priced = await priceItems(items, branchId);
     if (typeof priced === 'string') throw httpError(400, priced);
     const totals = calcTotals(priced, 0, 0, 0);
 
     return runInTransaction(async (session) => {
       const counter = await DailyCounter.findOneAndUpdate(
-        { restaurantId: table.restaurantId, branchId: table.branchId, dayKey: today },
+        { restaurantId, branchId, dayKey: today },
         { $inc: { seq: 1 } },
         { upsert: true, returnDocument: 'after', session }
       );
@@ -232,7 +233,7 @@ export async function placeGuestOrder(c: Context) {
         [
           {
             dailyToken: counter?.seq || 1,
-            branchId: table.branchId,
+            branchId,
             type: 'dine_in',
             status: 'pending',
             items: priced,
@@ -256,7 +257,7 @@ export async function placeGuestOrder(c: Context) {
     });
   });
 
-  return c.json({ _id: String(order._id), dailyToken: order.dailyToken, status: order.status, total: order.total }, 201);
+  return c.json(toPublicTableOrder(order), 201);
 }
 
 /** A guest agrees to WhatsApp offers: saved as a customer (or the existing one is marked as agreeing). */

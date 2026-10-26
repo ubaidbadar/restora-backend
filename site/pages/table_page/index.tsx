@@ -155,7 +155,17 @@ export default function TablePage({ code, menu }: { code: string; menu: TableMen
           {categories.length > 0 && <OffersCard code={code} restaurantName={menu.restaurant.name} />}
         </main>
       </div>
-      <CartBar code={code} tableName={menu.table.name} orders={orders} onOrderSent={(order) => setOrders((prev) => [...prev, order])} />
+      <CartBar
+        code={code}
+        tableName={menu.table.name}
+        orders={orders}
+        onOrderSent={(order) => {
+          setOrders((current) => {
+            const idx = current.findIndex((o) => o._id === order._id);
+            return idx >= 0 ? current.map((o) => (o._id === order._id ? order : o)) : [...current, order];
+          });
+        }}
+      />
     </>
   );
 }
