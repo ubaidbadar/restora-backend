@@ -33,7 +33,15 @@ export default function AddToCart({ dish, groups }: { dish: Dish; groups: AddonG
   return <DishDialog dish={dish} groups={groups} component={({ open }) => <AddButton label={`Choose ${dish.name}`} count={inCart} onClick={open} />} />;
 }
 
-function AddButton({ label, count = 0, onClick }: { label: string; count?: number; onClick: () => void }) {
+export function AddButton({
+  label,
+  count = 0,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  onClick?: (e: React.MouseEvent) => void;
+}) {
   return (
     <button
       type="button"
@@ -43,7 +51,10 @@ function AddButton({ label, count = 0, onClick }: { label: string; count?: numbe
     >
       <Plus aria-hidden="true" className="size-5" strokeWidth={2.5} />
       {count > 0 && (
-        <span className="absolute -top-1 -end-1 grid min-w-5 place-items-center rounded-full bg-indigo px-1 text-xs font-bold tabular-nums text-white ring-2 ring-paper" aria-label={`${count} in your order`}>
+        <span
+          className="absolute -top-1 -end-1 grid min-w-5 place-items-center rounded-full bg-indigo px-1 text-xs font-bold tabular-nums text-white ring-2 ring-paper"
+          aria-label={`${count} in your order`}
+        >
           {count}
         </span>
       )}

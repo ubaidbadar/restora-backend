@@ -28,8 +28,8 @@ export default function Photo({ src, sizes, shownAt, className = '', priority = 
       loading={priority ? 'eager' : 'lazy'}
       fetchPriority={priority ? 'high' : 'auto'}
       decoding="async"
-      style={sizes ? { backgroundImage: `url(${sizes.blur})`, backgroundSize: 'cover' } : undefined}
-      className={`bg-canvas object-cover ${className}`}
+      style={sizes ? { backgroundImage: `url(${sizes.blur})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      className={`bg-canvas aspect-square object-cover object-center ${className}`}
     />
   );
 }
