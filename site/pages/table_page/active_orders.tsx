@@ -40,6 +40,12 @@ const STATUS_CONFIG: Record<
     step: 4,
     hint: 'Enjoy your meal! Ask for the bill below when ready.',
   },
+  out_for_delivery: {
+    label: 'On the way',
+    badgeClass: 'bg-leaf-soft text-leaf border-leaf/40',
+    step: 4,
+    hint: 'Your order is on the way.',
+  },
   cancelled: {
     label: 'Cancelled',
     badgeClass: 'bg-chili/10 text-chili border-chili/30',
@@ -122,20 +128,30 @@ export default function ActiveOrders({ orders, tableName }: ActiveOrdersProps) {
 
               {/* Items summary */}
               <ul className="flex flex-col divide-y divide-rule/60 border-t border-b border-rule/60 text-sm">
-                {order.items.map((item, idx) => (
-                  <li key={idx} className="flex items-center justify-between py-1.5">
-                    <span className="text-ink">
-                      <span className="font-semibold tabular-nums">{item.qty}×</span>{' '}
-                      {item.name}
-                      {item.sizeName && (
-                        <span className="text-xs text-ink-3"> · {item.sizeName}</span>
-                      )}
-                    </span>
-                    <span className="tabular-nums text-ink-2">
-                      {formatRs(item.price * item.qty)}
-                    </span>
-                  </li>
-                ))}
+                {order.items.map((item, idx) => {
+                  const details = [
+                    item.sizeName,
+                    ...(item.addonNames || []),
+                    item.note ? `“${item.note}”` : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
+
+                  return (
+                    <li key={idx} className="flex items-center justify-between py-1.5">
+                      <span className="text-ink">
+                        <span className="font-semibold tabular-nums">{`${item.qty}×`}</span>{' '}
+                        {item.name}
+                        {details && (
+                          <span className="text-xs text-ink-3"> · {details}</span>
+                        )}
+                      </span>
+                      <span className="tabular-nums text-ink-2">
+                        {formatRs(item.price * item.qty)}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
 
               <div className="flex items-center justify-between pt-0.5 text-sm">

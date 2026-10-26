@@ -17,6 +17,7 @@ import httpError from '../utils/http_error';
 import runInTransaction from '../utils/transaction';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
+import type TableOrder from '../../site/types/table_order';
 
 export async function getPublicMenu(c: Context) {
   const menu = await findPublicMenu(codeOf(c));
@@ -25,22 +26,47 @@ export async function getPublicMenu(c: Context) {
   return c.json(menu);
 }
 
-export function toPublicTableOrder(order: any) {
+export interface PublicOrderAddonLike {
+  name: string;
+  price?: number;
+}
+
+export interface PublicOrderItemLike {
+  name: string;
+  qty: number;
+  price: number;
+  sizeName?: string;
+  addonNames?: string[];
+  addons?: PublicOrderAddonLike[];
+  note?: string;
+}
+
+export interface PublicOrderLike {
+  _id?: unknown;
+  dailyToken: number;
+  status: TableOrder['status'];
+  paymentStatus: TableOrder['paymentStatus'];
+  items?: PublicOrderItemLike[];
+  total: number;
+  createdAt?: Date | string | number;
+}
+
+export function toPublicTableOrder(order: PublicOrderLike): TableOrder {
   return {
-    _id: String(order._id),
+    _id: String(order._id ?? ''),
     dailyToken: order.dailyToken,
     status: order.status,
     paymentStatus: order.paymentStatus,
-    items: (order.items || []).map((it: any) => ({
+    items: (order.items || []).map((it): TableOrder['items'][number] => ({
       name: it.name,
       qty: it.qty,
       price: it.price,
       sizeName: it.sizeName || undefined,
-      addonNames: it.addonNames || [],
+      addonNames: it.addonNames || (Array.isArray(it.addons) ? it.addons.map((a) => a.name) : []),
       note: it.note || undefined,
     })),
     total: order.total,
-    createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : String(order.createdAt),
+    createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : String(order.createdAt ?? ''),
   };
 }
 
@@ -50,7 +76,7 @@ export function toPublicTableOrder(order: any) {
  */
 export async function findPublicMenu(code: string | undefined) {
   const table = await tableForCode(code);
-  if (!table) return 'no_table';
+  if (!table || !table.restaurantId) return 'no_table';
 
   const { restaurantId, branchId } = table;
 
@@ -272,13 +298,15 @@ export async function resolveGuestRequest(c: Context) {
 
 export async function getTableOrders(c: Context) {
   const table = await tableForCode(codeOf(c));
-  if (!table) return c.json({ message: 'Table not found' }, 404);
+  if (!table || !table.restaurantId) return c.json({ message: 'Table not found' }, 404);
 
-  const orders = await runWithTenant(table.restaurantId, async () => {
+  const restaurantId = table.restaurantId;
+  const branchId = table.branchId;
+  const orders = await runWithTenant(restaurantId, async () => {
     const today = dayKey();
     const tableId = String(table._id);
     const activeOrders = await Order.find({
-      branchId: table.branchId,
+      branchId,
       tableId,
       dayKey: today,
       status: { $ne: 'cancelled' },
@@ -292,20 +320,22 @@ export async function getTableOrders(c: Context) {
 
 export async function streamTableOrders(c: Context) {
   const table = await tableForCode(codeOf(c));
-  if (!table) return c.json({ message: 'Table not found' }, 404);
+  if (!table || !table.restaurantId) return c.json({ message: 'Table not found' }, 404);
 
   (c.env as { timeout?: (req: Request, seconds: number) => void } | undefined)?.timeout?.(c.req.raw, 0);
   c.header('X-Accel-Buffering', 'no');
 
+  const restaurantId = table.restaurantId;
+  const branchId = table.branchId;
   const tableId = String(table._id);
   const res = streamSSE(c, async (stream) => {
     const off = onOrderEvent({
-      restaurantId: table.restaurantId,
-      branchId: table.branchId,
+      restaurantId,
+      branchId,
       tableId,
       calls: false,
       send: ({ type, data }) => {
-        if ('tableId' in data && data.tableId === tableId) {
+        if ('items' in data && data.tableId === tableId) {
           void stream.writeSSE({ event: type, data: JSON.stringify(toPublicTableOrder(data)) });
         }
       },

@@ -79,11 +79,26 @@ export default function TablePage({ code, menu }: { code: string; menu: TableMen
       };
     };
 
+    const handleResume = () => {
+      if (document.visibilityState === 'visible') {
+        reload();
+        if (!source || source.readyState === EventSource.CLOSED) {
+          clearTimeout(retryTimer);
+          connect();
+        }
+      }
+    };
+
+    window.addEventListener('online', handleResume);
+    document.addEventListener('visibilitychange', handleResume);
+
     connect();
 
     return () => {
       stopped = true;
       clearTimeout(retryTimer);
+      window.removeEventListener('online', handleResume);
+      document.removeEventListener('visibilitychange', handleResume);
       source?.close();
     };
   }, [code, menu.orders]);

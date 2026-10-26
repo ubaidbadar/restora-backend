@@ -125,7 +125,8 @@ export async function deleteAccount(c: Context) {
   const activeOwnedRestaurants = await runWithoutTenant(async () => {
     const ownedMemberships = await StaffMember.find({ userId: user.id, isPrimaryOwner: true });
     if (!ownedMemberships.length) return [];
-    const rids = ownedMemberships.map((m) => m.restaurantId);
+    const rids = ownedMemberships.map((m) => m.restaurantId).filter((id): id is string => Boolean(id));
+    if (!rids.length) return [];
     return Restaurant.find({ _id: { $in: rids }, status: { $ne: 'deleting' } });
   });
 
@@ -148,12 +149,19 @@ export async function deleteAccount(c: Context) {
 
   // Clean up user, sessions, and accounts from MongoDB
   const db = mongoose.connection.getClient().db();
-  const userObjId = mongoose.Types.ObjectId.isValid(user.id) ? new mongoose.Types.ObjectId(user.id) : user.id;
+  const userFilters: Record<string, unknown>[] = [{ _id: String(user.id) }];
+  if (mongoose.Types.ObjectId.isValid(user.id)) {
+    userFilters.push({ _id: new mongoose.Types.ObjectId(user.id) });
+  }
+  const userRefFilters: Record<string, unknown>[] = [{ userId: String(user.id) }];
+  if (mongoose.Types.ObjectId.isValid(user.id)) {
+    userRefFilters.push({ userId: new mongoose.Types.ObjectId(user.id) });
+  }
 
   await Promise.all([
-    db.collection('user').deleteMany({ $or: [{ _id: userObjId }, { _id: String(user.id) }] }),
-    db.collection('session').deleteMany({ $or: [{ userId: userObjId }, { userId: String(user.id) }] }),
-    db.collection('account').deleteMany({ $or: [{ userId: userObjId }, { userId: String(user.id) }] }),
+    db.collection<Record<string, unknown>>('user').deleteMany({ $or: userFilters }),
+    db.collection<Record<string, unknown>>('session').deleteMany({ $or: userRefFilters }),
+    db.collection<Record<string, unknown>>('account').deleteMany({ $or: userRefFilters }),
   ]);
 
   c.header('Set-Cookie', 'better-auth.session_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax');

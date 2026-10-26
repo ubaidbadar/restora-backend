@@ -11,9 +11,10 @@ export type OrderEvent =
 /** `calls`: also the guests' waiter and bill calls (needs tables:view). */
 type Listener = { restaurantId: string; branchId?: string; tableId?: string; calls: boolean; send: (event: OrderEvent) => void };
 
+type EventDoc<T extends Kind> = T extends 'order' ? IOrder : IGuestRequest;
+
 const KINDS = ['order', 'call'] as const;
 const listeners = new Set<Listener>();
-const models: Record<Kind, Model<any>> = { order: Order, call: GuestRequest }; // eslint-disable-line @typescript-eslint/no-explicit-any
 /** What watches each collection while anyone listens, as the function that stops it. */
 const watchers: Record<Kind, (() => void) | null> = { order: null, call: null };
 
@@ -22,7 +23,7 @@ const POLL_MS = 1_500;
 const LOOKBACK_MS = 5_000;
 
 /** Sends an order or a call, as the routes answer it, to everyone of its restaurant (and branch) who should see it. */
-function announce(kind: Kind, data: OrderEvent['data'], created: boolean) {
+function announce<T extends Kind>(kind: T, data: EventDoc<T>, created: boolean) {
   const type = `${kind}.${created ? 'created' : 'updated'}` as OrderEvent['type'];
   for (const listener of listeners) {
     if (listener.restaurantId !== data.restaurantId) continue;
@@ -37,12 +38,11 @@ function announce(kind: Kind, data: OrderEvent['data'], created: boolean) {
  * A replica set (Atlas is one): one change stream per collection sees every write, from any route and any server process.
  * If the server turns out not to support them, the collection is polled instead.
  */
-function streamChanges(kind: Kind) {
-  const model = models[kind];
+function streamModelChanges<T extends Kind>(kind: T, model: Model<EventDoc<T>>) {
   const stream = model.watch([{ $match: { operationType: { $in: ['insert', 'update', 'replace'] } } }], { fullDocument: 'updateLookup' });
   stream.on('change', (change) => {
     if (!('fullDocument' in change) || !change.fullDocument) return;
-    announce(kind, model.hydrate(change.fullDocument).toJSON(), change.operationType === 'insert');
+    announce(kind, model.hydrate(change.fullDocument).toJSON() as EventDoc<T>, change.operationType === 'insert');
   });
   stream.on('error', (err: Error & { code?: number }) => {
     console.error(`[Order events] ${kind} change stream stopped:`, err.message);
@@ -59,12 +59,15 @@ function streamChanges(kind: Kind) {
   return () => void stream.close();
 }
 
+function streamChanges(kind: Kind) {
+  return kind === 'order' ? streamModelChanges('order', Order) : streamModelChanges('call', GuestRequest);
+}
+
 /**
  * A standalone MongoDB (a plain mongod) has no change streams: the collection is read every POLL_MS for what changed
  * (every write sets updatedAt), looking LOOKBACK_MS back. `sent` holds each id's last version sent, so none goes twice.
  */
-function pollChanges(kind: Kind) {
-  const model = models[kind];
+function pollModelChanges<T extends Kind>(kind: T, model: Model<EventDoc<T>>) {
   const startedAt = Date.now();
   const sent = new Map<string, number>();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -77,12 +80,14 @@ function pollChanges(kind: Kind) {
       const docs = await runWithoutTenant(() => model.find({ updatedAt: { $gte: new Date(from) } }).sort({ updatedAt: 1 }).limit(500));
       for (const doc of docs) {
         const id = String(doc._id);
-        const version = doc.updatedAt.getTime();
+        const updatedAtVal = (doc as unknown as { updatedAt?: Date }).updatedAt;
+        const createdAtVal = (doc as unknown as { createdAt?: Date }).createdAt;
+        const version = updatedAtVal ? new Date(updatedAtVal).getTime() : now;
         if (sent.get(id) === version) continue;
         // New if never sent and made within this read's window (not an old one changed now).
-        const created = !sent.has(id) && doc.createdAt.getTime() >= from;
+        const created = !sent.has(id) && (createdAtVal ? new Date(createdAtVal).getTime() : now) >= from;
         sent.set(id, version);
-        announce(kind, doc.toJSON(), created);
+        announce(kind, doc.toJSON() as EventDoc<T>, created);
       }
       for (const [id, version] of sent) if (version < now - 2 * LOOKBACK_MS) sent.delete(id);
     } catch (err) {
@@ -96,6 +101,10 @@ function pollChanges(kind: Kind) {
     stopped = true;
     clearTimeout(timer);
   };
+}
+
+function pollChanges(kind: Kind) {
+  return kind === 'order' ? pollModelChanges('order', Order) : pollModelChanges('call', GuestRequest);
 }
 
 const watch = (kind: Kind) => (isReplicaSet() ? streamChanges(kind) : pollChanges(kind));

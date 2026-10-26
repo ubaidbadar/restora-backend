@@ -2,7 +2,7 @@
 export default interface TableOrder {
   _id: string;
   dailyToken: number;
-  status: 'pending' | 'new' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+  status: 'pending' | 'new' | 'preparing' | 'ready' | 'completed' | 'cancelled' | 'out_for_delivery';
   paymentStatus: 'unpaid' | 'paid' | 'khata';
   items: {
     name: string;

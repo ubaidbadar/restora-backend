@@ -235,12 +235,17 @@ describe('Site', () => {
     expect(receivedText).not.toContain(`Table 20`);
 
     // 6. Check that GET /orders for tableA lists placed order
-    const activeOrders = (await (await app.request(`/api/v1/public/t/${tableA!.qrCode}/orders`)).json()) as Json[];
+    const activeOrders = (await (await app.request(`/api/v1/public/t/${tableA!.qrCode}/orders`)).json()) as Array<{
+      dailyToken: number;
+      status: string;
+      items: Array<{ name: string; qty: number }>;
+    }>;
     expect(activeOrders).toHaveLength(1);
-    expect(activeOrders[0].dailyToken).toBe(placedOrder.dailyToken);
-    expect(activeOrders[0].status).toBe('pending');
-    expect(activeOrders[0].items[0].name).toBe('Kheer');
-    expect(activeOrders[0].items[0].qty).toBe(2);
+    const firstOrder = activeOrders[0]!;
+    expect(firstOrder.dailyToken).toBe(placedOrder.dailyToken);
+    expect(firstOrder.status).toBe('pending');
+    expect(firstOrder.items[0]?.name).toBe('Kheer');
+    expect(firstOrder.items[0]?.qty).toBe(2);
 
     // 7. Check that SSR tablePage renders this active order into the page
     const pageHtml = await (await app.request(`/t/${tableA!.qrCode}`)).text();
