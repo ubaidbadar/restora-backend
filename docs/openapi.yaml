@@ -1536,7 +1536,7 @@ paths:
               type: object
               required: [code, printers]
               properties:
-                code: { type: string, pattern: '^\\d{6}$' }
+                code: { type: string, pattern: '^\d{6}$' }
                 version: { type: string }
                 printers: { type: array, items: { type: string }, description: The printers Windows lists. }
       responses:
