@@ -8,6 +8,13 @@ export interface IMenuSize {
   price: number;
 }
 
+/** A dish in a deal: which one, its size (the first when not set) and how many. */
+export interface IDealPart {
+  itemId: string;
+  sizeId?: string;
+  qty: number;
+}
+
 export interface IMenuItem {
   _id?: string;
   restaurantId?: string;
@@ -20,6 +27,13 @@ export interface IMenuItem {
   photoSizes?: IPhotoSizes;
   sizes: IMenuSize[];
   addonGroupIds: string[];
+  /** The dishes a deal is made of; empty for a plain dish. A deal is sold at its own price. */
+  includes: IDealPart[];
+  /** Days it is sold on, 0 (Sunday) to 6; empty is every day. */
+  days: number[];
+  /** Hours it is sold in, 'HH:mm' in Pakistan time; empty is all day. `to` before `from` runs past midnight. */
+  from: string;
+  to: string;
   soldOutBranchIds: string[];
   hidden: boolean;
   createdAt?: Date;
@@ -43,6 +57,15 @@ const MenuSizeSchema = new Schema(
   }
 );
 
+const DealPartSchema = new Schema(
+  {
+    itemId: { type: String, required: true },
+    sizeId: { type: String },
+    qty: { type: Number, required: true, min: 1 },
+  },
+  { _id: false }
+);
+
 const MenuItemSchema = new Schema<IMenuItem>(
   {
     categoryId: { type: String, required: true, index: true },
@@ -52,6 +75,10 @@ const MenuItemSchema = new Schema<IMenuItem>(
     photoSizes: { type: PhotoSizesSchema },
     sizes: { type: [MenuSizeSchema], default: [] },
     addonGroupIds: { type: [String], default: [] },
+    includes: { type: [DealPartSchema], default: [] },
+    days: { type: [Number], default: [] },
+    from: { type: String, default: '' },
+    to: { type: String, default: '' },
     soldOutBranchIds: { type: [String], default: [] },
     hidden: { type: Boolean, default: false },
   },

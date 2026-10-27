@@ -13,6 +13,7 @@ import Table from '../models/table';
 import logAudit from '../utils/audit';
 import dayKey from '../utils/day_key';
 import calcTotals from '../utils/calc_totals';
+import onSale from '../utils/on_sale';
 import runInTransaction from '../utils/transaction';
 import normalizePhone from '../utils/normalize_phone';
 import applyKhata from '../utils/khata';
@@ -173,15 +174,27 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
 
 /**
  * The order lines priced from the menu, never from the client: size and add-ons by id, each checked against the dish's
- * add-on rules. The ids are kept on the line so the order can be opened for editing later. Answers an error message
- * when a dish is gone, sold out or picked wrongly.
+ * add-on rules. The ids are kept on the line so the order can be opened for editing later. A deal is sold at its own
+ * price and carries the dishes in it; it is sold out when any of them is. Dishes and deals sold only on some days or
+ * hours must be on sale `at` (when the order was taken), except those already on the order being edited (`onOrder`).
+ * Answers an error message when a dish is gone, sold out, not on sale or picked wrongly.
  */
-export async function priceItems(rawItems: RawItem[], branchId: string): Promise<IOrderItem[] | string> {
-  // One aggregation: the dishes with their add-on groups (of the same restaurant).
+export async function priceItems(rawItems: RawItem[], branchId: string, at: number = Date.now(), onOrder: string[] = []): Promise<IOrderItem[] | string> {
+  // One aggregation: the dishes with their add-on groups and, for deals, the dishes in them (of the same restaurant).
   const ids = rawItems.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
-  const menuItems = await MenuItem.aggregate<IMenuItem & { _id: unknown; groups: (IAddonGroup & { _id: unknown })[] }>([
+  const sameRestaurant = { $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } };
+  const menuItems = await MenuItem.aggregate<
+    IMenuItem & { _id: unknown; groups: (IAddonGroup & { _id: unknown })[]; parts: (Pick<IMenuItem, 'name' | 'sizes' | 'soldOutBranchIds'> & { _id: unknown })[] }
+  >([
     { $match: { _id: { $in: ids } } },
-    ...lookup({ from: AddonGroup, localField: 'addonGroupIds', as: 'groups', let: { rid: '$restaurantId' }, pipeline: [{ $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } }] }),
+    ...lookup({ from: AddonGroup, localField: 'addonGroupIds', as: 'groups', let: { rid: '$restaurantId' }, pipeline: [sameRestaurant] }),
+    ...lookup({
+      from: MenuItem,
+      localField: 'includes.itemId',
+      as: 'parts',
+      let: { rid: '$restaurantId' },
+      pipeline: [sameRestaurant, { $project: { name: 1, sizes: 1, soldOutBranchIds: 1 } }],
+    }),
   ]);
   const menuById = new Map(menuItems.map((m) => [String(m._id), m]));
   const priced: IOrderItem[] = [];
@@ -190,6 +203,16 @@ export async function priceItems(rawItems: RawItem[], branchId: string): Promise
     const menuItem = menuById.get(rawItem.itemId);
     if (!menuItem || menuItem.hidden) return 'One of the dishes is no longer on the menu';
     if (menuItem.soldOutBranchIds.includes(branchId)) return `"${menuItem.name}" is sold out in this branch`;
+    if (!onOrder.includes(rawItem.itemId) && !onSale(menuItem, at)) return `"${menuItem.name}" is not on sale right now`;
+
+    const includes: NonNullable<IOrderItem['includes']> = [];
+    for (const part of menuItem.includes ?? []) {
+      const dish = menuItem.parts.find((entry) => String(entry._id) === part.itemId);
+      if (!dish) return `A dish in "${menuItem.name}" is no longer on the menu`;
+      if (dish.soldOutBranchIds.includes(branchId)) return `"${dish.name}" in "${menuItem.name}" is sold out in this branch`;
+      const partSize = part.sizeId ? dish.sizes.find((s) => String(s._id) === part.sizeId) : dish.sizes[0];
+      includes.push({ name: dish.name, sizeName: partSize?.name || undefined, qty: part.qty });
+    }
 
     const size = rawItem.sizeId ? menuItem.sizes.find((s) => String(s._id) === rawItem.sizeId) : menuItem.sizes[0];
     if (!size) return rawItem.sizeId ? `Size not found for "${menuItem.name}"` : `"${menuItem.name}" has no price yet`;
@@ -219,6 +242,7 @@ export async function priceItems(rawItems: RawItem[], branchId: string): Promise
       sizeName: size.name || undefined,
       addonIds: addonIds.length ? addonIds : undefined,
       addons: addons.length ? addons : undefined,
+      includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
       price: size.price + addonsPrice,
       qty: rawItem.qty,
@@ -264,8 +288,8 @@ export async function createOrder(c: Context) {
     tableName = table.name;
   }
 
-  // 3. Prices come from the menu, never from the client.
-  const orderItems = await priceItems(body.items, branchId);
+  // 3. Prices come from the menu, never from the client. A deal taken offline counts at the time it was taken.
+  const orderItems = await priceItems(body.items, branchId, placedTime(body.placedAt));
   if (typeof orderItems === 'string') return c.json({ message: orderItems }, 400);
 
   // 4. Totals. Tax is added once a payment method is known.
@@ -514,7 +538,8 @@ export async function editOrder(c: Context) {
     tableName = table.name;
   }
 
-  const items = await priceItems(body.items, order.branchId);
+  // Lines already on the order stay, even once their deal's hours are over.
+  const items = await priceItems(body.items, order.branchId, Date.now(), order.items.map((item) => item.itemId));
   if (typeof items === 'string') return c.json({ message: items }, 400);
 
   // Unpaid, so no tax yet: it is added when the customer pays.

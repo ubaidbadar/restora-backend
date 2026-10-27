@@ -12,6 +12,7 @@ import Order from '../models/order';
 import DailyCounter from '../models/daily_counter';
 import { priceItems } from './order';
 import calcTotals from '../utils/calc_totals';
+import onSale from '../utils/on_sale';
 import dayKey from '../utils/day_key';
 import httpError from '../utils/http_error';
 import runInTransaction from '../utils/transaction';
@@ -88,7 +89,8 @@ export async function findPublicMenu(code: string | undefined) {
       if (!r || !b || b.isActive === false) return [null, null, [], [], [], []] as const;
       const cats = await MenuCategory.find({}).sort({ sortOrder: 1 });
       const groups = await AddonGroup.find({}).sort({ createdAt: 1 });
-      const rawItems = await MenuItem.find({ hidden: false }).sort({ createdAt: 1 });
+      // Hidden dishes too: a deal can hold a dish that is not sold on its own.
+      const rawItems = await MenuItem.find({}).sort({ createdAt: 1 });
       const today = dayKey();
       const tableId = String(table._id);
       const activeOrders = await Order.find({
@@ -133,21 +135,34 @@ export async function findPublicMenu(code: string | undefined) {
         price: o.price,
       })),
     })),
-    items: items.map((it) => ({
-      _id: String(it._id),
-      categoryId: it.categoryId,
-      name: it.name,
-      description: it.description || undefined,
-      photo: it.photo || undefined,
-      photoSizes: it.photoSizes,
-      sizes: it.sizes.map((s) => ({
-        _id: String(s._id),
-        name: s.name,
-        price: s.price,
-      })),
-      addonGroupIds: it.addonGroupIds,
-      soldOut: it.soldOutBranchIds.includes(branchId),
-    })),
+    items: items
+      .filter((it) => !it.hidden)
+      .map((it) => {
+        const parts = it.includes.map((part) => ({ part, dish: items.find((dish) => String(dish._id) === part.itemId) }));
+        return {
+          _id: String(it._id),
+          categoryId: it.categoryId,
+          name: it.name,
+          description: it.description || undefined,
+          photo: it.photo || undefined,
+          photoSizes: it.photoSizes,
+          sizes: it.sizes.map((s) => ({
+            _id: String(s._id),
+            name: s.name,
+            price: s.price,
+          })),
+          addonGroupIds: it.addonGroupIds,
+          // A deal: what is in it, by name. It is sold out when any of its dishes is.
+          includes: parts.length
+            ? parts.map(({ part, dish }) => ({ name: dish?.name ?? '', sizeName: dish?.sizes.find((s) => String(s._id) === part.sizeId)?.name || undefined, qty: part.qty }))
+            : undefined,
+          days: it.days.length ? it.days : undefined,
+          from: it.from || undefined,
+          to: it.to || undefined,
+          onSale: onSale(it),
+          soldOut: it.soldOutBranchIds.includes(branchId) || parts.some(({ dish }) => !dish || dish.soldOutBranchIds.includes(branchId)),
+        };
+      }),
   };
 }
 

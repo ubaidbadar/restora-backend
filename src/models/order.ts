@@ -11,6 +11,8 @@ export interface IOrderItem {
   sizeName?: string;
   addonIds?: string[];
   addons?: { name: string; price: number }[];
+  /** For a deal: the dishes in it, per one deal, as they were when ordered (for the kitchen and the receipt). */
+  includes?: { name: string; sizeName?: string; qty: number }[];
   note?: string;
   price: number;
   qty: number;
@@ -74,6 +76,7 @@ const OrderItemSchema = new Schema(
     sizeName: { type: String },
     addonIds: { type: [String], default: undefined },
     addons: [{ name: { type: String }, price: { type: Number } }],
+    includes: { type: [{ _id: false, name: { type: String }, sizeName: { type: String }, qty: { type: Number } }], default: undefined },
     note: { type: String },
     price: { type: Number, required: true },
     qty: { type: Number, required: true, min: 1 },
