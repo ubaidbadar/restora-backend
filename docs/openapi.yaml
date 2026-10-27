@@ -36,6 +36,7 @@ tags:
   - name: Roles
   - name: Teams
   - name: Devices
+  - name: Print agents
   - name: POS
   - name: Dashboard
   - name: Audit
@@ -1428,6 +1429,153 @@ paths:
       tags: [Devices]
       summary: Remove a POS terminal
       x-permission: devices:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Print agents
+  /api/v1/print-agents:
+    get:
+      tags: [Print agents]
+      summary: List the print agents and their printers
+      x-permission: devices:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+    post:
+      tags: [Print agents]
+      summary: Add a PC, answering a 6-digit pairing code good for 10 minutes
+      x-permission: devices:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 40, example: Counter PC }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/print-agents/{id}/code:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Print agents]
+      summary: A new pairing code for an agent that has not paired yet
+      x-permission: devices:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/print-agents/{id}/printers/{systemName}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: systemName
+        in: path
+        required: true
+        schema: { type: string }
+        description: The printer's Windows name, URL-encoded.
+    patch:
+      tags: [Print agents]
+      summary: Name a printer and say what it prints
+      x-permission: devices:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, width, copies]
+              properties:
+                label: { type: string, minLength: 1, maxLength: 30, example: Kitchen }
+                prints: { type: array, items: { type: string, enum: [kitchen, receipt] } }
+                categoryIds: { type: array, items: { type: string }, description: 'Kitchen slips: only these menu categories. Empty: every dish.' }
+                width: { type: integer, enum: [48, 32], description: Characters per line; 48 is an 80 mm roll, 32 is 58 mm. }
+                copies: { type: integer, minimum: 1, maximum: 5 }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/print-agents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Print agents]
+      summary: Remove a print agent; it stops at once
+      x-permission: devices:manage
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/print-jobs:
+    post:
+      tags: [Print agents]
+      summary: Print an order's kitchen slips or receipt on the branch's printers
+      description: Answers 409 when no printer is set up for it, so the app prints in the browser instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, kind]
+              properties:
+                orderId: { type: string }
+                kind: { type: string, enum: [kitchen, receipt] }
+      responses:
+        '201': { $ref: '#/components/responses/Created' }
+        '409': { description: No printer is set up for it }
+  /api/v1/print-agent/pair:
+    post:
+      tags: [Print agents]
+      summary: The agent pairs with the code; the answer holds its token (once)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, printers]
+              properties:
+                code: { type: string, pattern: '^\d{6}$' }
+                version: { type: string }
+                printers: { type: array, items: { type: string }, description: The printers Windows lists. }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { description: Too many wrong codes }
+  /api/v1/print-agent/printers:
+    put:
+      tags: [Print agents]
+      summary: The agent reports the printers Windows lists now
+      description: Authorized with the agent's token (`Authorization Bearer`). Staff's names and settings are kept, and answered back (`printers`) for the agent to keep.
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/print-agent/jobs:
+    get:
+      tags: [Print agents]
+      summary: Slips waiting for this agent, oldest first; also its heartbeat
+      description: Authorized with the agent's token. The agent asks every few seconds.
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/print-agent/jobs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Print agents]
+      summary: The agent says a slip is printed, or failed
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [printed, failed] }
+                error: { type: string, maxLength: 300 }
       responses:
         '200': { $ref: '#/components/responses/Json' }
         '404': { $ref: '#/components/responses/NotFound' }

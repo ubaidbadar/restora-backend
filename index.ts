@@ -27,6 +27,9 @@ import settingsRouter from './src/routes/settings';
 import restaurantRouter from './src/routes/restaurant';
 import deviceRouter from './src/routes/device';
 import posRouter from './src/routes/pos';
+import printAgentRouter from './src/routes/print_agent';
+import printAgentLinkRouter from './src/routes/print_agent_link';
+import printJobRouter from './src/routes/print_job';
 import dashboardRouter from './src/routes/dashboard';
 import auditRouter from './src/routes/audit';
 import publicRouter from './src/routes/public';
@@ -122,6 +125,9 @@ api.route('/settings', settingsRouter);
 api.route('/', restaurantRouter); // /restaurants, /onboarding, /restaurant/*
 api.route('/devices', deviceRouter);
 api.route('/pos', posRouter);
+api.route('/print-agents', printAgentRouter);
+api.route('/print-agent', printAgentLinkRouter); // the agent itself: its own token
+api.route('/print-jobs', printJobRouter);
 api.route('/dashboard', dashboardRouter);
 api.route('/audit', auditRouter);
 api.route('/guest-requests', guestRequestRouter);

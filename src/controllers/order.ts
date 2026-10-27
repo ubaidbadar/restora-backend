@@ -19,6 +19,8 @@ import normalizePhone from '../utils/normalize_phone';
 import applyKhata from '../utils/khata';
 import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
+import printHeader from '../utils/print_header';
+import queuePrintJobs from '../utils/queue_print_jobs';
 import { hasPermission } from '../middlewares/permission_guard';
 import { getTenantId } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
@@ -361,6 +363,9 @@ export async function createOrder(c: Context) {
     changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
   });
 
+  // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
+  await queuePrintJobs(newOrder, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
+
   return c.json(newOrder, 201);
 }
 
@@ -382,7 +387,12 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
     target: { type: 'order', id, label: `#${order.dailyToken}` },
     changes: { before: { status: order.status }, after: { status } },
   });
-  return Order.findById(id);
+  const updated = await Order.findById(id);
+  // A guest's order is printed for the kitchen once the staff accept it.
+  if (updated && order.status === 'pending' && status === 'new') {
+    await queuePrintJobs(updated, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
+  }
+  return updated;
 }
 
 export async function updateOrderStatus(c: Context) {

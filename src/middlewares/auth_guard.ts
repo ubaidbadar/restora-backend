@@ -27,7 +27,7 @@ export interface AuthContextVariables {
 }
 
 /** Routes that check their own credentials (POS terminals) or need none. */
-const SELF_AUTHENTICATED = [/^\/api\/v1\/pos(\/|$)/, /^\/api\/v1\/invitations\/lookup\//];
+const SELF_AUTHENTICATED = [/^\/api\/v1\/pos(\/|$)/, /^\/api\/v1\/print-agent(\/|$)/, /^\/api\/v1\/invitations\/lookup\//];
 
 /** Account-level routes: they work without a restaurant, so a lost restaurant must not block them. */
 const ACCOUNT_LEVEL = [
