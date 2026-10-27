@@ -33,7 +33,7 @@ export async function pairPrintAgent(c: Context) {
   agent.printers = mergePrinters(agent.printers, printers);
   await runWithoutTenant(() => agent.save());
 
-  return c.json({ token, agent: { _id: String(agent._id), name: agent.name, branchId: agent.branchId } });
+  return c.json({ token, agent: { _id: String(agent._id), name: agent.name, branchId: agent.branchId }, printers: agent.printers });
 }
 
 /** The printers Windows lists now, sent again when they change. Staff's names and settings are kept. */
@@ -43,7 +43,8 @@ export async function reportPrinters(c: Context) {
   agent.printers = mergePrinters(agent.printers, printers);
   if (version) agent.version = version;
   await agent.save();
-  return c.json({ success: true });
+  // The agent keeps staff's settings, so it can print for the web app on this PC without internet.
+  return c.json({ printers: agent.printers });
 }
 
 /** Slips waiting for this agent, oldest first. The agent asks every few seconds, which also tells the web app it is online. */

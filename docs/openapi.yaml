@@ -1547,7 +1547,7 @@ paths:
     put:
       tags: [Print agents]
       summary: The agent reports the printers Windows lists now
-      description: Authorized with the agent's token (`Authorization Bearer`). Staff's names and settings are kept.
+      description: Authorized with the agent's token (`Authorization Bearer`). Staff's names and settings are kept, and answered back (`printers`) for the agent to keep.
       security: []
       responses:
         '200': { $ref: '#/components/responses/Json' }

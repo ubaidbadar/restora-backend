@@ -77,6 +77,7 @@ describe('Print agents', () => {
     token = paired.body.token;
     expect(token.length).toBeGreaterThan(30);
     expect(paired.body.agent.name).toBe('Counter PC');
+    expect(paired.body.printers.map((p: Json) => p.systemName)).toEqual(['EPSON TM-T20', 'Kitchen Star']);
 
     const again = await post('/api/v1/print-agent/pair', { code: agent.pairing.code, printers: [] }, 'POST', { Cookie: '' });
     expect(again.status).toBe(400);
@@ -155,6 +156,8 @@ describe('Print agents', () => {
   it('keeps staff\'s labels when the agent reports its printers again, and marks a missing one', async () => {
     const res = await app.request('/api/v1/print-agent/printers', { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ printers: ['Kitchen Star', 'Bar Star'] }) });
     expect(res.status).toBe(200);
+    // The answer carries staff's settings for the agent to keep.
+    expect(((await res.json()) as Json).printers.map((p: Json) => p.systemName)).toEqual(['Kitchen Star', 'Bar Star', 'EPSON TM-T20']);
     const list = (await (await app.request('/api/v1/print-agents', { headers })).json()) as Json[];
     const byName = Object.fromEntries(list[0].printers.map((p: Json) => [p.systemName, p]));
     expect(byName['Kitchen Star']).toMatchObject({ label: 'Kitchen', present: true });
