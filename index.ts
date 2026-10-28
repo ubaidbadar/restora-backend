@@ -30,6 +30,7 @@ import posRouter from './src/routes/pos';
 import printAgentRouter from './src/routes/print_agent';
 import printAgentLinkRouter from './src/routes/print_agent_link';
 import printJobRouter from './src/routes/print_job';
+import pushDeviceRouter from './src/routes/push_device';
 import dashboardRouter from './src/routes/dashboard';
 import auditRouter from './src/routes/audit';
 import publicRouter from './src/routes/public';
@@ -128,6 +129,7 @@ api.route('/pos', posRouter);
 api.route('/print-agents', printAgentRouter);
 api.route('/print-agent', printAgentLinkRouter); // the agent itself: its own token
 api.route('/print-jobs', printJobRouter);
+api.route('/push-devices', pushDeviceRouter);
 api.route('/dashboard', dashboardRouter);
 api.route('/audit', auditRouter);
 api.route('/guest-requests', guestRequestRouter);

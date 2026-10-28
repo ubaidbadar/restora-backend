@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun site/build.ts && bun --watch index.ts",
     "start": "bun run index.ts",
-    "test": "NODE_ENV=test bun test tests/backend.test.ts && NODE_ENV=test bun test tests/auth_team.test.ts && NODE_ENV=test bun test tests/hardening.test.ts && NODE_ENV=test bun test tests/order_stream.test.ts && NODE_ENV=test bun test tests/order_stream_standalone.test.ts && NODE_ENV=test bun test tests/email_code.test.ts && NODE_ENV=test bun test tests/google_sign_in.test.ts && NODE_ENV=test bun test tests/site.test.ts && NODE_ENV=test bun test tests/deals.test.ts && NODE_ENV=test bun test tests/print_agent.test.ts",
+    "test": "NODE_ENV=test bun test tests/backend.test.ts && NODE_ENV=test bun test tests/auth_team.test.ts && NODE_ENV=test bun test tests/hardening.test.ts && NODE_ENV=test bun test tests/order_stream.test.ts && NODE_ENV=test bun test tests/order_stream_standalone.test.ts && NODE_ENV=test bun test tests/email_code.test.ts && NODE_ENV=test bun test tests/google_sign_in.test.ts && NODE_ENV=test bun test tests/site.test.ts && NODE_ENV=test bun test tests/deals.test.ts && NODE_ENV=test bun test tests/print_agent.test.ts && NODE_ENV=test bun test tests/push.test.ts",
     "build": "bun site/build.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -17,6 +17,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "mongodb-memory-server": "^11.3.0",
     "tailwindcss": "^4"
   },
@@ -36,6 +37,7 @@
     "react-dom": "19.3.1",
     "react-hook-form": "^7.91.0",
     "sharp": "^0.35.5",
+    "web-push": "^3.6.7",
     "zod": "^4.6.7"
   }
 }

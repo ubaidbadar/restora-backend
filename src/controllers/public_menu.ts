@@ -18,6 +18,7 @@ import httpError from '../utils/http_error';
 import runInTransaction from '../utils/transaction';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
+import notifyStaff from '../services/push';
 import type TableOrder from '../../site/types/table_order';
 
 export async function getPublicMenu(c: Context) {
@@ -186,18 +187,26 @@ export async function createGuestCall(c: Context) {
 
   const { type } = c.get('validatedJson') as { type: 'waiter' | 'bill' };
 
-  const request = await runWithTenant(table.restaurantId, async () => {
+  const { request, created } = await runWithTenant(table.restaurantId, async () => {
     // One open call per table and kind: tapping again does not flood the floor screen.
     const open = await GuestRequest.findOne({ tableId: String(table._id), type, resolved: false });
-    if (open) return open;
-    return GuestRequest.create({
+    if (open) return { request: open, created: false };
+    const made = await GuestRequest.create({
       branchId: table.branchId,
       tableId: String(table._id),
       tableName: table.name,
       type,
       resolved: false,
     });
+    return { request: made, created: true };
   });
+
+  if (created) {
+    const title = `Table ${table.name} ${type === 'bill' ? 'asks for the bill' : 'calls a waiter'}`;
+    notifyStaff(table.restaurantId!, table.branchId, 'tables:view', { title, body: 'Tap to open Tables', screen: 'tables', tag: `call-${request._id}` }).catch((err) =>
+      console.error('[Push] guest call alert failed:', err)
+    );
+  }
 
   return c.json({
     success: true,
@@ -225,10 +234,10 @@ export async function placeGuestOrder(c: Context) {
   const restaurantId = table.restaurantId;
   const branchId = table.branchId;
 
-  const order = await runWithTenant(restaurantId, async () => {
+  const { order, created } = await runWithTenant(restaurantId, async () => {
     if (clientId) {
       const sent = await Order.findOne({ branchId, tableId, dayKey: today, clientId });
-      if (sent) return sent;
+      if (sent) return { order: sent, created: false };
     }
 
     const pendingCount = await Order.countDocuments({ branchId, tableId, dayKey: today, status: 'pending' });
@@ -238,7 +247,7 @@ export async function placeGuestOrder(c: Context) {
     if (typeof priced === 'string') throw httpError(400, priced);
     const totals = calcTotals(priced, 0, 0, 0);
 
-    return runInTransaction(async (session) => {
+    const saved = await runInTransaction(async (session) => {
       const counter = await DailyCounter.findOneAndUpdate(
         { restaurantId, branchId, dayKey: today },
         { $inc: { seq: 1 } },
@@ -270,7 +279,15 @@ export async function placeGuestOrder(c: Context) {
       );
       return saved!;
     });
+    return { order: saved, created: true };
   });
+
+  if (created) {
+    const body = order.items.map((item) => `${item.qty}× ${item.name}`).join(', ');
+    notifyStaff(restaurantId, branchId, 'orders:view', { title: `Table ${table.name} sent order #${order.dailyToken}`, body, screen: 'orders', tag: `order-${order._id}` }).catch((err) =>
+      console.error('[Push] guest order alert failed:', err)
+    );
+  }
 
   return c.json(toPublicTableOrder(order), 201);
 }

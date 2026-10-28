@@ -37,6 +37,7 @@ tags:
   - name: Teams
   - name: Devices
   - name: Print agents
+  - name: Push notifications
   - name: POS
   - name: Dashboard
   - name: Audit
@@ -1523,6 +1524,60 @@ paths:
       responses:
         '201': { $ref: '#/components/responses/Created' }
         '409': { description: No printer is set up for it }
+  /api/v1/push-devices/web-key:
+    get:
+      tags: [Push notifications]
+      summary: The key a browser subscribes to web push with; null while web push is not set up
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+  /api/v1/push-devices:
+    post:
+      tags: [Push notifications]
+      summary: Save this phone (Expo push token) or browser (web push subscription) for alerts on guests' orders and calls
+      description: >-
+        Saved for the person signed in and the restaurant and branch open now; saving again moves it. Alerts go to
+        members with orders:view (guest orders) or tables:view (waiter and bill calls). Each alert carries
+        `screen` (orders or tables) for what a tap opens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [kind, token]
+                  properties:
+                    kind: { type: string, enum: [expo] }
+                    token: { type: string, example: 'ExponentPushToken[xxxx]' }
+                - type: object
+                  required: [kind, endpoint, keys]
+                  properties:
+                    kind: { type: string, enum: [web] }
+                    endpoint: { type: string, format: uri }
+                    keys:
+                      type: object
+                      required: [p256dh, auth]
+                      properties:
+                        p256dh: { type: string }
+                        auth: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/push-devices/remove:
+    post:
+      tags: [Push notifications]
+      summary: Forget this phone or browser (before signing out, or alerts turned off)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, description: The Expo token, or the browser's endpoint }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
   /api/v1/print-agent/pair:
     post:
       tags: [Print agents]
