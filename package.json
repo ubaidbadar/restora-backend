@@ -26,15 +26,15 @@
   "dependencies": {
     "@better-auth/expo": "^1.7.10",
     "@hono/zod-validator": "^0.9.1",
-    "@hookform/resolvers": "^5.4.0",
+    "@hookform/resolvers": "^6.0.0",
     "better-auth": "^1.7.10",
     "hono": "^4.13.13",
     "lucide-react": "^1.60.0",
     "mongoose": "^9.11.2",
-    "nodemailer": "^10.1.7",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "react-hook-form": "^7.81.0",
+    "nodemailer": "^10.2.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-hook-form": "^7.91.0",
     "sharp": "^0.35.5",
     "zod": "^4.6.7"
   }
