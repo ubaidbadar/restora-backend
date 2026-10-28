@@ -1,0 +1,114 @@
+name: Deploy to dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; never cancel a deploy that is already running.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Build, upload, switch, health-check
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: development
+      url: ${{ vars.DEV_DEPLOY_URL || 'https://dev.restora.live' }}
+    env:
+      DEPLOY_USER: ${{ vars.DEV_DEPLOY_USER || vars.DEPLOY_USER || 'deploy' }}
+      DEPLOY_HOST: ${{ vars.DEV_DEPLOY_HOST || vars.DEPLOY_HOST }}
+      APP_ROOT: ${{ vars.DEV_APP_ROOT || '/srv/restora/dev' }}
+      DEPLOY_URL: ${{ vars.DEV_DEPLOY_URL || 'https://dev.restora.live' }}
+      SITE_URL: ${{ vars.DEV_SITE_URL || 'https://dev.restora.live' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Build
+        run: |
+          bun install --frozen-lockfile
+          bun run --if-present build
+          # Ship production dependencies only (same OS/arch as the server: linux-x64).
+          rm -rf node_modules
+          bun install --frozen-lockfile --production
+
+      - name: Package release
+        run: |
+          RELEASE="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          echo "RELEASE=${RELEASE}" >> "$GITHUB_ENV"
+          tar --exclude=.git --exclude=.github --exclude='*.tgz' -czf /tmp/release.tgz .
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY || secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_DEPLOY_KNOWN_HOSTS || secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_HOST" || { echo "Repository variable DEPLOY_HOST is not set"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Upload release
+        run: |
+          scp -o StrictHostKeyChecking=yes /tmp/release.tgz \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${APP_ROOT}/releases/${RELEASE}.tgz"
+
+      - name: Activate release (atomic switch + health check + auto-rollback)
+        run: |
+          ssh -o StrictHostKeyChecking=yes "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s -- "${RELEASE}" "${APP_ROOT}" <<'REMOTE'
+          set -euo pipefail
+          umask 027
+          R="$1"
+          APP_ROOT="$2"
+          D="${APP_ROOT}/releases"
+          mkdir -p "$D/$R"
+          tar -xzf "$D/$R.tgz" -C "$D/$R"
+          rm -f "$D/$R.tgz"
+          if command -v restora-dev-deploy >/dev/null 2>&1; then
+            restora-dev-deploy "$R"
+          else
+            echo "Error: restora-dev-deploy command not found on VPS." >&2
+            exit 1
+          fi
+          REMOTE
+
+      - name: Public smoke test
+        if: ${{ env.DEPLOY_URL != '' }}
+        env:
+          URL: ${{ env.DEPLOY_URL }}${{ vars.HEALTH_PATH || '/health' }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$URL" >/dev/null; then echo "✓ $URL"; exit 0; fi
+            echo "waiting for $URL ($i/12)"; sleep 5
+          done
+          echo "✗ public URL did not become healthy" >&2; exit 1
+
+      - name: Site smoke test
+        if: ${{ env.SITE_URL != '' }}
+        env:
+          URL: ${{ env.SITE_URL }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$URL" | grep -q '<title>'; then echo "✓ $URL"; exit 0; fi
+            echo "waiting for $URL ($i/12)"; sleep 5
+          done
+          echo "✗ the site did not answer" >&2; exit 1
+
+      - name: Clean up SSH material
+        if: always()
+        run: rm -rf ~/.ssh/id_ed25519 ~/.ssh/known_hosts /tmp/release.tgz
