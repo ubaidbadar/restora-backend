@@ -112,7 +112,7 @@ describe('Push devices', () => {
 
   it("alerts the restaurant's phones and browsers when a guest orders, once, and forgets gone devices", async () => {
     goneTokens.add(goneToken);
-    const res = await guest('order', { items: [{ itemId: karahi._id, qty: 2 }], clientId: 'guest-1' });
+    const res = await guest('order', { items: [{ itemId: karahi._id, qty: 2 }], clientId: 'guest-order-1' });
     expect(res.status).toBe(201);
     await settle();
 
@@ -124,7 +124,7 @@ describe('Push devices', () => {
 
     // The same order sent again (a retry) does not alert again.
     expoSent.length = 0;
-    expect((await guest('order', { items: [{ itemId: karahi._id, qty: 2 }], clientId: 'guest-1' })).status).toBe(201);
+    expect((await guest('order', { items: [{ itemId: karahi._id, qty: 2 }], clientId: 'guest-order-1' })).status).toBe(201);
     await settle();
     expect(expoSent).toEqual([]);
   });
