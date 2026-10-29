@@ -6,6 +6,8 @@ export const onboardingSchema = z.object({
   area: z.string().trim().optional().nullable(),
   city: z.string().trim().optional().nullable(),
   phone: z.string().trim().optional().nullable(),
+  /** A data URL from the logo picker, uploaded to storage. */
+  logo: z.string().startsWith('data:image/', 'Pick an image for the logo').optional().nullable(),
 });
 
 export default onboardingSchema;
