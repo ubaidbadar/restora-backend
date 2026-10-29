@@ -186,6 +186,26 @@ describe('Hardening', () => {
     expect(row(after, 'takeaway')).toEqual(row(before, 'takeaway'));
   });
 
+  it('shows the dashboard and orders for a span of days', async () => {
+    const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'paid', paymentMethod: 'cash' })).json()) as Json;
+    // Moved to an earlier day, as if placed then.
+    await runWithTenant(a.restaurantId, () => Order.updateOne({ _id: order._id }, { $set: { dayKey: '2026-01-15' } }));
+
+    const ids = async (query: string) => ((await (await api(a, 'GET', `/orders${query}`)).json()) as Json[]).map((item) => item._id);
+    expect(await ids('')).not.toContain(order._id);
+    expect(await ids('?date=2026-01-15')).toContain(order._id);
+    expect(await ids('?from=2026-01-10&to=2026-01-20')).toContain(order._id);
+    expect(await ids('?from=2026-01-16&to=2026-01-20')).not.toContain(order._id);
+
+    const stats = async (query: string) => ((await (await api(a, 'GET', `/dashboard${query}`)).json()) as Json).stats;
+    expect((await stats('?from=2026-01-01&to=2026-01-31')).sales).toBe(order.total);
+    expect((await stats('?from=2026-01-01&to=2026-01-31')).orderCount).toBe(1);
+    expect((await stats('?date=2026-01-14')).orderCount).toBe(0);
+
+    expect((await api(a, 'GET', '/dashboard?from=2026-01-20&to=2026-01-10')).status).toBe(400);
+    expect((await api(a, 'GET', '/orders?from=20-01-2026')).status).toBe(400);
+  });
+
   it('cannot cancel through the status route', async () => {
     const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
     expect((await api(a, 'PATCH', `/orders/${order._id}`, { status: 'cancelled' })).status).toBe(400);

@@ -12,6 +12,7 @@ import Settings from '../models/settings';
 import Table from '../models/table';
 import logAudit from '../utils/audit';
 import dayKey from '../utils/day_key';
+import dayRange from '../utils/day_range';
 import calcTotals from '../utils/calc_totals';
 import onSale from '../utils/on_sale';
 import runInTransaction from '../utils/transaction';
@@ -26,7 +27,6 @@ import orderCancelSchema from '../validations/order_cancel';
 
 type PaymentMethod = NonNullable<IOrder['paymentMethod']>;
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 async function taxRateFor(method: PaymentMethod | undefined): Promise<number> {
@@ -73,11 +73,11 @@ async function recordCustomerOrder(order: IOrder, byName: string | undefined, se
 
 export async function listOrders(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
-  const date = c.req.query('date') || dayKey();
+  const range = dayRange(c);
   const status = c.req.query('status');
   const customerId = c.req.query('customerId');
 
-  if (!DAY.test(date)) return c.json({ message: 'Use a date like 2026-01-31' }, 400);
+  if (!range) return c.json({ message: 'Use dates like 2026-01-31, with from on or before to' }, 400);
 
   const filter: Record<string, unknown> = {};
   if (branchId) filter.branchId = branchId;
@@ -87,7 +87,8 @@ export async function listOrders(c: Context) {
     // A customer's history: every date.
     filter.customerId = String(customerId);
   } else if (c.req.query('allDates') !== 'true') {
-    filter.dayKey = date;
+    // `?from=&to=` for a span of days, `?date=` for one, today when neither.
+    filter.dayKey = { $gte: range.from, $lte: range.to };
   }
 
   const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
