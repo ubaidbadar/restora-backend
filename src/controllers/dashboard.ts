@@ -23,14 +23,13 @@ export async function getDashboard(c: Context) {
     return c.json({ message: 'You can only see the numbers of your branch' }, 403);
   }
 
-  // 1. Order Aggregation Pipeline: sales from the days' orders, cancelled ones counted apart (guests' orders waiting to
-  // be accepted are in neither).
+  // 1. Order Aggregation Pipeline: sales from the days' orders, cancelled ones counted apart in their own byType row
+  // (guests' orders waiting to be accepted are in neither).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const orderMatch: Record<string, any> = {
     dayKey: days,
     status: { $ne: 'pending' },
   };
-  const notCancelled: PipelineStage.Match = { $match: { status: { $ne: 'cancelled' } } };
 
   if (!isAllBranches) {
     orderMatch.branchId = branchId;
@@ -41,7 +40,7 @@ export async function getDashboard(c: Context) {
     {
       $facet: {
         summary: [
-          notCancelled,
+          { $match: { status: { $ne: 'cancelled' } } },
           {
             $group: {
               _id: null,
@@ -87,22 +86,15 @@ export async function getDashboard(c: Context) {
             },
           },
         ],
+        // Cancelled orders are their own row, next to dine-in, takeaway and delivery.
         byType: [
-          notCancelled,
           {
             $group: {
-              _id: '$type',
+              _id: { $cond: [{ $eq: ['$status', 'cancelled'] }, 'cancelled', '$type'] },
               count: { $sum: 1 },
               sales: { $sum: '$total' },
             },
           },
-        ],
-        // Why orders were cancelled: how many and what they were worth, per reason (none for older cancellations).
-        cancelled: [
-          { $match: { status: 'cancelled' } },
-          { $group: { _id: { $ifNull: ['$cancellation.reason', null] }, count: { $sum: 1 }, value: { $sum: '$total' } } },
-          { $sort: { count: -1, value: -1 } },
-          { $project: { _id: 0, reason: '$_id', count: 1, value: 1 } },
         ],
       },
     },
@@ -118,14 +110,7 @@ export async function getDashboard(c: Context) {
     notCollected: 0,
   };
 
-  const cancelledByReason: { reason: string | null; count: number; value: number }[] = orderResults?.cancelled ?? [];
-  const cancelled = {
-    count: cancelledByReason.reduce((sum, row) => sum + row.count, 0),
-    value: cancelledByReason.reduce((sum, row) => sum + row.value, 0),
-    byReason: cancelledByReason,
-  };
-
-  const types = ['dine_in', 'takeaway', 'delivery'] as const;
+  const types = ['dine_in', 'takeaway', 'delivery', 'cancelled'] as const;
   const rawByType = orderResults?.byType || [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const byTypeMap = new Map<string, any>(rawByType.map((b: any) => [b._id, b]));
@@ -210,7 +195,6 @@ export async function getDashboard(c: Context) {
       newCustomers: newCustomersCount,
       khataTotal: khataStats.khataTotal,
       khataCustomers: khataStats.khataCustomers,
-      cancelled,
     },
     perBranch,
     slipping: slippingCustomers,

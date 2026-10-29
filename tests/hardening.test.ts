@@ -173,17 +173,17 @@ describe('Hardening', () => {
     expect(list.find((item) => item._id === order._id)?.cancellation?.reason).toBe('out_of_stock');
   });
 
-  it('counts cancelled orders apart on the dashboard, by reason', async () => {
+  it('counts cancelled orders apart on the dashboard, as their own section', async () => {
     const before = ((await (await api(a, 'GET', '/dashboard')).json()) as Json).stats;
     const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
     expect((await api(a, 'POST', `/orders/${order._id}/cancel`, { reason: 'customer_left' })).status).toBe(200);
     const after = ((await (await api(a, 'GET', '/dashboard')).json()) as Json).stats;
     expect(after.sales).toBe(before.sales);
     expect(after.orderCount).toBe(before.orderCount);
-    expect(after.cancelled.count).toBe(before.cancelled.count + 1);
-    expect(after.cancelled.value).toBe(before.cancelled.value + order.total);
-    const left = (stats: Json) => stats.cancelled.byReason.find((row: Json) => row.reason === 'customer_left')?.count ?? 0;
-    expect(left(after)).toBe(left(before) + 1);
+    const row = (stats: Json, type: string) => stats.byType.find((r: Json) => r.type === type);
+    expect(row(after, 'cancelled').count).toBe(row(before, 'cancelled').count + 1);
+    expect(row(after, 'cancelled').sales).toBe(row(before, 'cancelled').sales + order.total);
+    expect(row(after, 'takeaway')).toEqual(row(before, 'takeaway'));
   });
 
   it('shows the dashboard and orders for a span of days', async () => {
