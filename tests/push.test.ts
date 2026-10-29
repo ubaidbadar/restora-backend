@@ -4,6 +4,8 @@ import mongoose from 'mongoose';
 import webpush from 'web-push';
 import { app } from '../index';
 import PushDevice from '../src/models/push_device';
+import Restaurant from '../src/models/restaurant';
+import { cleanupExpiredRestaurants } from '../src/workers/restaurant_cleanup';
 
 type Json = any;
 
@@ -145,5 +147,28 @@ describe('Push devices', () => {
     expect(await PushDevice.exists({ token: phone })).not.toBeNull();
     expect((await post('/api/v1/push-devices/remove', { token: phone })).status).toBe(200);
     expect(await PushDevice.exists({ token: phone })).toBeNull();
+  });
+
+  it("forgets a person's devices when they delete their account", async () => {
+    const signup = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'leaving@restaurant.com', name: 'Leaving Waiter', password: 'StrongPassword123!' }),
+    });
+    const { user } = (await signup.json()) as Json;
+    await PushDevice.create({ userId: user.id, restaurantId: 'r1', kind: 'expo', token: 'ExponentPushToken[leaving]' });
+    const res = await app.request('/api/v1/account', { method: 'DELETE', headers: { Cookie: signup.headers.get('set-cookie') || '' } });
+    expect(res.status).toBe(200);
+    expect(await PushDevice.exists({ userId: user.id })).toBeNull();
+  });
+
+  it("forgets a restaurant's devices when it is wiped", async () => {
+    const token = 'ExponentPushToken[other-house]';
+    expect((await post('/api/v1/push-devices', { kind: 'expo', token }, otherHeaders)).status).toBe(200);
+    const restaurantId = otherHeaders['x-restaurant-id'];
+    await Restaurant.findByIdAndUpdate(restaurantId, { status: 'deleting', deleteAfter: new Date(Date.now() - 1000).toISOString() });
+    await cleanupExpiredRestaurants();
+    expect(await PushDevice.exists({ token })).toBeNull();
+    expect(await PushDevice.exists({ token: browser.endpoint })).not.toBeNull();
   });
 });

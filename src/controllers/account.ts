@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import mongoose from 'mongoose';
 import auth from '../config/auth';
 import StaffMember from '../models/staff_member';
+import PushDevice from '../models/push_device';
 import Restaurant from '../models/restaurant';
 import { runWithoutTenant } from '../middlewares/tenant_context';
 import logAudit from '../utils/audit';
@@ -144,8 +145,8 @@ export async function deleteAccount(c: Context) {
     target: { type: 'user', id: user.id, label: user.email },
   });
 
-  // Remove memberships across all restaurants
-  await runWithoutTenant(() => StaffMember.deleteMany({ userId: user.id }));
+  // Remove memberships across all restaurants, and the phones and browsers that got their alerts
+  await runWithoutTenant(() => Promise.all([StaffMember.deleteMany({ userId: user.id }), PushDevice.deleteMany({ userId: user.id })]));
 
   // Clean up user, sessions, and accounts from MongoDB
   const db = mongoose.connection.getClient().db();

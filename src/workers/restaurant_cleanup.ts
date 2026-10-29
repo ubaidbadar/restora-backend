@@ -17,6 +17,9 @@ import GuestRequest from '../models/guest_request';
 import Table from '../models/table';
 import Reservation from '../models/reservation';
 import DailyCounter from '../models/daily_counter';
+import PrintAgent from '../models/print_agent';
+import PrintJob from '../models/print_job';
+import PushDevice from '../models/push_device';
 import { runWithoutTenant } from '../middlewares/tenant_context';
 
 export async function cleanupExpiredRestaurants(): Promise<number> {
@@ -55,6 +58,9 @@ export async function cleanupExpiredRestaurants(): Promise<number> {
         Table.deleteMany({ restaurantId }),
         Reservation.deleteMany({ restaurantId }),
         DailyCounter.deleteMany({ restaurantId }),
+        PrintAgent.deleteMany({ restaurantId }),
+        PrintJob.deleteMany({ restaurantId }),
+        PushDevice.deleteMany({ restaurantId }),
       ]);
 
       await Restaurant.findByIdAndDelete(restaurantId);
