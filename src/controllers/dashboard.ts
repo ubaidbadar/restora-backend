@@ -3,31 +3,31 @@ import type { PipelineStage } from 'mongoose';
 import Order from '../models/order';
 import Customer from '../models/customer';
 import Branch from '../models/branch';
-import dayKey from '../utils/day_key';
+import dayRange from '../utils/day_range';
 import lookup from '../utils/lookup';
 import { hasPermission } from '../middlewares/permission_guard';
-
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function getDashboard(c: Context) {
   // The client asks `?scope=all` for every branch, `?scope=branch` for the active one.
   const wantsAll = c.req.query('scope') === 'all';
   const branchId = c.get('branchId') as string | undefined;
   const isAllBranches = wantsAll || !branchId;
-  const today = c.req.query('date') || dayKey();
+  // `?from=&to=` for a span of days, `?date=` for one, today when neither.
+  const range = dayRange(c);
 
-  if (!DAY.test(today)) {
-    return c.json({ message: 'Use a date like 2026-01-31' }, 400);
+  if (!range) {
+    return c.json({ message: 'Use dates like 2026-01-31, with from on or before to' }, 400);
   }
+  const days = { $gte: range.from, $lte: range.to };
   if (isAllBranches && !(await hasPermission(c, 'reports:view_all_branches'))) {
     return c.json({ message: 'You can only see the numbers of your branch' }, 403);
   }
 
-  // 1. Order Aggregation Pipeline: sales from the day's orders, cancelled ones counted apart (guests' orders waiting to
+  // 1. Order Aggregation Pipeline: sales from the days' orders, cancelled ones counted apart (guests' orders waiting to
   // be accepted are in neither).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const orderMatch: Record<string, any> = {
-    dayKey: today,
+    dayKey: days,
     status: { $ne: 'pending' },
   };
   const notCancelled: PipelineStage.Match = { $match: { status: { $ne: 'cancelled' } } };
@@ -136,9 +136,9 @@ export async function getDashboard(c: Context) {
   }));
 
   // 2. Customer Aggregations (new customers, khata totals, slipping)
-  // Midnight in Pakistan time (UTC+5, no daylight saving).
-  const todayStart = new Date(`${today}T00:00:00.000+05:00`);
-  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+  // Midnight in Pakistan time (UTC+5, no daylight saving), from the first day to the end of the last.
+  const rangeStart = new Date(`${range.from}T00:00:00.000+05:00`);
+  const rangeEnd = new Date(new Date(`${range.to}T00:00:00.000+05:00`).getTime() + 86_400_000);
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   // One aggregation over the customers for all four numbers.
@@ -146,7 +146,7 @@ export async function getDashboard(c: Context) {
     {
       $facet: {
         khata: [{ $match: { khataBalance: { $gt: 0 } } }, { $group: { _id: null, khataTotal: { $sum: '$khataBalance' }, khataCustomers: { $sum: 1 } } }],
-        newToday: [{ $match: { createdAt: { $gte: todayStart, $lt: todayEnd } } }, { $count: 'n' }],
+        newInRange: [{ $match: { createdAt: { $gte: rangeStart, $lt: rangeEnd } } }, { $count: 'n' }],
         // Slipping away: ordered before, but not in the last 30 days. Someone who never ordered is new, not slipping.
         slippingTotal: [{ $match: { lastOrderAt: { $lte: thirtyDaysAgo } } }, { $count: 'n' }],
         slipping: [{ $match: { lastOrderAt: { $lte: thirtyDaysAgo } } }, { $sort: { totalSpent: -1, orderCount: -1 } }, { $limit: 10 }, { $project: { addresses: 0, notes: 0 } }],
@@ -154,7 +154,7 @@ export async function getDashboard(c: Context) {
     },
   ]);
   const customerKhataStats = customerStats?.khata ?? [];
-  const newCustomersCount = customerStats?.newToday[0]?.n ?? 0;
+  const newCustomersCount = customerStats?.newInRange[0]?.n ?? 0;
   const slippingTotal = customerStats?.slippingTotal[0]?.n ?? 0;
   const slippingCustomers = customerStats?.slipping ?? [];
 
@@ -164,7 +164,7 @@ export async function getDashboard(c: Context) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let perBranch: any[] = [];
   if (isAllBranches) {
-    // One aggregation: each open branch with today's sales and order count.
+    // One aggregation: each open branch with the days' sales and order count.
     perBranch = await Branch.aggregate([
       { $match: { archivedAt: { $exists: false } } },
       { $sort: { name: 1 } },
@@ -175,7 +175,7 @@ export async function getDashboard(c: Context) {
         foreignField: 'branchId',
         as: 'stats',
         pipeline: [
-          { $match: { restaurantId: c.get('restaurantId'), dayKey: today, status: { $ne: 'pending' } } },
+          { $match: { restaurantId: c.get('restaurantId'), dayKey: days, status: { $ne: 'pending' } } },
           {
             $group: {
               _id: null,
