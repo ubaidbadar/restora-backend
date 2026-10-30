@@ -26,7 +26,7 @@ const site = new Hono();
 
 const DIST = path.join(import.meta.dir, 'dist');
 const PUBLIC = path.join(import.meta.dir, 'public');
-const HOSTS = (process.env.SITE_HOSTS || 'restora.live,www.restora.live').split(',').map((host) => host.trim());
+const HOSTS = (process.env.SITE_HOSTS || 'restora.live,www.restora.live,dev.restora.live').split(',').map((host) => host.trim());
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
 // Built by `bun run build` (site/build.ts). Read once; the deploy restarts the server with a new build.

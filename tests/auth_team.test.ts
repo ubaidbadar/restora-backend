@@ -98,6 +98,18 @@ describe('Auth, onboarding and team management', () => {
     expect(wp.roleNames).toEqual(['Owner']);
   });
 
+  it('onboarding saves the logo picked during setup, and refuses anything but an image', async () => {
+    const other = await signup('logo-owner@test.com', 'Logo Lina');
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+    expect((await call(other, 'POST', '/onboarding', { name: 'Logo Cafe', branchName: 'Main', logo: 'javascript:alert(1)' })).status).toBe(400);
+    const res = await call(other, 'POST', '/onboarding', { name: 'Logo Cafe', branchName: 'Main', logo: png });
+    expect(res.status).toBe(201);
+    const data = await json(res);
+    expect(data.restaurant.logo).toContain(`r_${data.restaurantId}__logos__`);
+    const settings = await json(await call(other, 'GET', '/settings'));
+    expect(settings.logo).toBe(data.restaurant.logo);
+  });
+
   it('saving tax finishes that setup step; the answer is the saved settings, which /me then shows', async () => {
     const saved = await json(await call(owner, 'PATCH', '/settings', { taxByPaymentMethod: { cash: 15, card: 5, jazzcash: 5, easypaisa: 5, bank: 5 } }));
     expect(saved.taxSet).toBe(true);

@@ -5,6 +5,8 @@ import StaffMember, { type IStaffMember } from '../models/staff_member';
 import Branch from '../models/branch';
 import Role from '../models/role';
 import Settings from '../models/settings';
+import { uploadDataUrlToCloudflare } from '../services/cloudflare_storage';
+import httpError from '../utils/http_error';
 import logAudit from '../utils/audit';
 import { moveTo } from '../utils/workplace';
 import lookup from '../utils/lookup';
@@ -42,19 +44,25 @@ export async function listRestaurants(c: Context) {
   return c.json(list);
 }
 
-/** First-run step 1: the restaurant, its first branch, the preset roles, the owner and default settings. */
+/** First-run step 1: the restaurant and its logo, its first branch, the preset roles, the owner and default settings. */
 export async function onboarding(c: Context) {
   const user = c.get('user');
-  const { name, branchName, area, city, phone } = c.get('validatedJson') as {
+  const { name, branchName, area, city, phone, logo: logoDataUrl } = c.get('validatedJson') as {
     name: string;
     branchName: string;
     area?: string | null;
     city?: string | null;
     phone?: string | null;
+    logo?: string | null;
   };
 
-  const restaurant = await runWithoutTenant(() => Restaurant.create({ name, status: 'active' }));
-  const restaurantId = String(restaurant._id);
+  // The logo is uploaded under the new restaurant's folder before anything is saved, so a bad image leaves no half-made restaurant.
+  const restaurantId = String(new Restaurant()._id);
+  const uploaded = logoDataUrl ? await uploadDataUrlToCloudflare(logoDataUrl, `r_${restaurantId}/logos`) : undefined;
+  if (uploaded === null) throw httpError(400, 'Use a JPEG, PNG, WebP or GIF image of up to 5 MB');
+  const logo = uploaded?.url;
+
+  await runWithoutTenant(() => Restaurant.create({ _id: restaurantId, name, logo, status: 'active' }));
 
   const { branch } = await runWithTenant(restaurantId, async () => {
     const branch = await Branch.create({ name: branchName, area: area || undefined, city: city || undefined, phone: phone || undefined, isActive: true });
@@ -69,7 +77,7 @@ export async function onboarding(c: Context) {
       isOwner: true,
       isPrimaryOwner: true,
     });
-    await Settings.create({ restaurantName: name, onboarded: true, taxSet: false });
+    await Settings.create({ restaurantName: name, logo, onboarded: true, taxSet: false });
     return { branch };
   });
 
@@ -82,7 +90,7 @@ export async function onboarding(c: Context) {
 
   // This sign-in now works in the new restaurant.
   const me = await moveTo(c, restaurantId, String(branch._id));
-  return c.json({ restaurantId, name, restaurant: { _id: restaurantId, name }, branch: { _id: String(branch._id), name: branch.name }, me }, 201);
+  return c.json({ restaurantId, name, restaurant: { _id: restaurantId, name, logo }, branch: { _id: String(branch._id), name: branch.name }, me }, 201);
 }
 
 export async function transferOwnership(c: Context) {
