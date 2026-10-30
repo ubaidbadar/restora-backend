@@ -10,6 +10,7 @@ const orderRouter = new Hono();
 
 orderRouter.get('/', requirePermission('orders:view'), orderController.list);
 orderRouter.post('/', requirePermission('orders:create'), validateBody(orderCreateSchema), orderController.create);
+orderRouter.get('/history', requirePermission('orders:view'), orderController.history);
 orderRouter.get('/stream', requirePermission('orders:view'), orderController.stream);
 orderRouter.get('/:id', requirePermission('orders:view'), orderController.get);
 orderRouter.patch('/:id/status', requirePermission('orders:update'), validateBody(orderStatusSchema), orderController.updateStatus);
