@@ -10,9 +10,19 @@ import { getTenantId } from '../middlewares/tenant_context';
  * its categories' dishes), or the receipt on the receipt printer. `auto` slips are made once per order and printer, so an
  * order syncing twice or accepted twice prints once; a reprint (`auto` false) always makes a new one.
  * Answers how many slips were queued. One read finds the agents and the dishes' categories together.
+ * `change` makes a slip of those dishes headed with its label after the token: only what changed after an edit (see
+ * kitchen_changes) as "#12 CHANGED", or a reprint as "#12 REPRINT". Its `key` keeps it apart from the order's first slip.
  */
-export default async function queuePrintJobs(order: IOrder, kind: 'kitchen' | 'receipt', header: Record<string, unknown>, auto: boolean) {
-  const itemIds = order.items.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
+export default async function queuePrintJobs(
+  order: IOrder,
+  kind: 'kitchen' | 'receipt',
+  header: Record<string, unknown>,
+  auto: boolean,
+  change?: { items: IOrder['items']; label: string; key: string }
+) {
+  const lines = change?.items ?? order.items;
+  if (!lines.length) return 0;
+  const itemIds = lines.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
   const agents = await PrintAgent.aggregate<{ _id: unknown; printers: IPrinter[]; dishes: { _id: unknown; categoryId: string }[] }>([
     { $match: { branchId: order.branchId, lastSeenAt: { $exists: true } } },
     { $lookup: { from: MenuItem.collection.collectionName, pipeline: [{ $match: { restaurantId: getTenantId(), _id: { $in: itemIds } } }, { $project: { categoryId: 1 } }], as: 'dishes' } },
@@ -20,14 +30,16 @@ export default async function queuePrintJobs(order: IOrder, kind: 'kitchen' | 'r
 
   const categoryOf = (itemId: string, dishes: { _id: unknown; categoryId: string }[]) => dishes.find((dish) => String(dish._id) === itemId)?.categoryId;
   const snapshot = JSON.parse(JSON.stringify(order)) as Record<string, unknown> & { items: IOrder['items'] };
-  const orderKey = order.clientId || String(order._id);
+  // The token is printed as it is, so every agent, also one installed before changes, prints the label.
+  if (change) snapshot.dailyToken = `${order.dailyToken} ${change.label}`;
+  const orderKey = (order.clientId || String(order._id)) + (change ? `~${change.key}` : '');
 
   const jobs = agents.flatMap((agent) =>
     agent.printers
       .filter((printer) => printer.present && printer.prints.includes(kind))
       .flatMap((printer) => {
         // A kitchen printer with categories gets only their dishes; a slip with no dish is not printed.
-        const items = kind === 'kitchen' && printer.categoryIds.length ? order.items.filter((item) => printer.categoryIds.includes(categoryOf(item.itemId, agent.dishes) ?? '')) : order.items;
+        const items = kind === 'kitchen' && printer.categoryIds.length ? lines.filter((item) => printer.categoryIds.includes(categoryOf(item.itemId, agent.dishes) ?? '')) : lines;
         if (!items.length) return [];
         const agentId = String(agent._id);
         return [

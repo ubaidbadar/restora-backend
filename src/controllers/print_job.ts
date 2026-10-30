@@ -10,7 +10,9 @@ export async function createPrintJob(c: Context) {
   const order = await Order.findById(orderId).catch(() => null);
   if (!order) throw httpError(404, 'Order not found');
 
-  const queued = await queuePrintJobs(order, kind, printHeader(c), false);
+  // A kitchen slip asked for again says REPRINT, so the kitchen does not cook it twice.
+  const reprint = kind === 'kitchen' ? { items: order.items, label: 'REPRINT', key: 'reprint' } : undefined;
+  const queued = await queuePrintJobs(order, kind, printHeader(c), false, reprint);
   if (!queued) return c.json({ message: `No printer is set up for ${kind === 'kitchen' ? 'kitchen slips' : 'receipts'}`, queued: 0 }, 409);
   return c.json({ queued }, 201);
 }

@@ -134,10 +134,48 @@ describe('Print agents', () => {
     const jobs = (await agentGet('/jobs')).body.filter((j: Json) => j.kind === 'receipt');
     expect(jobs).toHaveLength(2);
     expect(jobs[0].header.restaurant).toBe('Print House');
+    // The agent prints a slip once per key, so each reprint has its own.
+    expect(new Set(jobs.map((j: Json) => j.orderKey)).size).toBe(2);
+    expect(jobs.every((j: Json) => j.orderKey.startsWith(`${order._id}~`))).toBe(true);
 
     await post(`/api/v1/print-agents/${agent._id}/printers/${encodeURIComponent('EPSON TM-T20')}`, { label: 'Counter', prints: [], categoryIds: [], width: 48, copies: 1 }, 'PATCH');
     const none = await post('/api/v1/print-jobs', { orderId: order._id, kind: 'receipt' });
     expect(none.status).toBe(409);
+  });
+
+  it('prints only what changed for the kitchen when an order is edited, and CANCEL when it is cancelled', async () => {
+    const daal = (await post('/api/v1/menu/items', { categoryId: food._id, name: 'Daal', sizes: [{ price: 500 }] })).body;
+    const order = (await placeOrder([{ itemId: karahi._id, qty: 2 }, { itemId: coke._id, qty: 1 }])).body;
+    const sizeOf = (itemId: string) => order.items.find((item: Json) => item.itemId === itemId)?.sizeId;
+    const kitchenSlips = async () => (await agentGet('/jobs')).body.filter((j: Json) => j.kind === 'kitchen' && j.order._id === order._id);
+    expect(await kitchenSlips()).toHaveLength(1);
+
+    const edited = await post(`/api/v1/orders/${order._id}`, { type: 'takeaway', items: [{ itemId: karahi._id, sizeId: sizeOf(karahi._id), qty: 1 }, { itemId: daal._id, qty: 2 }] }, 'PUT');
+    expect(edited.status).toBe(200);
+    const [, changed] = await kitchenSlips();
+    expect(changed.order.dailyToken).toBe(`${order.dailyToken} CHANGED`);
+    expect(changed.orderKey).not.toBe(order._id);
+    // The Coke left too, but this printer only makes the mains.
+    expect(changed.order.items.map((item: Json) => `${item.qty}x ${item.name}`)).toEqual(['1x LESS Chicken Karahi', '2x ADD Daal']);
+
+    // Only the customer changed: nothing for the kitchen.
+    await post(`/api/v1/orders/${order._id}`, { type: 'takeaway', items: edited.body.items.map((item: Json) => ({ itemId: item.itemId, sizeId: item.sizeId, qty: item.qty })), discount: 0 }, 'PUT');
+    expect(await kitchenSlips()).toHaveLength(2);
+
+    const cancelled = await post(`/api/v1/orders/${order._id}/cancel`, {});
+    expect(cancelled.body.status).toBe('cancelled');
+    const slips = await kitchenSlips();
+    expect(slips).toHaveLength(3);
+    expect(slips[2].order.dailyToken).toBe(`${order.dailyToken} CANCELLED`);
+    expect(slips[2].order.items.map((item: Json) => `${item.qty}x ${item.name}`)).toEqual(['1x CANCEL Chicken Karahi', '2x CANCEL Daal']);
+  });
+
+  it('reprints a kitchen slip as REPRINT, with a key of its own', async () => {
+    const order = (await placeOrder([{ itemId: karahi._id, qty: 1 }])).body;
+    expect((await post('/api/v1/print-jobs', { orderId: order._id, kind: 'kitchen' })).status).toBe(201);
+    const slips = (await agentGet('/jobs')).body.filter((j: Json) => j.kind === 'kitchen' && j.order._id === order._id);
+    expect(slips.map((j: Json) => j.order.dailyToken)).toEqual([order.dailyToken, `${order.dailyToken} REPRINT`]);
+    expect(slips[1].orderKey).not.toBe(slips[0].orderKey);
   });
 
   it('marks slips printed or failed, and keeps answering when told twice', async () => {
