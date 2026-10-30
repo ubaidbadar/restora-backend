@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import type { ClientSession } from 'mongoose';
+import type { ClientSession, PipelineStage } from 'mongoose';
 import Order, { type IOrder, type IOrderItem, type IOrderCustomer } from '../models/order';
 import MenuItem, { type IMenuItem } from '../models/menu_item';
 import AddonGroup, { type IAddonGroup } from '../models/addon_group';
@@ -17,6 +17,7 @@ import calcTotals from '../utils/calc_totals';
 import onSale from '../utils/on_sale';
 import runInTransaction from '../utils/transaction';
 import normalizePhone from '../utils/normalize_phone';
+import escapeRegex from '../utils/escape_regex';
 import applyKhata from '../utils/khata';
 import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
@@ -93,8 +94,122 @@ export async function listOrders(c: Context) {
     filter.dayKey = { $gte: range.from, $lte: range.to };
   }
 
+  // `?since=`: only the orders changed from then on (the app catching up after its live stream reconnects).
+  const since = c.req.query('since');
+  if (since) {
+    const at = new Date(since);
+    if (Number.isNaN(at.getTime())) return c.json({ message: 'Use a time like 2026-01-31T09:30:00.000Z for since' }, 400);
+    filter.updatedAt = { $gte: at };
+  }
+
   const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
   return c.json(orders);
+}
+
+const HISTORY_PAGE = 50;
+const HISTORY_MAX_DAYS = 366;
+const DAY_MS = 86_400_000;
+type HistoryRow = Pick<IOrder, '_id' | 'dailyToken' | 'dayKey' | 'createdAt' | 'type' | 'status' | 'paymentStatus' | 'total' | 'tableName'> & {
+  customer?: { name: string };
+  itemCount: number;
+};
+
+/**
+ * What `?q=` finds: a token (a short number), the start of a customer's name, part of their phone, or a table by name.
+ * A phone typed the local way (0300…) is matched as saved (+92300…).
+ */
+function historySearch(q: string): Record<string, unknown> {
+  const text = q.trim();
+  const or: Record<string, unknown>[] = [
+    { 'customer.name': new RegExp(`^${escapeRegex(text)}`, 'i') },
+    { tableName: new RegExp(`^${escapeRegex(text)}$`, 'i') },
+  ];
+  if (/^\d{1,5}$/.test(text)) or.push({ dailyToken: Number(text) });
+  const digits = text.replace(/\D/g, '').replace(/^0/, '');
+  if (digits.length >= 4) or.push({ 'customer.phone': new RegExp(escapeRegex(digits)) });
+  return { $or: or };
+}
+
+/**
+ * Orders of a span of days as a list, a page at a time: slim rows, the latest first (by day, then token, which the
+ * order index already holds). `?from=&to=` (at most a year), `?q=`, `?status=`, `?type=`, `?payment=`, `?cursor=` (the
+ * last answer's `next`). The first page also has `summary`: the days' counts by status and type and their sales, for
+ * the same days and search but every status and type, so the tabs keep their counts while one is picked.
+ * One aggregation per call. The full order is GET /orders/:id.
+ */
+export async function orderHistory(c: Context) {
+  const branchId = c.get('branchId') as string | undefined;
+  const range = dayRange(c);
+  if (!range) return c.json({ message: 'Use dates like 2026-01-31, with from on or before to' }, 400);
+  if (Date.parse(range.to) - Date.parse(range.from) >= HISTORY_MAX_DAYS * DAY_MS) {
+    return c.json({ message: `Pick at most ${HISTORY_MAX_DAYS} days` }, 400);
+  }
+  const { q, status, type, payment, cursor } = c.req.query();
+
+  const base: Record<string, unknown> = { dayKey: { $gte: range.from, $lte: range.to } };
+  if (branchId) base.branchId = branchId;
+  if (q?.trim()) Object.assign(base, historySearch(q));
+
+  const rowsMatch: Record<string, unknown> = {};
+  if (status) rowsMatch.status = status === 'new' ? { $in: ['new', 'pending'] } : status;
+  if (type) rowsMatch.type = type;
+  if (payment) rowsMatch.paymentStatus = payment;
+  if (cursor) {
+    // `day_token_id` of the last row sent: the rows after it in the list's order.
+    const [day, token, id] = cursor.split('_');
+    const _id = id ? toObjectId(id) : null;
+    if (!day || !Number.isInteger(Number(token)) || !_id) return c.json({ message: 'That page link is not valid' }, 400);
+    rowsMatch.$or = [
+      { dayKey: { $lt: day } },
+      { dayKey: day, dailyToken: { $lt: Number(token) } },
+      { dayKey: day, dailyToken: Number(token), _id: { $lt: _id } },
+    ];
+  }
+
+  const rows: PipelineStage.FacetPipelineStage[] = [
+    { $match: rowsMatch },
+    { $sort: { dayKey: -1, dailyToken: -1, _id: -1 } },
+    { $limit: HISTORY_PAGE + 1 },
+    {
+      $project: {
+        dailyToken: 1, dayKey: 1, createdAt: 1, type: 1, status: 1, paymentStatus: 1, total: 1, tableName: 1,
+        'customer.name': 1,
+        itemCount: { $sum: '$items.qty' },
+      },
+    },
+  ];
+  // Sales leave out cancelled orders and guests' orders not accepted yet, like the dashboard.
+  const summary: PipelineStage.FacetPipelineStage[] = [
+    {
+      $group: {
+        _id: { status: '$status', type: '$type' },
+        count: { $sum: 1 },
+        sales: { $sum: { $cond: [{ $in: ['$status', ['cancelled', 'pending']] }, 0, '$total'] } },
+      },
+    },
+  ];
+
+  const [result] = await Order.aggregate<{ rows: HistoryRow[]; summary?: { _id: { status: string; type: string }; count: number; sales: number }[] }>([
+    { $match: base },
+    { $facet: cursor ? { rows } : { rows, summary } },
+  ]);
+  const found = result?.rows ?? [];
+  const orders = found.slice(0, HISTORY_PAGE).map((row) => ({ ...row, _id: String(row._id) }));
+  const last = orders.at(-1);
+  const next = found.length > HISTORY_PAGE && last ? `${last.dayKey}_${last.dailyToken}_${last._id}` : null;
+  if (!result?.summary) return c.json({ orders, next });
+
+  const byStatus: Record<string, number> = {};
+  const byType: Record<string, number> = {};
+  let count = 0;
+  let sales = 0;
+  for (const group of result.summary) {
+    byStatus[group._id.status] = (byStatus[group._id.status] ?? 0) + group.count;
+    byType[group._id.type] = (byType[group._id.type] ?? 0) + group.count;
+    count += group.count;
+    sales += group.sales;
+  }
+  return c.json({ summary: { count, sales, byStatus, byType }, orders, next });
 }
 
 /** How long one stream stays open. The app reconnects, so sign-outs and locked terminals are checked again. */
@@ -639,6 +754,7 @@ export async function cancelOrder(c: Context) {
 
 export default {
   list: listOrders,
+  history: orderHistory,
   stream: streamOrders,
   get: getOrder,
   create: createOrder,
