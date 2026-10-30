@@ -23,6 +23,7 @@ import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
 import printHeader from '../utils/print_header';
 import queuePrintJobs from '../utils/queue_print_jobs';
+import kitchenChanges from '../utils/kitchen_changes';
 import { hasPermission } from '../middlewares/permission_guard';
 import { getTenantId } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
@@ -629,6 +630,9 @@ export async function updateOrder(c: Context) {
   return c.json(updated);
 }
 
+/** Statuses in which the kitchen has the order's slip and may still be cooking it. */
+const KITCHEN_HAS_IT: IOrder['status'][] = ['new', 'preparing', 'ready'];
+
 /** Statuses an order can still be edited in: until it is on the way or done. A guest's order can be fixed before accepting it. */
 const EDITABLE_STATUSES: IOrder['status'][] = ['pending', 'new', 'preparing', 'ready'];
 
@@ -703,6 +707,12 @@ export async function editOrder(c: Context) {
     target: { type: 'order', id, label: `#${order.dailyToken}` },
   });
 
+  // The kitchen already has the order (a guest's is printed once accepted): it gets a slip of only what changed.
+  if (updated && KITCHEN_HAS_IT.includes(order.status)) {
+    const items = kitchenChanges(order.items, updated.items);
+    await queuePrintJobs(updated, 'kitchen', printHeader(c), true, { items, label: 'CHANGED', key: `edit-${Date.now()}` }).catch((err) => console.error('[Print] Queueing kitchen changes failed:', err));
+  }
+
   return c.json(updated);
 }
 
@@ -716,13 +726,18 @@ export async function cancelOrder(c: Context) {
   const { reason, note } = parsed.data;
   const cancellation = { reason, note: note || undefined, byName: user?.name, at: new Date() };
 
+  let wasStatus: IOrder['status'] | undefined;
   const cancelled = await runInTransaction(async (session) => {
     const order = await Order.findOneAndUpdate(
       { _id: id, status: { $ne: 'cancelled' } },
       { $set: { status: 'cancelled', cancellation } },
-      { returnDocument: 'after', session }
+      { returnDocument: 'before', session }
     ).catch(() => null);
     if (!order) throw httpError(404, 'Order not found or already cancelled');
+    wasStatus = order.status;
+    // The order as saved: what was set, over what it was.
+    order.status = 'cancelled';
+    order.cancellation = cancellation;
 
     // Undo what the order did to the customer. A khata order stops being owed, with a reversal line.
     if (order.customerId && order.paymentStatus === 'khata') {
@@ -748,6 +763,12 @@ export async function cancelOrder(c: Context) {
     target: { type: 'order', id, label: `#${cancelled.dailyToken}` },
     changes: reason ? { after: { reason, note } } : undefined,
   });
+
+  // The kitchen may be cooking it: every dish is printed as CANCEL.
+  if (wasStatus && KITCHEN_HAS_IT.includes(wasStatus)) {
+    const items = kitchenChanges(cancelled.items, []);
+    await queuePrintJobs(cancelled, 'kitchen', printHeader(c), true, { items, label: 'CANCELLED', key: 'cancel' }).catch((err) => console.error('[Print] Queueing the cancelled slip failed:', err));
+  }
 
   return c.json(cancelled);
 }
