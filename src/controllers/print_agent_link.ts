@@ -51,7 +51,8 @@ export async function reportPrinters(c: Context) {
 export async function pendingJobs(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent;
   const jobs = await PrintJob.find({ agentId: String(agent._id), status: 'pending' }).sort({ createdAt: 1 }).limit(20);
-  return c.json(jobs.map((job) => ({ _id: String(job._id), printer: job.printer, kind: job.kind, orderKey: job.orderKey, width: job.width, copies: job.copies, order: job.order, header: job.header })));
+  // The agent prints a slip once per orderKey, kind and printer. A reprint (no autoKey) gets a key of its own, so it prints every time it is asked for.
+  return c.json(jobs.map((job) => ({ _id: String(job._id), printer: job.printer, kind: job.kind, orderKey: job.autoKey ? job.orderKey : `${job.orderKey}~${job._id}`, width: job.width, copies: job.copies, order: job.order, header: job.header })));
 }
 
 /** The agent says a slip is printed, or why it could not be (after its own retries). */
