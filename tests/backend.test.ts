@@ -761,6 +761,14 @@ describe('7. QR Public Table Menu & Floor Aggregation', () => {
     expect(body.message).toContain('Staff requested for table Table 7');
   });
 
+  it('GET /me carries the open guest calls, so the app starts with one request', async () => {
+    const me = (await (await app.request('/api/v1/me', { headers: { Cookie: cookie } })).json()) as any;
+    expect(me.workplace.calls).toEqual([{ _id: expect.any(String), tableId, tableName: 'Table 7', type: 'waiter', createdAt: expect.any(String) }]);
+    // Other requests do not load them.
+    const branches = await app.request('/api/v1/me/branch', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ branchId }) });
+    expect(((await branches.json()) as any).workplace.calls).toBeUndefined();
+  });
+
   it('aggregates active orders, guest requests, and bookings in GET /tables/floor', async () => {
     // 1. Create active unpaid order on Table 7
     await Order.create({
