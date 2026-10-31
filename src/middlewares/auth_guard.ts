@@ -50,6 +50,8 @@ export async function authGuard(c: Context, next: Next) {
     return;
   }
   const accountLevel = ACCOUNT_LEVEL.some((pattern) => pattern.test(path));
+  // Only `/me` carries the guests' open calls: the app starts with that one request.
+  const calls = c.req.method === 'GET' && path === '/api/v1/me';
 
   // 1. Someone's own sign-in (Better Auth cookie). The restaurant and branch come from the session, never from the request.
   const signedIn = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
@@ -61,7 +63,7 @@ export async function authGuard(c: Context, next: Next) {
 
     // One aggregation: where they work (the restaurant saved on the session, while they still work there), what they
     // may do there, and their other restaurants. /me is then made from it without asking the database again.
-    const found = await sessionWorkplace(user.id, session);
+    const found = await sessionWorkplace(user.id, session, calls);
     enterWorkplace(c, found);
     const lost = Boolean(session.activeRestaurantId && found.workplace?.restaurant._id !== session.activeRestaurantId);
 
@@ -89,7 +91,7 @@ export async function authGuard(c: Context, next: Next) {
 
   // One aggregation: the unlocked person in the terminal's restaurant, with its roles, open branches and settings.
   const restaurantId = String(device.restaurantId);
-  const found = await loadWorkplace({ _id: toObjectId(device.actor.membershipId), restaurantId, status: 'active' }, restaurantId, device.branchId, true);
+  const found = await loadWorkplace({ _id: toObjectId(device.actor.membershipId), restaurantId, status: 'active' }, restaurantId, device.branchId, true, calls);
   const { workplace } = found;
   // A closed restaurant has no workplace; an archived branch is not among the open ones.
   if (!workplace || !workplace.openBranches.some((b) => b._id === device.branchId)) {
