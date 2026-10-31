@@ -696,6 +696,7 @@ export async function editOrder(c: Context) {
         area: isDelivery ? body.area || undefined : undefined,
         address: isDelivery ? body.address || undefined : undefined,
         rider: isDelivery ? body.rider || undefined : undefined,
+        editedAt: new Date().toISOString(),
       },
     },
     { returnDocument: 'after' }

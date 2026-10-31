@@ -4,9 +4,9 @@ import type { IOrderItem } from '../models/order';
 const lineKey = (item: IOrderItem) => [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(','), item.note ?? ''].join('|');
 
 /**
- * What the kitchen has to change when an order's dishes go from `before` to `after`: "CANCEL" for a dish taken off,
- * "LESS" for fewer of one, "ADD" for a new dish or more of one, each with the count that changed. The word is in the
- * name so every print agent, also one installed before this, prints it as is. Stopping cooking comes first.
+ * What the kitchen has to change when an order's dishes go from `before` to `after`. 4 burgers and 3 shawarmas made 1
+ * burger: "4x CANCEL Burger", "3x CANCEL Shawarma", then "1x NEW Burger". The word is in the name so every print agent,
+ * also one installed before this, prints it as is (thermal printers have no strike-through). Stopping cooking comes first.
  */
 export default function kitchenChanges(before: IOrderItem[], after: IOrderItem[]): IOrderItem[] {
   const count = (items: IOrderItem[]) => {
@@ -22,15 +22,15 @@ export default function kitchenChanges(before: IOrderItem[], after: IOrderItem[]
   const was = count(before);
   const now = count(after);
 
-  const fewer: IOrderItem[] = [];
-  const more: IOrderItem[] = [];
+  // A line whose count changed is cut whole (all it had) and printed again with its new count, so the cook reads the
+  // count to make, never a sum. Lines that did not change are left off: the kitchen has them.
+  const cut: IOrderItem[] = [];
+  const fresh: IOrderItem[] = [];
   for (const [key, { item, qty }] of was) {
-    const left = now.get(key)?.qty ?? 0;
-    if (left < qty) fewer.push({ ...item, qty: qty - left, name: `${left ? 'LESS' : 'CANCEL'} ${item.name}` });
+    if ((now.get(key)?.qty ?? 0) !== qty) cut.push({ ...item, qty, name: `CANCEL ${item.name}` });
   }
   for (const [key, { item, qty }] of now) {
-    const had = was.get(key)?.qty ?? 0;
-    if (qty > had) more.push({ ...item, qty: qty - had, name: `ADD ${item.name}` });
+    if ((was.get(key)?.qty ?? 0) !== qty) fresh.push({ ...item, qty, name: `NEW ${item.name}` });
   }
-  return [...fewer, ...more];
+  return [...cut, ...fresh];
 }
