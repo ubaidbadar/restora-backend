@@ -156,7 +156,7 @@ describe('Print agents', () => {
     expect(changed.order.dailyToken).toBe(`${order.dailyToken} CHANGED`);
     expect(changed.orderKey).not.toBe(order._id);
     // The Coke left too, but this printer only makes the mains.
-    expect(changed.order.items.map((item: Json) => `${item.qty}x ${item.name}`)).toEqual(['1x LESS Chicken Karahi', '2x ADD Daal']);
+    expect(changed.order.items.map((item: Json) => `${item.qty}x ${item.name}`)).toEqual(['2x CANCEL Chicken Karahi', '1x NEW Chicken Karahi', '2x NEW Daal']);
 
     // Only the customer changed: nothing for the kitchen.
     await post(`/api/v1/orders/${order._id}`, { type: 'takeaway', items: edited.body.items.map((item: Json) => ({ itemId: item.itemId, sizeId: item.sizeId, qty: item.qty })), discount: 0 }, 'PUT');
