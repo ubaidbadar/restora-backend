@@ -8,6 +8,8 @@ import Branch from '../models/branch';
 import Restaurant from '../models/restaurant';
 import Role from '../models/role';
 import Settings from '../models/settings';
+import GuestRequest from '../models/guest_request';
+import Table from '../models/table';
 import StaffMember, { type IStaffMember } from '../models/staff_member';
 import type { IDevice } from '../models/device';
 import { runWithoutTenant } from '../middlewares/tenant_context';
@@ -32,7 +34,11 @@ export interface Workplace {
   /** The branch they work in now. */
   branch: BranchInfo | null;
   settings?: Partial<RestaurantSettings>;
+  /** Open guest calls in every branch, loaded only for `/me` (see `loadWorkplace`). */
+  calls?: (WorkplaceCall & { branchId: string })[];
 }
+
+type WorkplaceCall = NonNullable<NonNullable<Me['workplace']>['calls']>[number];
 
 type Found = IStaffMember & {
   restaurant: Workplace['restaurant'];
@@ -42,14 +48,16 @@ type Found = IStaffMember & {
   openBranches: BranchInfo[];
   branches: BranchInfo[];
   settings?: Partial<RestaurantSettings>;
+  calls?: Workplace['calls'];
 };
 
 /**
  * One aggregation: every restaurant of the matched memberships (the restaurants page and the switcher), and one of them
  * (the wanted restaurant if they still work there, else the oldest open one) with its roles, open branches and settings.
  * The current branch is the wanted one if it is theirs, else their first; on a terminal (`pos`) only the wanted one.
+ * With `calls` (only for `/me`) it also brings the guests' open calls, so the app needs no other request to start.
  */
-export async function loadWorkplace(match: Record<string, unknown>, restaurantId?: string | null, branchId?: string | null, pos = false) {
+export async function loadWorkplace(match: Record<string, unknown>, restaurantId?: string | null, branchId?: string | null, pos = false, calls = false) {
   const [result] = await runWithoutTenant(() =>
     StaffMember.aggregate<{ restaurants: Me['restaurants']; current: Found[] }>([
       { $match: match },
@@ -89,6 +97,22 @@ export async function loadWorkplace(match: Record<string, unknown>, restaurantId
               pipeline: [{ $match: { isActive: { $ne: false } } }, { $sort: { createdAt: 1 } }, { $project: { _id: { $toString: '$_id' }, name: 1, address: 1, area: 1, city: 1, phone: 1 } }],
             }),
             ...lookup({ from: Settings, localField: 'restaurantId', foreignField: 'restaurantId', as: 'settings' }),
+            // Calls from the tables' QR pages not yet seen to, oldest first, leaving out archived tables (as the floor does).
+            ...(calls
+              ? lookup({
+                  from: GuestRequest,
+                  localField: 'restaurantId',
+                  foreignField: 'restaurantId',
+                  as: 'calls',
+                  pipeline: [
+                    { $match: { resolved: false } },
+                    { $sort: { createdAt: 1 } },
+                    ...lookup({ from: Table, localField: 'tableId', as: 'table', pipeline: [{ $match: { archived: { $ne: true } } }, { $project: { name: 1 } }] }),
+                    { $match: { 'table.0': { $exists: true } } },
+                    { $project: { _id: { $toString: '$_id' }, branchId: 1, tableId: 1, tableName: { $first: '$table.name' }, type: 1, createdAt: 1 } },
+                  ],
+                })
+              : []),
             {
               $addFields: {
                 owner: { $or: ['$isOwner', '$isPrimaryOwner', { $in: ['owner', '$roles.key'] }] },
@@ -118,7 +142,7 @@ export async function loadWorkplace(match: Record<string, unknown>, restaurantId
   const found = result?.current[0];
   if (!found) return { restaurants, workplace: null };
 
-  const { restaurant, roleNames, owner, granted, openBranches, branches, settings, ...member } = found;
+  const { restaurant, roleNames, owner, granted, openBranches, branches, settings, calls: openCalls, ...member } = found;
   const workplace: Workplace = {
     member: StaffMember.hydrate(member),
     restaurant: { _id: restaurant._id, name: restaurant.name, logo: restaurant.logo || undefined },
@@ -129,6 +153,7 @@ export async function loadWorkplace(match: Record<string, unknown>, restaurantId
     branches,
     branch: branches.find((b) => b._id === branchId) ?? (pos ? null : (branches[0] ?? null)),
     settings,
+    calls: openCalls,
   };
   return { restaurants, workplace };
 }
@@ -158,9 +183,9 @@ export async function saveWorkplace(sessionToken: string, restaurantId: string |
  * Where someone's own sign-in works: the restaurant and branch saved on its session while they still work there, else
  * their oldest restaurant (saved on the session).
  */
-export async function sessionWorkplace(userId: string, session: { token: string; activeRestaurantId?: string | null; activeBranchId?: string | null }) {
+export async function sessionWorkplace(userId: string, session: { token: string; activeRestaurantId?: string | null; activeBranchId?: string | null }, calls = false) {
   const wanted = session.activeRestaurantId || null;
-  const found = await loadWorkplace({ userId }, wanted, session.activeBranchId);
+  const found = await loadWorkplace({ userId }, wanted, session.activeBranchId, false, calls);
   const restaurantId = found.workplace?.restaurant._id ?? null;
   if (restaurantId !== wanted) await saveWorkplace(session.token, restaurantId);
   return found;
@@ -177,6 +202,10 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
   const branch = workplace?.branch;
   const saved = workplace?.settings;
   const receipt = saved?.receipt;
+  // The banner's calls: this branch's, for those who see the tables.
+  const calls = workplace?.permissions.includes('tables:view')
+    ? workplace.calls?.filter((call) => call.branchId === branch?._id).map(({ _id, tableId, tableName, type, createdAt }) => ({ _id, tableId, tableName, type, createdAt: new Date(createdAt).toISOString() }))
+    : undefined;
   // Empty fields are left out.
   return {
     user: { id: user.id, name: user.name, email: user.email, image: user.image || undefined },
@@ -203,6 +232,7 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
               receipt: receipt?.ntn || receipt?.strn || receipt?.footer ? { ntn: receipt.ntn || undefined, strn: receipt.strn || undefined, footer: receipt.footer || undefined } : undefined,
               updatedAt: saved?.updatedAt ? new Date(saved.updatedAt).toISOString() : undefined,
             },
+            calls: calls?.length ? calls : undefined,
           }
         : null,
     // The restaurants page and the switcher: only for someone's own sign-in.
