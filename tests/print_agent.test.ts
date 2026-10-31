@@ -162,11 +162,20 @@ describe('Print agents', () => {
     await post(`/api/v1/orders/${order._id}`, { type: 'takeaway', items: edited.body.items.map((item: Json) => ({ itemId: item.itemId, sizeId: item.sizeId, qty: item.qty })), discount: 0 }, 'PUT');
     expect(await kitchenSlips()).toHaveLength(2);
 
-    const cancelled = await post(`/api/v1/orders/${order._id}/cancel`, {});
+    // A receipt of the changed order says so.
+    await post(`/api/v1/print-agents/${agent._id}/printers/${encodeURIComponent('EPSON TM-T20')}`, { label: 'Counter', prints: ['receipt'], categoryIds: [], width: 48, copies: 1 }, 'PATCH');
+    expect((await post('/api/v1/print-jobs', { orderId: order._id, kind: 'receipt' })).status).toBe(201);
+    const receipt = (await agentGet('/jobs')).body.find((j: Json) => j.kind === 'receipt' && j.order._id === order._id);
+    expect(receipt.order.dailyToken).toBe(`${order.dailyToken} UPDATED`);
+    await post(`/api/v1/print-agents/${agent._id}/printers/${encodeURIComponent('EPSON TM-T20')}`, { label: 'Counter', prints: [], categoryIds: [], width: 48, copies: 1 }, 'PATCH');
+
+    const cancelled = await post(`/api/v1/orders/${order._id}/cancel`, { reason: 'customer_left' });
     expect(cancelled.body.status).toBe('cancelled');
     const slips = await kitchenSlips();
     expect(slips).toHaveLength(3);
     expect(slips[2].order.dailyToken).toBe(`${order.dailyToken} CANCELLED`);
+    // The agent prints who cancelled it and why.
+    expect(slips[2].order.cancellation).toMatchObject({ reason: 'customer_left', byName: 'Print Owner' });
     expect(slips[2].order.items.map((item: Json) => `${item.qty}x ${item.name}`)).toEqual(['1x CANCEL Chicken Karahi', '2x CANCEL Daal']);
   });
 
