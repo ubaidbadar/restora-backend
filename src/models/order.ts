@@ -64,6 +64,8 @@ export interface IOrder {
   placedAt?: string;
   /** Set when the order is cancelled. */
   cancellation?: IOrderCancellation;
+  /** When its dishes or details were last changed after it was placed (the receipt then says UPDATED). */
+  editedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -135,6 +137,7 @@ const OrderSchema = new Schema<IOrder>(
     clientId: { type: String },
     placedAt: { type: String },
     cancellation: { type: OrderCancellationSchema },
+    editedAt: { type: String },
   },
   {
     timestamps: true,
