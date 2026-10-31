@@ -108,6 +108,10 @@ describe('Auth, onboarding and team management', () => {
     expect(data.restaurant.logo).toContain(`r_${data.restaurantId}__logos__`);
     const settings = await json(await call(other, 'GET', '/settings'));
     expect(settings.logo).toBe(data.restaurant.logo);
+    // /me shows it on the workplace's restaurant and in the restaurants list.
+    const me = await json(await call(other, 'GET', '/me'));
+    expect(me.workplace.restaurant.logo).toBe(data.restaurant.logo);
+    expect(me.restaurants).toEqual([{ _id: data.restaurantId, name: 'Logo Cafe', logo: data.restaurant.logo, isOwner: true }]);
   });
 
   it('saving tax finishes that setup step; the answer is the saved settings, which /me then shows', async () => {
