@@ -125,6 +125,12 @@ describe('Auth, onboarding and team management', () => {
 
     await call(owner, 'PATCH', '/settings', { receipt: { ntn: '1234567-8' } });
     expect((await json(await call(owner, 'GET', '/me'))).workplace.settings.receipt).toEqual({ ntn: '1234567-8' });
+
+    // The theme is the restaurant's: indigo, light and a theme-coloured sidebar until changed, one key at a time.
+    expect(settings.appearance).toEqual({ theme: 'indigo', mode: 'light', sidebar: 'theme' });
+    await call(owner, 'PATCH', '/settings', { appearance: { theme: 'saffron', mode: 'system' } });
+    expect((await json(await call(owner, 'GET', '/me'))).workplace.settings.appearance).toEqual({ theme: 'saffron', mode: 'system', sidebar: 'theme' });
+    expect((await call(owner, 'PATCH', '/settings', { appearance: { theme: 'pink' } })).status).toBe(400);
   });
 
   it('switches branch only to an open branch', async () => {

@@ -14,6 +14,8 @@ export interface ISettings {
   whatsappTemplates?: Record<TemplateKey, string>;
   /** Printed on customer receipts; each line is left off while empty. */
   receipt?: { ntn?: string; strn?: string; footer?: string };
+  /** The restaurant's theme, light or dark, and sidebar (see shared/restaurant_settings). */
+  appearance?: { theme?: string; mode?: string; sidebar?: string };
   updatedAt?: string;
   createdAt?: string;
 }
@@ -36,6 +38,11 @@ const SettingsSchema = new Schema<ISettings>(
       ntn: { type: String, trim: true },
       strn: { type: String, trim: true },
       footer: { type: String, trim: true },
+    },
+    appearance: {
+      theme: { type: String, enum: ['indigo', 'saffron', 'emerald', 'ocean', 'bordeaux', 'onyx'], default: 'indigo' },
+      mode: { type: String, enum: ['light', 'dark', 'system'], default: 'light' },
+      sidebar: { type: String, enum: ['theme', 'plain'], default: 'theme' },
     },
     whatsappTemplates: {
       winback: {
