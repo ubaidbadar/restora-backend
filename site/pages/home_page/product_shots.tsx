@@ -1,3 +1,6 @@
+import PhoneIsland from '../../components/phone_island';
+import StatusBar from './order_tour/status_bar';
+
 /**
  * The real app, not a mock-up: the web app on a laptop and the same screen on a phone beside it. Screenshots from the
  * demo restaurant, in the sizes a screen needs (public/screenshots); replace them there when the app changes.
@@ -25,18 +28,23 @@ export default function ProductShots() {
           className="h-auto w-full"
         />
       </div>
-      <div className="mx-auto w-[78%] max-w-72 overflow-hidden rounded-[2rem] border-[6px] border-ink bg-ink shadow-lift sm:absolute sm:-end-8 sm:-bottom-10 sm:w-[28%] sm:max-w-60">
-        <img
-          src="/screenshots/dashboard-narrow-780.webp"
-          srcSet="/screenshots/dashboard-narrow-240.webp 240w, /screenshots/dashboard-narrow-480.webp 480w, /screenshots/dashboard-narrow-780.webp 780w"
-          sizes="(min-width: 640px) 240px, 78vw"
-          alt="The same screen on a phone, with the tab bar and the New order button"
-          width={780}
-          height={1688}
-          loading="lazy"
-          decoding="async"
-          className="h-auto w-full rounded-[1.55rem]"
-        />
+      {/* The same phone as the rest of the page: the screenshot under the phone's own status bar and camera island. */}
+      <div className="phone relative mx-auto w-[78%] max-w-72 sm:absolute sm:-end-8 sm:-bottom-10 sm:w-[28%] sm:max-w-60">
+        <PhoneIsland />
+        <div className="phone-screen bg-canvas">
+          <StatusBar time="8:47" />
+          <img
+            src="/screenshots/dashboard-narrow-780.webp"
+            srcSet="/screenshots/dashboard-narrow-240.webp 240w, /screenshots/dashboard-narrow-480.webp 480w, /screenshots/dashboard-narrow-780.webp 780w"
+            sizes="(min-width: 640px) 240px, 78vw"
+            alt="The same screen on a phone, with the tab bar and the round New order button"
+            width={780}
+            height={1688}
+            loading="lazy"
+            decoding="async"
+            className="block h-auto w-full"
+          />
+        </div>
       </div>
     </div>
   );
