@@ -5,10 +5,11 @@ import { withPerson } from './audit';
  * Adds recorded order activity in one indexed query for the whole page.
  * Each order keeps the same 200-entry cap as the old timeline endpoint.
  */
-export default async function orderTimelines<T extends { _id?: unknown; toJSON?: () => unknown }>(orders: T[]) {
+export default async function orderTimelines<T extends { _id?: unknown; toJSON?: () => unknown } | null>(orders: T[]) {
   if (!orders.length) return [];
 
-  const ids = [...new Set(orders.map((order) => String(order._id)))];
+  const ids = [...new Set(orders.filter((order) => order != null).map((order) => String(order._id)))];
+  if (!ids.length) return orders.map(() => null);
   const entries = await AuditEntry.aggregate([
     { $match: { 'target.type': 'order', 'target.id': { $in: ids } } },
     {
@@ -31,8 +32,8 @@ export default async function orderTimelines<T extends { _id?: unknown; toJSON?:
     byOrder.set(id, history);
   }
 
-  return orders.map((order) => ({
+  return orders.map((order) => order ? ({
     ...(typeof order.toJSON === 'function' ? (order.toJSON() as object) : order),
     timeline: byOrder.get(String(order._id)) ?? [],
-  }));
+  }) : null);
 }
