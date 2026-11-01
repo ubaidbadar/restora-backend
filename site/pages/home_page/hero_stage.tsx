@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { BellRing, CalendarClock, CalendarDays, Check, Plus, Smartphone } from 'lucide-react';
+import { BellRing, CalendarClock, CalendarDays, Check, Plus, SlidersHorizontal, Smartphone } from 'lucide-react';
 import PhoneIsland from '../../components/phone_island';
 import StaffNav from './order_tour/staff_nav';
 import StatusBar from './order_tour/status_bar';
@@ -34,19 +34,6 @@ function Note({ at, className, children }: { at: number; className: string; chil
   );
 }
 
-/** A date field of the app's From / To pair, drawn at the app's real size. */
-function DateField({ label }: { label: string }) {
-  return (
-    <div className="w-40">
-      <p className="mb-1.5 text-sm font-medium text-ink">{label}</p>
-      <p className="flex h-10 items-center justify-between rounded-app-control border border-app-border-strong bg-paper px-3 text-sm text-ink tabular-nums">
-        23/10/2026
-        <CalendarDays className="size-4" />
-      </p>
-    </div>
-  );
-}
-
 /**
  * The hero's picture: the owner's phone on a Friday night showing the app's Home screen, and what is happening around
  * the restaurant arriving beside it one note at a time: a guest's order from the table, a call, a booking, a payment.
@@ -55,7 +42,7 @@ function DateField({ label }: { label: string }) {
  */
 export default function HeroStage() {
   return (
-    <div role="img" aria-label="Restora on a phone: today's sales, orders by type and cash against digital, with a table's order, a waiter call, a booking and a payment arriving" className="relative mx-auto w-full max-w-[30rem] max-sm:flex max-sm:flex-col max-sm:items-center max-sm:gap-2.5 sm:h-[38rem]">
+    <div role="img" aria-label="Restora on a phone: today's numbers, orders by type and cash against digital, with a table's order, a waiter call, a booking and a payment arriving" className="relative mx-auto w-full max-w-[30rem] max-sm:flex max-sm:flex-col max-sm:items-center max-sm:gap-2.5 sm:h-[38rem]">
       <div className="relative h-[37.5rem] w-[17.5rem] animate-rise sm:absolute sm:inset-y-0 sm:end-0 sm:h-auto">
         <div className="phone relative h-full">
           <PhoneIsland />
@@ -69,18 +56,21 @@ export default function HeroStage() {
                     <p className="truncate text-[1.25rem] leading-tight font-semibold tracking-[-0.015em] text-ink">Lahori Karahi House</p>
                     <p className="mt-0.5 text-sm text-app-muted">Gulberg</p>
                   </div>
-                  <span className="flex h-10 shrink-0 items-center gap-2 rounded-app-control bg-indigo px-4 text-sm font-medium text-white">
+                  <span className="flex h-11 shrink-0 items-center gap-2 rounded-app-control bg-indigo px-4 text-sm font-medium text-white">
                     <Plus className="size-4" />
                     New order
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-x-2 gap-y-3">
-                  <DateField label="From" />
-                  <DateField label="To" />
-                  <div className="flex gap-1 rounded-app-control border border-app-border bg-app-sunken p-1 text-sm font-medium text-app-body">
-                    <span className="flex min-h-9 items-center rounded-app-small bg-paper px-3 font-semibold text-ink shadow-[0_0_0_1px_var(--color-app-border)]">This branch</span>
-                    <span className="flex min-h-9 items-center px-3">All branches</span>
-                  </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="flex items-center gap-2 text-sm text-app-body">
+                    <CalendarDays className="size-4 text-app-muted" />
+                    <span>
+                      <span className="font-semibold text-ink">Today</span> · This branch
+                    </span>
+                  </p>
+                  <span className="grid size-11 place-items-center rounded-app-control border border-app-border-strong bg-paper text-ink">
+                    <SlidersHorizontal className="size-[18px]" />
+                  </span>
                 </div>
                 <div className="grid grid-cols-2 overflow-hidden rounded-app-card bg-paper shadow-[0_0_0_1px_var(--color-app-border)]">
                   {STATS.map((stat, index) => (

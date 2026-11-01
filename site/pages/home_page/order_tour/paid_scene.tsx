@@ -1,5 +1,5 @@
-import { CircleCheck, X } from 'lucide-react';
-import BranchTabs from './branch_tabs';
+import { CircleCheck, Plus, X } from 'lucide-react';
+import HomeFilterRow from './home_filter_row';
 import StaffNav from './staff_nav';
 import StatusBar from './status_bar';
 import tourAt from '../../../utils/tour_at';
@@ -21,11 +21,17 @@ export default function PaidScene() {
   return (
     <div className="relative flex h-full flex-col bg-canvas">
       <StatusBar time="8:12" />
-      <div className="px-4 pt-1">
-        <p className="text-[1.05rem] font-bold text-ink">Lahori Karahi House</p>
-        <p className="text-[0.65rem] text-ink-3">Fri, 23 Oct · Gulberg</p>
+      <div className="flex items-end justify-between gap-2 px-3 pt-1">
+        <div>
+          <p className="text-[0.85rem] leading-tight font-semibold text-ink">Lahori Karahi House</p>
+          <p className="text-[0.6rem] text-app-muted">Gulberg</p>
+        </div>
+        <span className="flex h-[1.85rem] items-center gap-1 rounded-[5px] bg-indigo px-2.5 text-[0.6rem] font-medium text-white">
+          <Plus className="size-3" />
+          New order
+        </span>
       </div>
-      <BranchTabs />
+      <HomeFilterRow />
       <div className="mx-3 mt-3 grid grid-cols-2 overflow-hidden rounded-[8px] bg-paper text-ink shadow-slip">
         <div className="border-e border-b border-rule p-3">
           <p className="text-[0.6rem] text-ink-3">Sales today</p>
@@ -53,8 +59,8 @@ export default function PaidScene() {
         <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-canvas">
           <span className="w-[46%] rounded-full bg-indigo" />
         </div>
-        <p className="mt-1.5 flex justify-between"><span>Cash (46%)</span><span>Rs 38,800</span></p>
-        <p className="flex justify-between"><span>Card, JazzCash, Easypaisa, bank (54%)</span><span>Rs 45,550</span></p>
+        <p className="mt-1.5 flex justify-between gap-3"><span>Cash (46%)</span><span className="font-semibold text-ink">Rs 38,800</span></p>
+        <p className="flex justify-between gap-3"><span>Card, JazzCash, Easypaisa, bank (54%)</span><span className="font-semibold text-ink">Rs 45,550</span></p>
       </div>
 
       {/* Order #1's Pay sheet, over the board. */}
