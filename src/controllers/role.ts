@@ -56,7 +56,7 @@ export async function createRole(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'role.created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'role', id: String(role._id), label: role.name },
   });
 
@@ -87,7 +87,7 @@ export async function updateRole(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'role.updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'role', id, label: updated?.name },
   });
 
@@ -115,7 +115,7 @@ export async function deleteRole(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'role.deleted',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'role', id, label: role.name },
   });
 
@@ -137,7 +137,7 @@ export async function resetRole(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'role.reset',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'role', id, label: role.name },
   });
 
@@ -165,7 +165,7 @@ export async function updateRoleMatrix(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'role.matrix_updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'role', label: 'Permission matrix updated' },
   });
 

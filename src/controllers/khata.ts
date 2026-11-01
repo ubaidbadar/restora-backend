@@ -1,12 +1,11 @@
 import type { Context } from 'hono';
 import Customer from '../models/customer';
 import KhataEntry from '../models/khata_entry';
-import logAudit from '../utils/audit';
+import logAudit, { auditActor } from '../utils/audit';
 import runInTransaction from '../utils/transaction';
 import applyKhata from '../utils/khata';
 import httpError from '../utils/http_error';
 
-const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 export async function listCustomerKhata(c: Context) {
   const customerId = c.req.param('id') ?? '';

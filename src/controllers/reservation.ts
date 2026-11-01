@@ -2,12 +2,11 @@ import type { Context } from 'hono';
 import Reservation from '../models/reservation';
 import Customer from '../models/customer';
 import Table from '../models/table';
-import logAudit from '../utils/audit';
+import logAudit, { auditActor } from '../utils/audit';
 import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 async function checkTable(tableId: string | null | undefined, branchId: string) {
   if (!tableId) return;

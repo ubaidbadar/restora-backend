@@ -84,7 +84,7 @@ export async function onboarding(c: Context) {
   await logAudit({
     restaurantId,
     action: 'restaurant.onboarded',
-    actor: { name: user.name, via: 'web' },
+    actor: { userId: user.id, name: user.name, via: 'web' },
     target: { type: 'restaurant', id: restaurantId, label: name },
   });
 
@@ -146,7 +146,7 @@ export async function transferOwnership(c: Context) {
 
   await logAudit({
     action: 'restaurant.ownership_transferred',
-    actor: { name: user.name, via: 'web' },
+    actor: { userId: user.id, name: user.name, via: 'web' },
     target: { type: 'membership', id: membershipId, label: 'Transferred ownership' },
   });
 
@@ -176,7 +176,7 @@ export async function deleteRestaurant(c: Context) {
 
   await logAudit({
     action: 'restaurant.scheduled_deletion',
-    actor: { name: user.name, via: 'web' },
+    actor: { userId: user.id, name: user.name, via: 'web' },
     target: { type: 'restaurant', id: String(restaurant._id), label: restaurant.name },
   });
 
@@ -209,7 +209,7 @@ export async function keepRestaurant(c: Context) {
   await logAudit({
     restaurantId,
     action: 'restaurant.deletion_cancelled',
-    actor: { name: user.name, via: 'web' },
+    actor: { userId: user.id, name: user.name, via: 'web' },
     target: { type: 'restaurant', id: restaurantId, label: restaurant.name },
   });
 
@@ -231,7 +231,7 @@ export async function leaveRestaurant(c: Context) {
 
   await logAudit({
     action: 'membership.left',
-    actor: { name: user.name, via: 'web' },
+    actor: { userId: user.id, name: user.name, via: 'web' },
     target: { type: 'membership', id: String(membership._id), label: user.name },
   });
 

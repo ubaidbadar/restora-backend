@@ -86,7 +86,7 @@ export async function createCategory(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'menu_category.created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'menu_category', id: String(category._id), label: category.name },
   });
 
@@ -119,7 +119,7 @@ export async function createAddonGroup(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'addon_group.created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'addon_group', id: String(group._id), label: group.name },
   });
 
@@ -163,7 +163,7 @@ export async function createMenuItem(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'menu_item.created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'menu_item', id: String(item._id), label: item.name },
   });
 
@@ -214,7 +214,7 @@ export async function toggleStock(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'menu.stock_toggled',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'menu_item', id, label: `${item.name} (${soldOut ? 'Sold out' : 'In stock'})` },
   });
 
@@ -287,7 +287,7 @@ export async function bulkMenuImport(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'menu.bulk_imported',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'menu', label: `Imported ${items.length} dishes` },
   });
 

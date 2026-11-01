@@ -108,7 +108,7 @@ export async function setStaffPin(c: Context) {
 
   await logAudit({
     action: 'pin.set',
-    actor: { name: user.name, via: 'web' },
+    actor: { userId: user.id, name: user.name, via: 'web' },
     target: { type: 'membership', id: String(membership._id), label: user.name },
   });
 
@@ -141,7 +141,7 @@ export async function deleteAccount(c: Context) {
 
   await logAudit({
     action: 'account.deleted',
-    actor: { name: user.name, via: 'web' },
+    actor: { userId: user.id, name: user.name, via: 'web' },
     target: { type: 'user', id: user.id, label: user.email },
   });
 

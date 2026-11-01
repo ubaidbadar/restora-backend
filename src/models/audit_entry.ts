@@ -2,6 +2,8 @@ import mongoose, { Schema, type Document, type Model } from 'mongoose';
 import tenantPlugin from './plugins/tenant_plugin';
 
 export interface IAuditActor {
+  /** The account that did it. The name is only what they were called then: anyone can rename themselves. */
+  userId?: string;
   name?: string;
   via: 'web' | 'pos' | 'system';
 }
@@ -31,6 +33,7 @@ const AuditEntrySchema = new Schema<IAuditEntry>(
   {
     action: { type: String, required: true, index: true },
     actor: {
+      userId: { type: String },
       name: { type: String },
       via: { type: String, enum: ['web', 'pos', 'system'], default: 'web' },
     },

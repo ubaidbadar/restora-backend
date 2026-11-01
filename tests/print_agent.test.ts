@@ -180,11 +180,19 @@ describe('Print agents', () => {
 
     // The order's history: the edit with each dish's count before and after, then the cancel. Saving it unchanged added nothing.
     const timeline = (await (await app.request(`/api/v1/orders/${order._id}/timeline`, { headers })).json()) as Json[];
-    expect(timeline.map((entry) => entry.action)).toEqual(['order.edited', 'order.cancelled']);
-    expect(timeline[0].actor.name).toBe('Print Owner');
-    expect(timeline[0].changes.after.lines.map((l: Json) => `${l.name} ${l.was}>${l.now}`)).toEqual(['Coke 1>0', 'Chicken Karahi 2>1', 'Daal 0>2']);
-    expect(timeline[0].changes.after.total).toBeGreaterThan(0);
-    expect(timeline[1].changes.after.reason).toBe('customer_left');
+    expect(timeline.map((entry) => entry.action)).toEqual(['order.created', 'order.edited', 'order.cancelled']);
+    expect(timeline[1].actor).toEqual({ via: 'web', name: 'Print Owner', email: 'print@restaurant.com' });
+    expect(timeline[1].changes.after.lines.map((l: Json) => `${l.name} ${l.was}>${l.now}`)).toEqual(['Coke 1>0', 'Chicken Karahi 2>1', 'Daal 0>2']);
+    expect(timeline[1].changes.after.total).toBeGreaterThan(0);
+    expect(timeline[2].changes.after.reason).toBe('customer_left');
+
+    // Renamed later, they still show as who they are now, with the name they used then: a name can't hide a person.
+    expect((await post('/api/v1/account/profile', { name: 'Someone Else' }, 'PATCH')).status).toBe(200);
+    const renamed = (await (await app.request(`/api/v1/orders/${order._id}/timeline`, { headers })).json()) as Json[];
+    expect(renamed[1].actor).toEqual({ via: 'web', name: 'Someone Else', email: 'print@restaurant.com', was: 'Print Owner' });
+    const log = (await (await app.request('/api/v1/audit?action=order.cancelled', { headers })).json()) as Json[];
+    expect(log[0].actor).toMatchObject({ name: 'Someone Else', was: 'Print Owner' });
+    await post('/api/v1/account/profile', { name: 'Print Owner' }, 'PATCH');
   });
 
   it('reprints a kitchen slip as REPRINT, with a key of its own', async () => {

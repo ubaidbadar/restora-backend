@@ -2,7 +2,7 @@
 const NAV_LINKS = [
   { href: '/features', label: 'Features' },
   { href: '/pricing', label: 'Pricing' },
-  { href: '/download', label: 'Apps' },
+  { href: '/download', label: 'Download' },
   { href: '/about', label: 'About' },
   { href: '/contact', label: 'Contact' },
 ] as const;

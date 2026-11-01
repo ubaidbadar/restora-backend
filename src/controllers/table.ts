@@ -109,7 +109,7 @@ export async function createTable(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'table.created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'table', id: String(table._id), label: table.name },
   });
 
@@ -136,7 +136,7 @@ export async function batchCreateTables(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'table.batch_created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'table', label: `Batch: ${created.length} tables` },
   });
 
@@ -157,7 +157,7 @@ export async function updateTable(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'table.updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'table', id, label: table.name },
   });
 
@@ -179,7 +179,7 @@ export async function regenerateTableQr(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'table.qr_regenerated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'table', id, label: table.name },
   });
 
@@ -199,7 +199,7 @@ export async function deleteTable(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'table.archived',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'table', id, label: table.name },
   });
 
@@ -216,7 +216,7 @@ export async function restoreTable(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'table.restored',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'table', id, label: table.name },
   });
 

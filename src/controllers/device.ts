@@ -45,7 +45,7 @@ export async function registerDevice(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'device.registered',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'device', id: String(device._id), label: device.name },
   });
 
@@ -87,7 +87,7 @@ export async function updateDevice(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'device.updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'device', id, label: device.name },
   });
 
@@ -104,7 +104,7 @@ export async function deleteDevice(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'device.removed',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'device', id, label: device.name },
   });
 

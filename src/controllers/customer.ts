@@ -3,13 +3,12 @@ import Customer from '../models/customer';
 import KhataEntry from '../models/khata_entry';
 import Order from '../models/order';
 import Reservation from '../models/reservation';
-import logAudit from '../utils/audit';
+import logAudit, { auditActor } from '../utils/audit';
 import normalizePhone from '../utils/normalize_phone';
 import runInTransaction from '../utils/transaction';
 import escapeRegex from '../utils/escape_regex';
 import applyKhata from '../utils/khata';
 
-const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 
 export async function listCustomers(c: Context) {
@@ -112,7 +111,7 @@ export async function updateCustomer(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'customer.updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'customer', id, label: updated?.name },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     changes: { before: before.toObject() as any, after: updated?.toObject() as any },
@@ -136,7 +135,7 @@ export async function deleteCustomer(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'customer.deleted',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'customer', id, label: customer.name },
   });
 

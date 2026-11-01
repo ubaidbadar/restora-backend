@@ -150,7 +150,7 @@ export async function unlockPos(c: Context) {
 
   await logAudit({
     action: 'pos.unlocked',
-    actor: { name: actorName, via: 'pos' },
+    actor: { userId: member.userId, name: actorName, via: 'pos' },
     target: { type: 'device', id: String(device._id), label: device.name },
   });
 
@@ -166,13 +166,14 @@ export async function lockPos(c: Context) {
   const device = c.get('device') as DeviceDoc;
 
   const prevActor = device.actor?.name;
+  const member = device.actor ? await StaffMember.findOne({ _id: device.actor.membershipId }).catch(() => null) : null;
   device.actor = null;
   await device.save();
 
   if (prevActor) {
     await logAudit({
       action: 'pos.locked',
-      actor: { name: prevActor, via: 'pos' },
+      actor: { userId: member?.userId, name: prevActor, via: 'pos' },
       target: { type: 'device', id: String(device._id), label: device.name },
     });
   }
