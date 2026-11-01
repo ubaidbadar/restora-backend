@@ -28,7 +28,7 @@ import orderChanges from '../utils/order_changes';
 import orderTimelines from '../utils/order_timelines';
 import AuditEntry from '../models/audit_entry';
 import { hasPermission } from '../middlewares/permission_guard';
-import { getTenantId } from '../middlewares/tenant_context';
+import { getTenantId, runWithTenant } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
 import orderCancelSchema from '../validations/order_cancel';
 
@@ -228,7 +228,19 @@ export async function streamOrders(c: Context) {
       restaurantId,
       branchId,
       calls,
-      send: ({ type, data }) => void stream.writeSSE({ event: type, data: JSON.stringify(data) }),
+      send: (event) => {
+        if (event.type === 'order.created' || event.type === 'order.updated') {
+          // The stream is shared by restaurants; restore this listener's tenant before reading its audit entries.
+          void runWithTenant(restaurantId, () => orderTimelines([event.data]))
+            .then(([order]) => stream.writeSSE({ event: event.type, data: JSON.stringify(order) }))
+            .catch((error) => {
+              console.error('[Order events] Could not attach order history:', error);
+              void stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
+            });
+        } else {
+          void stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
+        }
+      },
     });
     const ping = setInterval(() => void stream.write(': ping\n\n'), 25_000);
     // Open until the app goes away or the time is up.
