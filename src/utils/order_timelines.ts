@@ -9,7 +9,7 @@ export default async function orderTimelines<T extends { _id?: unknown; toJSON?:
   if (!orders.length) return [];
 
   const ids = [...new Set(orders.filter((order) => order != null).map((order) => String(order._id)))];
-  if (!ids.length) return orders.map(() => null);
+  if (!ids.length) return orders;
   const entries = await AuditEntry.aggregate([
     { $match: { 'target.type': 'order', 'target.id': { $in: ids } } },
     {
@@ -32,9 +32,9 @@ export default async function orderTimelines<T extends { _id?: unknown; toJSON?:
     byOrder.set(id, history);
   }
 
-  return orders.map((order): T => {
+  return orders.map((order) => {
     if (!order) return order;
-    const data = typeof order.toJSON === 'function' ? order.toJSON() : order;
-    return { ...(data as object), timeline: byOrder.get(String(order._id)) ?? [] } as T;
+    const data = typeof order.toJSON === 'function' ? (order.toJSON() as NonNullable<T>) : order;
+    return { ...data, timeline: byOrder.get(String(order._id)) ?? [] };
   });
 }
