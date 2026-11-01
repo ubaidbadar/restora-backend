@@ -5,6 +5,8 @@ const INCLUDED = [
   ['Reservations', 'included'],
   ['Khata and WhatsApp statements', 'included'],
   ['Offline orders', 'included'],
+  ['Restora Print for Windows', 'included'],
+  ['Themes and dark mode', 'included'],
   ['Setup help on WhatsApp', 'included'],
 ];
 

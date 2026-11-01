@@ -5,7 +5,14 @@ const FEATURES = [
     icon: 'orders',
     title: 'Orders, from counter to kitchen',
     summary: 'Take dine-in, takeaway and delivery orders on a phone, tablet or laptop. Every order moves from new to preparing, ready and done on one board, live on every screen.',
-    points: ['Sizes, add-ons and notes per dish', 'The board updates live on every phone', 'Kitchen slips and receipts print in one tap', 'Edit dishes until the bill is paid', 'Daily order numbers staff can call out'],
+    points: ['Sizes, add-ons and notes per dish', 'The board updates live on every phone', 'A chime and a "Just in" mark for every new order', 'Edit dishes until the bill is paid', 'Each order keeps its history: who added, removed or changed what', 'Daily order numbers staff can call out'],
+  },
+  {
+    id: 'printing',
+    icon: 'printing',
+    title: 'Kitchen slips that print themselves',
+    summary: 'Install Restora Print, a free Windows app, on the counter PC. Every new order prints in the kitchen on its own, guest orders from the QR menu too, and receipts carry your logo.',
+    points: ['A kitchen slip for every order, with nobody pressing print', 'Keeps printing orders taken on the PC while offline', 'Your logo on receipts', 'Changed and cancelled orders print a clear slip', 'Receipt, USB and network printers', 'Or print from the browser on any device'],
   },
   {
     id: 'tables',
@@ -40,7 +47,7 @@ const FEATURES = [
     icon: 'offline',
     title: 'Works when the internet does not',
     summary: 'Orders keep going when the connection drops. They are saved on the device and sent when it is back, so a slow evening never stops the counter.',
-    points: ['New orders offline, with their own numbers', 'Sends by itself when back online', 'Shows what is waiting to send', 'Works on slow mobile data'],
+    points: ['New orders offline, with their own numbers', 'Kitchen slips still print on a PC with Restora Print', 'Sends by itself when back online', 'Shows what is waiting to send', 'Works on slow mobile data'],
   },
   {
     id: 'team',
@@ -59,9 +66,9 @@ const FEATURES = [
   {
     id: 'menu',
     icon: 'menu',
-    title: 'Menu and stock',
-    summary: 'Categories, dishes with half and full sizes, add-ons like raita or extra cheese, and a switch for "sold out today" per branch.',
-    points: ['Start from sample dishes', 'Sold out in one branch, not all', 'Hide a dish without deleting it', 'The same menu on the QR code'],
+    title: 'Menu, deals and stock',
+    summary: 'Categories, dishes with half and full sizes, add-ons like raita or extra cheese, deals with choices, and a switch for "sold out today" per branch.',
+    points: ['Deals and combos, with a choice of drink or side', 'Happy hours: sell a deal or dish only on chosen days and times', 'Sold out in one branch, not all', 'Hide a dish without deleting it', 'The same menu on the QR code'],
   },
   {
     id: 'payments',
@@ -69,6 +76,13 @@ const FEATURES = [
     title: 'Payments and tax, the Pakistani way',
     summary: 'Cash, card, JazzCash, Easypaisa or bank transfer, with tax set per payment method. Today\'s sales, cash vs digital and what is still to collect.',
     points: ['Tax by payment method', 'Discounts with permission', 'Cash vs digital every day', 'Unpaid and khata kept apart'],
+  },
+  {
+    id: 'appearance',
+    icon: 'appearance',
+    title: 'Your colours, day or night',
+    summary: 'Pick one of six themes for your restaurant, each with a light and a dark version, and put your logo on the app and on receipts. Every screen your staff use matches.',
+    points: ['Midnight Indigo, Saffron, Emerald, Ocean, Bordeaux, Onyx & Gold', 'Light, dark, or follow the device', 'Your logo in the app and on receipts', 'Order colours like paid and unpaid never change'],
   },
 ] as const;
 

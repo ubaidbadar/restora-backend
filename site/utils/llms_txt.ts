@@ -16,6 +16,7 @@ export default function llmsTxt() {
     `- Price: free for now, every feature, no card needed.`,
     `- For: restaurants, cafés, fast food, BBQ and karahi places, cloud kitchens and small chains in Pakistan.`,
     `- Runs on: any browser (${SITE.appUrl}); Android and iPhone apps are coming.`,
+    `- Printing: Restora Print, a free Windows app, prints kitchen slips and receipts by itself (${SITE.url}/download).`,
     `- Contact: WhatsApp +${SITE.whatsapp}, ${SITE.email}.`,
     '',
     '## Features',
@@ -27,7 +28,7 @@ export default function llmsTxt() {
     '## Pages',
     `- [Features](${SITE.url}/features)`,
     `- [Pricing](${SITE.url}/pricing)`,
-    `- [Apps](${SITE.url}/download)`,
+    `- [Download](${SITE.url}/download)`,
     `- [Contact](${SITE.url}/contact)`,
   ].join('\n');
 }

@@ -8,7 +8,7 @@ const ROUTES: SiteRoute[] = [
     path: '/features',
     page: 'features_page',
     load: () => import('../pages/features_page'),
-    meta: { title: 'Restaurant POS features: orders, QR tables, khata', description: 'Orders, QR ordering at the table, reservations, khata, customers and WhatsApp, offline orders, a POS with PINs, staff roles, branches, menu and payments: everything Restora does.', canonical: '/features' },
+    meta: { title: 'Restaurant POS features: orders, QR tables, khata', description: 'Orders, QR ordering at the table, automatic kitchen printing, deals, order history, themes and dark mode, reservations, khata, offline orders, a POS with PINs, staff roles and branches: everything Restora does.', canonical: '/features' },
   },
   {
     path: '/pricing',
@@ -20,7 +20,7 @@ const ROUTES: SiteRoute[] = [
     path: '/download',
     page: 'download_page',
     load: () => import('../pages/download_page'),
-    meta: { title: 'Apps for Android, iPhone and the web', description: 'Use Restora in any browser today. The Android and iPhone apps for staff are on their way to Google Play and the App Store.', canonical: '/download' },
+    meta: { title: 'Download Restora Print for Windows, and the apps', description: 'Download Restora Print, the free Windows app that prints kitchen slips and receipts by itself, even offline. Restora runs in any browser; the phone apps are coming.', canonical: '/download' },
   },
   {
     path: '/demo',
