@@ -126,6 +126,27 @@
   background-image: repeating-linear-gradient(to bottom, transparent 0 39px, rgb(61 66 96 / 0.18) 39px 40px);
 }
 
+/*
+  Every phone drawn on the site (the hero, the order tour, the app screenshot) is the same phone: an ink body, a 9px
+  bezel, the screen's corners following the body's, and a small camera island (components/phone_island).
+*/
+:root {
+  --phone-radius: 2.75rem;
+  --phone-bezel: 9px;
+  --phone-shadow: 0 40px 90px -30px rgb(23 19 74 / 0.6), inset 0 0 0 2px rgb(255 255 255 / 0.1);
+}
+@utility phone {
+  border-radius: var(--phone-radius);
+  background: var(--color-ink);
+  padding: var(--phone-bezel);
+  box-shadow: var(--phone-shadow);
+}
+@utility phone-screen {
+  position: relative;
+  overflow: hidden;
+  border-radius: calc(var(--phone-radius) - var(--phone-bezel));
+}
+
 /* The hero: the phone settles in, then the live notes around it arrive one by one (--at) and drift a little. */
 @keyframes rise {
   from { opacity: 0; translate: 0 28px; scale: 0.97; }
@@ -293,9 +314,9 @@
     height: 37rem;
     padding: 0;
     overflow: visible;
-    border-radius: 3rem;
+    border-radius: var(--phone-radius);
     background: var(--color-ink);
-    box-shadow: 0 40px 90px -30px rgb(0 0 0 / 0.7), inset 0 0 0 2px rgb(255 255 255 / 0.12);
+    box-shadow: var(--phone-shadow);
   }
 }
 @utility tour-screen {
@@ -307,10 +328,10 @@
   scroll-snap-align: center;
   @media (prefers-reduced-motion: no-preference) {
     position: absolute;
-    inset: 9px;
+    inset: var(--phone-bezel);
     width: auto;
     height: auto;
-    border-radius: 2.45rem;
+    border-radius: calc(var(--phone-radius) - var(--phone-bezel));
     animation: tour-scene var(--tour) var(--d) infinite both;
   }
 }
