@@ -1,10 +1,9 @@
 import type { Context } from 'hono';
 import PrintAgent from '../models/print_agent';
-import logAudit from '../utils/audit';
+import logAudit, { auditActor } from '../utils/audit';
 import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
 
-const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 /** A 6-digit code, good for 10 minutes. A code another waiting agent has is refused by the unique index, so a new one is drawn. */
 const newPairing = () => ({ code: String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0'), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() });

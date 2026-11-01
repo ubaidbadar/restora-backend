@@ -10,7 +10,7 @@ import Customer from '../models/customer';
 import DailyCounter from '../models/daily_counter';
 import Settings from '../models/settings';
 import Table from '../models/table';
-import logAudit from '../utils/audit';
+import logAudit, { auditActor, withPerson } from '../utils/audit';
 import dayKey from '../utils/day_key';
 import dayRange from '../utils/day_range';
 import calcTotals from '../utils/calc_totals';
@@ -33,7 +33,6 @@ import orderCancelSchema from '../validations/order_cancel';
 
 type PaymentMethod = NonNullable<IOrder['paymentMethod']>;
 
-const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 async function taxRateFor(method: PaymentMethod | undefined): Promise<number> {
   if (!method) return 0;
@@ -264,15 +263,18 @@ export async function getOrder(c: Context) {
 }
 
 /**
- * Everything that happened to an order after it was placed, oldest first: edits with the dishes added, removed or
- * recounted, moves on the board, payment and cancelling, each with who and when. Placing it is on the order itself.
+ * Everything that happened to an order, oldest first: placing it, edits with the dishes added, removed or recounted,
+ * moves on the board, payment and cancelling, each with who (as they are now, see `withPerson`) and when. Guest
+ * orders have no "placed" entry; their placing is on the order itself.
  */
 export async function orderTimeline(c: Context) {
-  const entries = await AuditEntry.find({ 'target.type': 'order', 'target.id': c.req.param('id'), action: { $ne: 'order.created' } })
-    .sort({ at: 1 })
-    .limit(200)
-    .select({ _id: 1, action: 1, actor: 1, changes: 1, at: 1 })
-    .lean();
+  const entries = await AuditEntry.aggregate([
+    { $match: { 'target.type': 'order', 'target.id': c.req.param('id') } },
+    { $sort: { at: 1 } },
+    { $limit: 200 },
+    { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
+    ...withPerson,
+  ]);
   return c.json(entries.map((entry) => ({ ...entry, _id: String(entry._id) })));
 }
 
