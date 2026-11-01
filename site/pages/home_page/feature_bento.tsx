@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
-import { Building2, CalendarClock, Check, CloudOff, History, Lock, RefreshCw } from 'lucide-react';
-import WhatsappIcon from '../../icons/whatsapp_icon';
+import { BellRing, Building2, CalendarClock, Clock, CloudOff, History, Lock, Moon, RefreshCw, Sun } from 'lucide-react';
 import QrArt from './qr_art';
 
 interface Tile {
@@ -18,16 +17,26 @@ const BOOKINGS = [
   { time: '9:15 pm', name: 'Usman family', guests: 9, table: 'T7+8', status: 'Confirmed', tone: 'bg-indigo-wash text-indigo' },
 ];
 
-const LOG = [
-  { who: 'Sana', what: 'changed the access of Bilal', when: '9:14 pm' },
-  { who: 'Usman', what: 'registered the POS terminal Counter 2', when: '6:40 pm' },
-  { who: 'Ayesha', what: 'set their POS PIN', when: '6:12 pm' },
+const HISTORY = [
+  { who: 'Bilal', what: 'added 2 Roghni naan', when: '9:14 pm' },
+  { who: 'Sana', what: 'changed Karahi half to full', when: '9:02 pm' },
+  { who: 'Ayesha', what: 'placed the order', when: '8:47 pm' },
+];
+
+/** The app's six themes: the sidebar colour and the button colour of each, as Settings → Appearance shows them. */
+const THEMES = [
+  ['Midnight Indigo', '#1E1B4B', '#4F46E5'],
+  ['Saffron', '#3B1206', '#C2410C'],
+  ['Emerald', '#022C22', '#047857'],
+  ['Ocean', '#082F3E', '#0E7490'],
+  ['Bordeaux', '#3F0716', '#9F1239'],
+  ['Onyx & Gold', '#111111', '#FBBF24'],
 ];
 
 const TILES: Tile[] = [
   {
     title: 'Guests order from their table',
-    text: 'Every table gets its own QR code. Guests see the menu, order, call a waiter or ask for the bill. Print the cards for every table on A4.',
+    text: 'Every table gets its own QR code. Guests see the menu, order, call a waiter or ask for the bill, and can ask for your offers on WhatsApp. Print the cards for every table on A4.',
     span: 'lg:col-span-2',
     dark: true,
     visual: (
@@ -59,6 +68,42 @@ const TILES: Tile[] = [
             <p className="mt-1.5 text-ink-2">{label}</p>
           </div>
         ))}
+      </div>
+    ),
+  },
+  {
+    title: 'You hear every new order',
+    text: 'A short chime and a "Just in" mark on the board, so a guest\'s order never waits.',
+    visual: (
+      <div className="rounded-[14px] bg-canvas p-3 text-[0.78rem]">
+        <div className="flex items-center gap-2.5 rounded-[10px] bg-paper px-3 py-2.5 shadow-[0_0_0_2px_var(--color-indigo)]">
+          <span className="font-display text-lg font-bold">#31</span>
+          <span className="min-w-0 flex-1 truncate text-ink-2">Table 7 · 3 items</span>
+          <span className="rounded-full bg-indigo px-2 py-0.5 text-[0.65rem] font-semibold text-white">Just in</span>
+        </div>
+        <p className="mt-2 flex items-center gap-2 px-1 font-semibold text-ink-2">
+          <BellRing className="size-4 text-indigo" aria-hidden="true" />
+          New order from Table 7
+        </p>
+      </div>
+    ),
+  },
+  {
+    title: 'Deals and happy hours',
+    text: 'Combos with a choice of drink or side, and deals that sell only on the days and hours you pick.',
+    visual: (
+      <div className="rounded-[14px] bg-canvas p-3.5 text-[0.8rem]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-semibold">Family deal</p>
+            <p className="mt-0.5 text-ink-2">2 Karahi (half) · 4 Naan · 1.5 L drink</p>
+          </div>
+          <span className="shrink-0 font-semibold tabular-nums">Rs 3,950</span>
+        </div>
+        <p className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-haldi-soft px-2.5 py-1 text-[0.7rem] font-semibold text-haldi-deep">
+          <Clock className="size-3.5" aria-hidden="true" />
+          Fri to Sun · 7 to 11 pm
+        </p>
       </div>
     ),
   },
@@ -105,7 +150,7 @@ const TILES: Tile[] = [
   },
   {
     title: 'Keeps going offline',
-    text: 'When the internet drops, orders are saved on the phone with their own numbers, and send themselves when it\'s back.',
+    text: 'When the internet drops, orders are saved with their own numbers and send themselves when it\'s back. With Restora Print, the kitchen slip still prints.',
     visual: (
       <div className="flex flex-col items-start gap-2 text-[0.8rem] font-semibold">
         <span className="inline-flex items-center gap-2 rounded-full bg-chili px-3 py-1.5 text-white">
@@ -120,29 +165,11 @@ const TILES: Tile[] = [
     ),
   },
   {
-    title: 'Guests who ask for your offers',
-    text: 'At the end of the QR menu, guests can leave their number for offers on WhatsApp, by choice.',
-    visual: (
-      <div className="rounded-[14px] bg-canvas p-3.5 text-[0.8rem]">
-        <p className="flex items-center gap-2 font-semibold">
-          <WhatsappIcon className="size-4 text-leaf" />
-          Get offers on WhatsApp
-        </p>
-        <p className="mt-2 flex items-center gap-2 text-ink-2">
-          <span className="grid size-4 place-items-center rounded-[4px] bg-indigo text-white">
-            <Check className="size-3" strokeWidth={3} aria-hidden="true" />
-          </span>
-          Send me offers on WhatsApp
-        </p>
-      </div>
-    ),
-  },
-  {
     title: 'Every change, on the record',
-    text: 'Choose what each role can do. Changes to the team, roles, settings and counters are logged with who made them, and when.',
+    text: 'Each order keeps its history: who added, removed or changed what, and when. Changes to the team, roles and settings are logged too.',
     visual: (
       <ul className="flex flex-col gap-1.5 text-[0.75rem]">
-        {LOG.map((entry) => (
+        {HISTORY.map((entry) => (
           <li key={entry.when} className="flex items-center gap-2.5 rounded-[12px] bg-canvas px-3 py-2">
             <History className="size-4 shrink-0 text-ink-3" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">
@@ -171,6 +198,38 @@ const TILES: Tile[] = [
           </li>
         ))}
       </ul>
+    ),
+  },
+  {
+    title: 'Your colours, day or night',
+    text: 'Six themes, each with a light and a dark side, and your logo on the app and the receipts. Every screen your staff use matches.',
+    span: 'sm:col-span-2',
+    visual: (
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {THEMES.map(([name, sidebar, button]) => (
+            <li key={name} className="flex flex-col items-center gap-1.5 text-center text-[0.68rem] leading-tight font-semibold text-ink-2">
+              <span className="flex h-14 w-full min-w-14 overflow-hidden rounded-[10px] shadow-[inset_0_0_0_1px_rgb(18_21_46/0.08)]" aria-hidden="true">
+                <span className="w-1/3" style={{ background: sidebar }} />
+                <span className="flex flex-1 items-center justify-center bg-canvas">
+                  <span className="h-2.5 w-7 rounded-full" style={{ background: button }} />
+                </span>
+              </span>
+              {name}
+            </li>
+          ))}
+        </ul>
+        <div className="flex shrink-0 self-start rounded-full bg-canvas p-1 text-[0.75rem] font-semibold sm:self-auto">
+          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-ink-2">
+            <Sun className="size-3.5" aria-hidden="true" />
+            Light
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-night px-3 py-1.5 text-white">
+            <Moon className="size-3.5" aria-hidden="true" />
+            Dark
+          </span>
+        </div>
+      </div>
     ),
   },
 ];

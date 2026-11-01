@@ -5,7 +5,7 @@ import whatsappLink from '../../utils/whatsapp_link';
 import Logo from '../../components/logo';
 
 const COLUMNS = [
-  { title: 'Product', links: [{ href: '/features', label: 'Features' }, { href: '/pricing', label: 'Pricing' }, { href: '/download', label: 'Apps' }, { href: '/demo', label: 'Book a demo' }] },
+  { title: 'Product', links: [{ href: '/features', label: 'Features' }, { href: '/pricing', label: 'Pricing' }, { href: '/download', label: 'Download' }, { href: '/demo', label: 'Book a demo' }] },
   { title: 'Company', links: [{ href: '/about', label: 'About' }, { href: '/contact', label: 'Contact' }] },
   { title: 'Legal', links: [{ href: '/privacy', label: 'Privacy' }, { href: '/terms', label: 'Terms' }, { href: '/refunds', label: 'Refunds' }] },
 ];

@@ -1,4 +1,4 @@
-import { Play } from 'lucide-react';
+import { ArrowRight, Download, Play } from 'lucide-react';
 import Button from '../../ui/button';
 import ClosingCta from '../../components/closing_cta';
 import FeatureBento from './feature_bento';
@@ -6,6 +6,7 @@ import FaqList from '../../components/faq_list';
 import JsonLd from '../../components/json_ld';
 import KhataCompare from './khata_compare';
 import PriceSlip from '../../components/price_slip';
+import PrintAppArt from '../../components/print_app_art';
 import HeroStage from './hero_stage';
 import OrderTour from './order_tour';
 import ProductShots from './product_shots';
@@ -15,10 +16,10 @@ import appLink from '../../utils/app_link';
 import whatsappLink from '../../utils/whatsapp_link';
 
 const FOR_HERE = [
-  { title: 'Load-shedding and slow data', text: 'Orders are saved on the phone when the connection drops and sent when it is back.' },
+  { title: 'Load-shedding and slow data', text: 'Orders are saved when the connection drops, the kitchen slip still prints, and it all sends when the internet is back.' },
   { title: 'Khata customers', text: 'Bills on khata, part payments, and a statement on WhatsApp.' },
   { title: 'JazzCash, Easypaisa, cash and card', text: 'Every way your customers pay, with tax set per payment method.' },
-  { title: 'Phones you already own', text: 'Android, iPhone, tablet or laptop. No till to buy, nothing to install on a PC.' },
+  { title: 'Phones you already own', text: 'Android, iPhone, tablet or laptop. No till to buy, and one small free app if you want slips to print by themselves.' },
   { title: 'Waiters, not IT staff', text: 'Tables, orders and calls on their own phone, with only what their role needs.' },
   { title: 'Families, regulars and big tables', text: 'Bookings for the evening, and the regulars who haven\'t been back, on WhatsApp.' },
 ];
@@ -33,7 +34,7 @@ export default function HomePage() {
           '@graph': [
             { '@type': 'WebSite', '@id': `${SITE.url}/#website`, name: SITE.name, url: SITE.url, inLanguage: 'en-PK', publisher: { '@id': `${SITE.url}/#organization` } },
             { '@type': 'Organization', '@id': `${SITE.url}/#organization`, name: SITE.name, url: SITE.url, logo: `${SITE.url}/apple-icon.png`, email: SITE.email, contactPoint: { '@type': 'ContactPoint', telephone: `+${SITE.whatsapp}`, contactType: 'customer support', areaServed: 'PK', availableLanguage: ['en', 'ur'] } },
-            { '@type': 'SoftwareApplication', name: SITE.name, url: SITE.url, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Android, iOS', description: SITE.description, publisher: { '@id': `${SITE.url}/#organization` }, offers: { '@type': 'Offer', price: '0', priceCurrency: 'PKR', url: `${SITE.url}/pricing` } },
+            { '@type': 'SoftwareApplication', name: SITE.name, url: SITE.url, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Windows, Android, iOS', description: SITE.description, publisher: { '@id': `${SITE.url}/#organization` }, offers: { '@type': 'Offer', price: '0', priceCurrency: 'PKR', url: `${SITE.url}/pricing` } },
             { '@type': 'FAQPage', mainEntity: FAQS.map((faq) => ({ '@type': 'Question', name: faq.q, acceptedAnswer: { '@type': 'Answer', text: faq.a } })) },
           ],
         }}
@@ -42,9 +43,9 @@ export default function HomePage() {
       {/* The hero: the headline, and the owner's phone with the restaurant's evening arriving around it. */}
       <section className="mx-auto grid max-w-[76rem] items-center gap-14 px-5 pt-12 pb-20 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:pt-16 lg:pb-28">
         <div>
-          <a href="#tour" className="inline-flex items-center gap-2 rounded-full bg-paper py-1.5 ps-1.5 pe-4 text-sm font-semibold text-ink shadow-slip hover:text-indigo">
+          <a href="#print" className="inline-flex items-center gap-2 rounded-full bg-paper py-1.5 ps-1.5 pe-4 text-sm font-semibold text-ink shadow-slip hover:text-indigo">
             <span className="rounded-full bg-haldi px-2.5 py-0.5 text-ink">New</span>
-            Guests now order from their table
+            Kitchen slips now print by themselves
           </a>
           <h1 className="display mt-7 text-[clamp(3.25rem,8.5vw,7rem)] text-ink">Run your restaurant from your phone.</h1>
           <p className="mt-7 max-w-xl text-xl text-ink-2">
@@ -76,10 +77,34 @@ export default function HomePage() {
       <section className="mx-auto max-w-[76rem] px-5 py-24 sm:px-8 lg:py-32">
         <div className="grid gap-6 lg:grid-cols-[1fr_1fr] lg:items-end">
           <h2 className="display text-[clamp(2.6rem,6vw,4.75rem)]">Everything else a busy night needs.</h2>
-          <p className="max-w-md text-lg text-ink-2 lg:justify-self-end">Bookings, the counter, the team and every branch, in the same app your waiters already know.</p>
+          <p className="max-w-md text-lg text-ink-2 lg:justify-self-end">New-order alerts, deals, bookings, the counter, the team and every branch, in your colours, in the same app your waiters already know.</p>
         </div>
         <div className="mt-14">
           <FeatureBento />
+        </div>
+      </section>
+
+      {/* Restora Print: the one thing to install, and where to get it */}
+      <section id="print" className="scroll-mt-20 bg-night text-white">
+        <div className="mx-auto grid max-w-[76rem] items-center gap-14 px-5 py-24 sm:px-8 lg:grid-cols-[1fr_1fr] lg:py-32">
+          <div>
+            <p className="text-sm font-semibold text-haldi">Restora Print for Windows · Free</p>
+            <h2 className="display mt-4 text-[clamp(2.6rem,6vw,4.75rem)]">The kitchen slip prints itself.</h2>
+            <p className="mt-6 max-w-md text-lg text-moon">
+              Put Restora Print on the PC by your printers. Every order prints in the kitchen the moment it comes in, guest orders from the table too, even when the internet is down. Receipts carry your logo.
+            </p>
+            <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button as="a" href={SITE.printAppUrl} size="lg" variant="paper">
+                <Download className="size-5" aria-hidden="true" />
+                Download for Windows
+              </Button>
+              <a href="/download#print" className="inline-flex min-h-14 items-center gap-2 px-2 font-semibold text-white hover:text-haldi">
+                How to set it up
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </a>
+            </div>
+          </div>
+          <PrintAppArt />
         </div>
       </section>
 

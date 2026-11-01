@@ -4,6 +4,8 @@ const SITE = {
   url: 'https://restora.live',
   appUrl: process.env.CLIENT_ORIGIN ?? 'https://app.restora.live',
   email: 'admin@restora.live',
+  /** The newest Restora Print for Windows. The same address as restora-web's constants/agent_download_url. */
+  printAppUrl: 'https://github.com/ubaidbadar/restora-pc-agent/releases/latest/download/restora-pc-agent.exe',
   /** International format for links, the local way for people. */
   whatsapp: '923476262068',
   whatsappDisplay: '0347 6262068',
