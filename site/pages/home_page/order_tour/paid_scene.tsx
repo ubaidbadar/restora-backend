@@ -1,5 +1,5 @@
-import { CircleCheck, Plus, X } from 'lucide-react';
-import HomeFilterRow from './home_filter_row';
+import { CircleCheck, Plus, SlidersHorizontal, X } from 'lucide-react';
+import HomeFilterLine from './home_filter_line';
 import StaffNav from './staff_nav';
 import StatusBar from './status_bar';
 import tourAt from '../../../utils/tour_at';
@@ -22,16 +22,21 @@ export default function PaidScene() {
     <div className="relative flex h-full flex-col bg-canvas">
       <StatusBar time="8:12" />
       <div className="flex items-end justify-between gap-2 px-3 pt-1">
-        <div>
+        <div className="min-w-0">
           <p className="text-[0.85rem] leading-tight font-semibold text-ink">Lahori Karahi House</p>
           <p className="text-[0.6rem] text-app-muted">Gulberg</p>
         </div>
-        <span className="flex h-[1.85rem] items-center gap-1 rounded-[5px] bg-indigo px-2.5 text-[0.6rem] font-medium text-white">
-          <Plus className="size-3" />
-          New order
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="grid size-[1.85rem] place-items-center rounded-[5px] border border-app-border-strong bg-paper text-ink">
+            <SlidersHorizontal className="size-3" />
+          </span>
+          <span className="flex h-[1.85rem] items-center gap-1 rounded-[5px] bg-indigo px-2.5 text-[0.6rem] font-medium text-white">
+            <Plus className="size-3" />
+            New order
+          </span>
+        </div>
       </div>
-      <HomeFilterRow />
+      <HomeFilterLine />
       <div className="mx-3 mt-3 grid grid-cols-2 overflow-hidden rounded-[8px] bg-paper text-ink shadow-slip">
         <div className="border-e border-b border-rule p-3">
           <p className="text-[0.6rem] text-ink-3">Sales today</p>
@@ -59,8 +64,8 @@ export default function PaidScene() {
         <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-canvas">
           <span className="w-[46%] rounded-full bg-indigo" />
         </div>
-        <p className="mt-1.5 flex justify-between gap-3"><span>Cash (46%)</span><span className="font-semibold text-ink">Rs 38,800</span></p>
-        <p className="flex justify-between gap-3"><span>Card, JazzCash, Easypaisa, bank (54%)</span><span className="font-semibold text-ink">Rs 45,550</span></p>
+        <p className="mt-1.5 flex justify-between gap-3"><span>Cash (46%)</span><span className="font-semibold whitespace-nowrap text-ink">Rs 38,800</span></p>
+        <p className="flex justify-between gap-3"><span>Card, JazzCash, Easypaisa, bank (54%)</span><span className="font-semibold whitespace-nowrap text-ink">Rs 45,550</span></p>
       </div>
 
       {/* Order #1's Pay sheet, over the board. */}
