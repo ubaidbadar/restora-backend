@@ -177,6 +177,14 @@ describe('Print agents', () => {
     // The agent prints who cancelled it and why.
     expect(slips[2].order.cancellation).toMatchObject({ reason: 'customer_left', byName: 'Print Owner' });
     expect(slips[2].order.items.map((item: Json) => `${item.qty}x ${item.name}`)).toEqual(['1x CANCEL Chicken Karahi', '2x CANCEL Daal']);
+
+    // The order's history: the edit with each dish's count before and after, then the cancel. Saving it unchanged added nothing.
+    const timeline = (await (await app.request(`/api/v1/orders/${order._id}/timeline`, { headers })).json()) as Json[];
+    expect(timeline.map((entry) => entry.action)).toEqual(['order.edited', 'order.cancelled']);
+    expect(timeline[0].actor.name).toBe('Print Owner');
+    expect(timeline[0].changes.after.lines.map((l: Json) => `${l.name} ${l.was}>${l.now}`)).toEqual(['Coke 1>0', 'Chicken Karahi 2>1', 'Daal 0>2']);
+    expect(timeline[0].changes.after.total).toBeGreaterThan(0);
+    expect(timeline[1].changes.after.reason).toBe('customer_left');
   });
 
   it('reprints a kitchen slip as REPRINT, with a key of its own', async () => {

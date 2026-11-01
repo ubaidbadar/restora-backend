@@ -68,6 +68,8 @@ const AuditEntrySchema = new Schema<IAuditEntry>(
 
 AuditEntrySchema.plugin(tenantPlugin);
 AuditEntrySchema.index({ restaurantId: 1, at: -1 });
+// One order's history (GET /orders/:id/timeline).
+AuditEntrySchema.index({ restaurantId: 1, 'target.type': 1, 'target.id': 1, at: 1 });
 
 const AuditEntry: Model<IAuditEntry> =
   mongoose.models.AuditEntry || mongoose.model<IAuditEntry>('AuditEntry', AuditEntrySchema);

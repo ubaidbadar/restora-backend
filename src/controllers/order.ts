@@ -24,6 +24,8 @@ import resolveBranchId from '../utils/resolve_branch';
 import printHeader from '../utils/print_header';
 import queuePrintJobs from '../utils/queue_print_jobs';
 import kitchenChanges from '../utils/kitchen_changes';
+import orderChanges from '../utils/order_changes';
+import AuditEntry from '../models/audit_entry';
 import { hasPermission } from '../middlewares/permission_guard';
 import { getTenantId } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
@@ -259,6 +261,19 @@ export async function getOrder(c: Context) {
     return c.json({ message: 'Order not found' }, 404);
   }
   return c.json(order);
+}
+
+/**
+ * Everything that happened to an order after it was placed, oldest first: edits with the dishes added, removed or
+ * recounted, moves on the board, payment and cancelling, each with who and when. Placing it is on the order itself.
+ */
+export async function orderTimeline(c: Context) {
+  const entries = await AuditEntry.find({ 'target.type': 'order', 'target.id': c.req.param('id'), action: { $ne: 'order.created' } })
+    .sort({ at: 1 })
+    .limit(200)
+    .select({ _id: 1, action: 1, actor: 1, changes: 1, at: 1 })
+    .lean();
+  return c.json(entries.map((entry) => ({ ...entry, _id: String(entry._id) })));
 }
 
 /** When an order taken offline was really placed: its own time if believable (the last two days, not ahead), else now. */
@@ -577,7 +592,10 @@ export async function recordPayment(c: Context) {
     action: 'order.payment_recorded',
     actor: auditActor(c),
     target: { type: 'order', id, label: `#${order.dailyToken}` },
-    changes: { after: { paymentMethod, paymentStatus, total: updated.total } },
+    changes: {
+      before: { discount: order.discount, deliveryFee: order.deliveryFee, total: order.total },
+      after: { paymentMethod, paymentStatus, discount: updated.discount, deliveryFee: updated.deliveryFee, tax: updated.tax, total: updated.total },
+    },
   });
 
   return c.json(updated);
@@ -621,11 +639,15 @@ export async function updateOrder(c: Context) {
 
   const updated = await Order.findByIdAndUpdate(id, { $set: body }, { returnDocument: 'after' });
 
-  await logAudit({
-    action: 'order.updated',
-    actor: auditActor(c),
-    target: { type: 'order', id, label: `#${order.dailyToken}` },
-  });
+  const changes = updated ? orderChanges(order.toObject(), updated.toObject()) : undefined;
+  if (changes) {
+    await logAudit({
+      action: 'order.updated',
+      actor: auditActor(c),
+      target: { type: 'order', id, label: `#${order.dailyToken}` },
+      changes,
+    });
+  }
 
   return c.json(updated);
 }
@@ -702,11 +724,16 @@ export async function editOrder(c: Context) {
     { returnDocument: 'after' }
   );
 
-  await logAudit({
-    action: 'order.edited',
-    actor: auditActor(c),
-    target: { type: 'order', id, label: `#${order.dailyToken}` },
-  });
+  // Saved again with nothing changed: nothing to add to its history.
+  const changes = updated ? orderChanges(order.toObject(), updated.toObject()) : undefined;
+  if (changes) {
+    await logAudit({
+      action: 'order.edited',
+      actor: auditActor(c),
+      target: { type: 'order', id, label: `#${order.dailyToken}` },
+      changes,
+    });
+  }
 
   // The kitchen already has the order (a guest's is printed once accepted): it gets a slip of only what changed.
   if (updated && KITCHEN_HAS_IT.includes(order.status)) {
@@ -779,6 +806,7 @@ export default {
   history: orderHistory,
   stream: streamOrders,
   get: getOrder,
+  timeline: orderTimeline,
   create: createOrder,
   updateStatus: updateOrderStatus,
   recordPayment,

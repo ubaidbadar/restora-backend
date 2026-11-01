@@ -13,6 +13,7 @@ orderRouter.post('/', requirePermission('orders:create'), validateBody(orderCrea
 orderRouter.get('/history', requirePermission('orders:view'), orderController.history);
 orderRouter.get('/stream', requirePermission('orders:view'), orderController.stream);
 orderRouter.get('/:id', requirePermission('orders:view'), orderController.get);
+orderRouter.get('/:id/timeline', requirePermission('orders:view'), orderController.timeline);
 orderRouter.patch('/:id/status', requirePermission('orders:update'), validateBody(orderStatusSchema), orderController.updateStatus);
 orderRouter.post('/:id/payment', requirePermission('orders:payment'), validateBody(orderPaymentSchema), orderController.recordPayment);
 orderRouter.patch('/:id', requirePermission('orders:update'), validateBody(orderUpdateSchema), orderController.update);
