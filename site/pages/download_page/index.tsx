@@ -17,7 +17,7 @@ const PRINT_POINTS = [
 
 const STEPS = [
   { title: 'Download and open it', text: 'On the PC at the counter or in the kitchen. Restora Print sits in the tray next to the clock.' },
-  { title: 'Connect it to your restaurant', text: 'Sign in to Restora on the same PC and open Settings, then Printers. It walks you through it.' },
+  { title: 'Connect it to your restaurant', text: 'Click Connect to Restora and sign in. It connects by itself. Or type the 6-digit code from Settings, then Printers.' },
   { title: 'Choose your printers', text: 'Pick the printer for kitchen slips and the one for receipts. From then on, slips print by themselves.' },
 ];
 
