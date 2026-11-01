@@ -42,7 +42,7 @@ const SettingsSchema = new Schema<ISettings>(
     appearance: {
       theme: { type: String, enum: ['indigo', 'saffron', 'emerald', 'ocean', 'bordeaux', 'onyx'], default: 'indigo' },
       mode: { type: String, enum: ['light', 'dark', 'system'], default: 'light' },
-      sidebar: { type: String, enum: ['theme', 'plain'], default: 'theme' },
+      sidebar: { type: String, enum: ['theme', 'plain'], default: 'plain' },
     },
     whatsappTemplates: {
       winback: {

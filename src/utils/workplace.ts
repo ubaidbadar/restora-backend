@@ -230,7 +230,7 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
               taxByPaymentMethod: { ...DEFAULT_SETTINGS.taxByPaymentMethod, ...saved?.taxByPaymentMethod },
               whatsappTemplates: { ...DEFAULT_SETTINGS.whatsappTemplates, ...saved?.whatsappTemplates },
               receipt: receipt?.ntn || receipt?.strn || receipt?.footer ? { ntn: receipt.ntn || undefined, strn: receipt.strn || undefined, footer: receipt.footer || undefined } : undefined,
-              appearance: { theme: 'indigo', mode: 'light', sidebar: 'theme', ...saved?.appearance },
+              appearance: { theme: 'indigo', mode: 'light', sidebar: 'plain', ...saved?.appearance },
               updatedAt: saved?.updatedAt ? new Date(saved.updatedAt).toISOString() : undefined,
             },
             calls: calls?.length ? calls : undefined,
