@@ -16,16 +16,16 @@ export default function BoardScene() {
           <p className="text-[1.05rem] font-bold text-ink">Orders</p>
           <p className="text-[0.65rem] text-ink-3">Today · Gulberg</p>
         </div>
-        <span className="flex items-center gap-1 rounded-control bg-indigo px-2.5 py-1.5 text-[0.65rem] font-semibold text-white">
+        <span className="flex items-center gap-1 rounded-[5px] bg-indigo px-2.5 py-1.5 text-[0.65rem] font-semibold text-white">
           <Plus className="size-3" /> New order
         </span>
       </div>
       {/* Search and the one Filter button, then the statuses as chips: the picked one dark, each with its count. */}
       <div className="mx-4 mt-3 flex gap-1.5">
-        <span className="flex flex-1 items-center gap-1.5 rounded-control bg-paper px-2.5 py-1.5 text-[0.62rem] text-ink-3 ring-1 ring-rule">
+        <span className="flex flex-1 items-center gap-1.5 rounded-[5px] bg-paper px-2.5 py-1.5 text-[0.62rem] text-ink-3 ring-1 ring-rule">
           <Search className="size-3" /> Search orders
         </span>
-        <span className="grid w-7 place-items-center rounded-control bg-paper text-ink-2 ring-1 ring-rule">
+        <span className="grid w-7 place-items-center rounded-[5px] bg-paper text-ink-2 ring-1 ring-rule">
           <SlidersHorizontal className="size-3" />
         </span>
       </div>
@@ -43,18 +43,18 @@ export default function BoardScene() {
       </div>
 
       <div className="mx-3 mt-3 motion-safe:tour-pop" style={tourAt(0.3)}>
-        <div className="rounded-[12px] bg-paper p-3 ring-1 ring-rule motion-safe:tour-ring" style={tourAt(0.4)}>
+        <div className="rounded-[8px] bg-paper p-3 ring-1 ring-rule motion-safe:tour-ring" style={tourAt(0.4)}>
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[1.3rem] leading-none font-bold text-ink">#1</p>
               <p className="mt-1 text-[0.62rem] text-ink-3">Dine-in · Table T4</p>
             </div>
             <div className="flex flex-col items-end gap-1 text-[0.58rem] font-semibold">
-              <span className="flex items-center gap-0.5 rounded-[6px] bg-canvas px-1.5 py-0.5 text-ink-2 ring-1 ring-rule">
+              <span className="flex items-center gap-0.5 rounded-[4px] bg-canvas px-1.5 py-0.5 text-ink-2 ring-1 ring-rule">
                 <Clock className="size-2.5" /> 0 min
               </span>
-              <span className="rounded-[6px] bg-haldi-soft/70 px-1.5 py-0.5 text-haldi-deep ring-1 ring-haldi/50">Unpaid</span>
-              <span className="rounded-[6px] bg-haldi-soft/70 px-1.5 py-0.5 text-haldi-deep ring-1 ring-haldi/50 motion-safe:tour-hide motion-reduce:hidden" style={tourAt(1.9)}>
+              <span className="rounded-[4px] bg-haldi-soft/70 px-1.5 py-0.5 text-haldi-deep ring-1 ring-haldi/50">Unpaid</span>
+              <span className="rounded-[4px] bg-haldi-soft/70 px-1.5 py-0.5 text-haldi-deep ring-1 ring-haldi/50 motion-safe:tour-hide motion-reduce:hidden" style={tourAt(1.9)}>
                 From table QR
               </span>
             </div>
@@ -70,16 +70,16 @@ export default function BoardScene() {
           </div>
           <div className="mt-2 grid text-[0.68rem] font-semibold">
             <div className="[grid-area:1/1] grid grid-cols-2 gap-1.5 motion-safe:tour-hide motion-reduce:hidden" style={tourAt(1.9)}>
-              <span className="rounded-control py-2 text-center text-ink ring-1 ring-ink-3/50">Turn down</span>
-              <span className="flex items-center justify-center gap-1 rounded-control bg-indigo py-2 text-white motion-safe:tour-tap" style={tourAt(1.5)}>
+              <span className="rounded-[5px] py-2 text-center text-ink ring-1 ring-ink-3/50">Turn down</span>
+              <span className="flex items-center justify-center gap-1 rounded-[5px] bg-indigo py-2 text-white motion-safe:tour-tap" style={tourAt(1.5)}>
                 Accept <ArrowRight className="size-3" />
               </span>
             </div>
             <div className="[grid-area:1/1] grid grid-cols-2 gap-1.5 bg-paper motion-safe:tour-pop" style={tourAt(1.9)}>
-              <span className="flex items-center justify-center gap-1 rounded-control py-2 text-ink ring-1 ring-ink-3/50">
+              <span className="flex items-center justify-center gap-1 rounded-[5px] py-2 text-ink ring-1 ring-ink-3/50">
                 <Banknote className="size-3" /> Pay
               </span>
-              <span className="flex items-center justify-center gap-1 rounded-control bg-indigo py-2 text-white">
+              <span className="flex items-center justify-center gap-1 rounded-[5px] bg-indigo py-2 text-white">
                 Start <ArrowRight className="size-3" />
               </span>
             </div>
@@ -88,7 +88,7 @@ export default function BoardScene() {
       </div>
 
       {/* The notice every signed-in screen shows, with a chime. */}
-      <div className="absolute inset-x-3 bottom-[3.9rem] flex items-center gap-2 rounded-control bg-paper px-3 py-2.5 text-[0.68rem] text-ink shadow-lift ring-1 ring-rule motion-safe:tour-pop" style={tourAt(0.5)}>
+      <div className="absolute inset-x-3 bottom-[3.9rem] flex items-center gap-2 rounded-[5px] bg-paper px-3 py-2.5 text-[0.68rem] text-ink shadow-lift ring-1 ring-rule motion-safe:tour-pop" style={tourAt(0.5)}>
         <Info className="size-3.5 text-indigo" />
         <span className="flex-1">Table T4 sent order #1</span>
         <span className="font-semibold text-indigo">Open</span>

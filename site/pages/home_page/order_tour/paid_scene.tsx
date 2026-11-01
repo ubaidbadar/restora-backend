@@ -26,7 +26,7 @@ export default function PaidScene() {
         <p className="text-[0.65rem] text-ink-3">Fri, 23 Oct · Gulberg</p>
       </div>
       <BranchTabs />
-      <div className="mx-3 mt-3 grid grid-cols-2 overflow-hidden rounded-[12px] bg-paper text-ink shadow-slip">
+      <div className="mx-3 mt-3 grid grid-cols-2 overflow-hidden rounded-[8px] bg-paper text-ink shadow-slip">
         <div className="border-e border-b border-rule p-3">
           <p className="text-[0.6rem] text-ink-3">Sales today</p>
           <p className="grid text-[1.05rem] font-bold">
@@ -48,7 +48,7 @@ export default function PaidScene() {
           <p className="text-[1.05rem] font-bold">Rs 6,050</p>
         </div>
       </div>
-      <div className="mx-3 mt-2 rounded-[12px] bg-paper p-3 text-[0.65rem] text-ink-2 shadow-slip">
+      <div className="mx-3 mt-2 rounded-[8px] bg-paper p-3 text-[0.65rem] text-ink-2 shadow-slip">
         <p className="text-[0.75rem] font-bold text-ink">Cash vs digital</p>
         <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-canvas">
           <span className="w-[46%] rounded-full bg-indigo" />
@@ -67,7 +67,7 @@ export default function PaidScene() {
             {METHODS.map(([method, total]) => (
               <li
                 key={method}
-                className={`flex justify-between rounded-control px-3 py-1.5 text-[0.7rem] text-ink ring-1 ring-ink-3/50 ${method === 'JazzCash' ? 'motion-safe:tour-tap' : ''}`}
+                className={`flex justify-between rounded-[5px] px-3 py-1.5 text-[0.7rem] text-ink ring-1 ring-ink-3/50 ${method === 'JazzCash' ? 'motion-safe:tour-tap' : ''}`}
                 style={method === 'JazzCash' ? tourAt(1.4) : undefined}
               >
                 <span>{method}</span>
@@ -79,7 +79,7 @@ export default function PaidScene() {
       </div>
 
       {/* The app's toast: a tick, what happened, and a close button. */}
-      <div className="absolute inset-x-3 bottom-[3.9rem] flex items-center gap-2 rounded-control bg-paper px-3 py-2.5 text-[0.68rem] text-ink shadow-lift ring-1 ring-rule motion-safe:tour-pop" style={tourAt(2.1)}>
+      <div className="absolute inset-x-3 bottom-[3.9rem] flex items-center gap-2 rounded-[5px] bg-paper px-3 py-2.5 text-[0.68rem] text-ink shadow-lift ring-1 ring-rule motion-safe:tour-pop" style={tourAt(2.1)}>
         <CircleCheck className="size-3.5 text-leaf" />
         <span className="flex-1">Order #1 paid by JazzCash</span>
         <X className="size-3 text-ink-3" />

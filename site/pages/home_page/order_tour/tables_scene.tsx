@@ -28,14 +28,14 @@ export default function TablesScene() {
 
       {/* "1 table needs you", until Done. */}
       <div className="mx-3 mt-2.5 motion-safe:tour-pop" style={tourAt(0.4)}>
-        <div className="rounded-[12px] bg-haldi-soft/60 p-2 ring-1 ring-haldi/60 motion-safe:tour-hide motion-reduce:hidden" style={tourAt(2.4)}>
+        <div className="rounded-[8px] bg-haldi-soft/60 p-2 ring-1 ring-haldi/60 motion-safe:tour-hide motion-reduce:hidden" style={tourAt(2.4)}>
           <p className="text-[0.66rem] font-bold text-haldi-deep">1 table needs you</p>
-          <div className="mt-1.5 flex items-center gap-2 rounded-[10px] bg-paper p-2 text-[0.63rem] text-ink">
+          <div className="mt-1.5 flex items-center gap-2 rounded-[6px] bg-paper p-2 text-[0.63rem] text-ink">
             <BellRing className="size-3.5 text-haldi-deep" />
             <span className="flex-1">
               <b>Table T4</b> called a waiter · just now
             </span>
-            <span className="rounded-[8px] bg-indigo px-2 py-1 font-semibold text-white motion-safe:tour-tap" style={tourAt(2)}>
+            <span className="rounded-[5px] bg-indigo px-2 py-1 font-semibold text-white motion-safe:tour-tap" style={tourAt(2)}>
               Done
             </span>
           </div>
@@ -50,11 +50,11 @@ export default function TablesScene() {
       <p className="mt-2 px-4 text-[0.7rem] font-bold text-ink">Hall</p>
       <ul className="mt-1.5 grid grid-cols-2 gap-1.5 px-3">
         {TABLES.map((table) => (
-          <li key={table.name} className={`relative rounded-[12px] bg-paper p-2 ${table.bill ? 'ring-2 ring-indigo' : 'ring-1 ring-rule'}`}>
+          <li key={table.name} className={`relative rounded-[8px] bg-paper p-2 ${table.bill ? 'ring-2 ring-indigo' : 'ring-1 ring-rule'}`}>
             <Tile name={table.name} badge={table.bill ? 'Eating' : 'Free'} line={table.bill} />
             {table.name === 'T4' && (
               <span className="absolute inset-0 motion-safe:tour-pop motion-reduce:hidden" style={tourAt(0.4)}>
-                <span className="block h-full rounded-[12px] bg-paper p-2 ring-2 ring-haldi-deep motion-safe:tour-hide" style={tourAt(2.4)}>
+                <span className="block h-full rounded-[8px] bg-paper p-2 ring-2 ring-haldi-deep motion-safe:tour-hide" style={tourAt(2.4)}>
                   <Tile name="T4" badge="Waiter called" line="just now" call />
                 </span>
               </span>
@@ -75,7 +75,7 @@ function Tile({ name, badge, line, call = false }: { name: string; badge: string
       <span className="flex justify-between text-[0.78rem] font-bold text-ink">
         {name} <span className="text-[0.55rem] font-normal text-ink-3">4 seats</span>
       </span>
-      <span className={`mt-2 inline-block rounded-[5px] px-1.5 py-0.5 text-[0.56rem] font-semibold ring-1 ${tone}`}>{badge}</span>
+      <span className={`mt-2 inline-block rounded-[4px] px-1.5 py-0.5 text-[0.56rem] font-semibold ring-1 ${tone}`}>{badge}</span>
       <span className="block h-4 text-[0.58rem] text-ink-2">{line}</span>
     </>
   );

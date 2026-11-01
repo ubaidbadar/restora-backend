@@ -44,6 +44,13 @@
   --color-leaf-soft: #DDF1E5;
   --color-whatsapp: #25D366;
   --color-on-whatsapp: #052E16;
+  /* The staff app's own greys (restora-web index.css), for the app screens drawn inside the phones. */
+  --color-app-canvas: #F6F7F9;
+  --color-app-sunken: #F1F3F6;
+  --color-app-border: #E5E7EB;
+  --color-app-border-strong: #848D9C;
+  --color-app-body: #334155;
+  --color-app-muted: #5B6474;
 
   --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
   --font-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -54,6 +61,10 @@
   --radius-slip: 2px;
   --radius-control: 10px;
   --radius-panel: 22px;
+  /* The staff app's corners at its real size (the hero's phone draws the app 1:1, then zooms it down). */
+  --radius-app-small: 0.375rem;
+  --radius-app-control: 0.5rem;
+  --radius-app-card: 0.75rem;
 
   --shadow-slip: 0 1px 0 rgb(18 21 46 / 0.04), 0 18px 40px -18px rgb(18 21 46 / 0.35);
   --shadow-lift: 0 30px 60px -30px rgb(23 19 74 / 0.45);
