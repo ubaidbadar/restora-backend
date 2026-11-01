@@ -493,7 +493,7 @@ export async function createOrder(c: Context) {
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
   await queuePrintJobs(newOrder, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
 
-  return c.json(newOrder, 201);
+  return c.json((await orderTimelines([newOrder]))[0], 201);
 }
 
 /** Moves an order along the board. Cancelling has its own route and permission. */
@@ -524,7 +524,7 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
 
 export async function updateOrderStatus(c: Context) {
   const { status } = c.get('validatedJson') as { status: IOrder['status'] };
-  return c.json(await setStatus(c, c.req.param('id') ?? '', status));
+  return c.json((await orderTimelines([await setStatus(c, c.req.param('id') ?? '', status)]))[0]);
 }
 
 export async function recordPayment(c: Context) {
@@ -593,7 +593,7 @@ export async function recordPayment(c: Context) {
     },
   });
 
-  return c.json(updated);
+  return c.json((await orderTimelines([updated]))[0]);
 }
 
 export async function updateOrder(c: Context) {
@@ -608,7 +608,7 @@ export async function updateOrder(c: Context) {
   // The board sends `{ status }` here.
   if (body.status !== undefined) {
     const { status, ...rest } = body;
-    if (Object.keys(rest).length === 0) return c.json(await setStatus(c, id, status as IOrder['status']));
+    if (Object.keys(rest).length === 0) return c.json((await orderTimelines([await setStatus(c, id, status as IOrder['status'])]))[0]);
     await setStatus(c, id, status as IOrder['status']);
     delete body.status;
   }
@@ -644,7 +644,7 @@ export async function updateOrder(c: Context) {
     });
   }
 
-  return c.json(updated);
+  return c.json((await orderTimelines([updated]))[0]);
 }
 
 /** Statuses in which the kitchen has the order's slip and may still be cooking it. */
@@ -736,7 +736,7 @@ export async function editOrder(c: Context) {
     await queuePrintJobs(updated, 'kitchen', printHeader(c), true, { items, label: 'CHANGED', key: `edit-${Date.now()}` }).catch((err) => console.error('[Print] Queueing kitchen changes failed:', err));
   }
 
-  return c.json(updated);
+  return c.json((await orderTimelines([updated]))[0]);
 }
 
 /** Cancels an order (or turns down a guest's), saving who did it, when and why. */
@@ -793,7 +793,7 @@ export async function cancelOrder(c: Context) {
     await queuePrintJobs(cancelled, 'kitchen', printHeader(c), true, { items, label: 'CANCELLED', key: 'cancel' }).catch((err) => console.error('[Print] Queueing the cancelled slip failed:', err));
   }
 
-  return c.json(cancelled);
+  return c.json((await orderTimelines([cancelled]))[0]);
 }
 
 export default {
