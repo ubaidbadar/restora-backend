@@ -55,6 +55,8 @@
   --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
   --font-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-slip: var(--font-plex-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  /* The staff app's own face (restora-web --font-body): the system's, for the app screens drawn inside the phones. */
+  --font-app: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   --font-urdu: var(--font-nastaliq), "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", serif;
 
   /* One radius per kind of thing: slips are torn paper (2px), controls are firm (10px), panels are soft (22px). */

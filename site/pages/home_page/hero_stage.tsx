@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { BellRing, CalendarClock, CalendarDays, Check, Plus, SlidersHorizontal, Smartphone } from 'lucide-react';
+import { BellRing, CalendarClock, CalendarDays, Check, SlidersHorizontal, Smartphone } from 'lucide-react';
 import PhoneIsland from '../../components/phone_island';
 import StaffNav from './order_tour/staff_nav';
 import StatusBar from './order_tour/status_bar';
@@ -52,59 +52,62 @@ export default function HeroStage() {
           <div className="phone-screen flex h-full flex-col bg-app-canvas">
             <StatusBar time="8:47" />
             <div className="min-h-0 flex-1 overflow-hidden">
-              {/* The app at 384px wide, zoomed to the screen's 262px (17.5rem less the bezels). */}
-              <div className="flex w-[384px] flex-col gap-4 px-4 pt-2 [zoom:0.682]">
-                <div className="flex items-end justify-between gap-3 pb-1">
+              {/* The app's Home at 384px wide (restora-web dashboard_page), zoomed to the screen's 262px (17.5rem less the bezels). */}
+              <div className="flex w-[384px] flex-col px-4 pt-2 font-app [zoom:0.682]">
+                {/* On a phone the header keeps only Filter: New order is the round + in the bottom bar. */}
+                <div className="mb-5 flex justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[1.25rem] leading-tight font-semibold tracking-[-0.015em] text-ink">Lahori Karahi House</p>
-                    <p className="mt-0.5 text-sm text-app-muted">Gulberg</p>
+                    <p className="truncate text-[1.25rem] leading-[1.25] font-[650] tracking-[-0.015em] text-ink">Lahori Karahi House</p>
+                    <p className="mt-0.5 truncate text-sm text-app-muted">Gulberg</p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="grid size-11 place-items-center rounded-app-control border border-app-border-strong bg-paper text-ink">
-                      <SlidersHorizontal className="size-[18px]" />
-                    </span>
-                    <span className="flex h-11 items-center gap-2 rounded-app-control bg-indigo px-4 text-sm font-medium text-white">
-                      <Plus className="size-4" />
-                      New order
-                    </span>
-                  </div>
+                  <span className="grid size-11 shrink-0 place-items-center rounded-app-control border border-app-border-strong bg-paper text-ink">
+                    <SlidersHorizontal className="size-[18px]" />
+                  </span>
                 </div>
-                <p className="flex items-center gap-2 text-sm text-app-body">
+                <p className="mb-4 flex items-center gap-2 text-sm text-app-body">
                   <CalendarDays className="size-4 text-app-muted" />
                   <span>
                     <span className="font-semibold text-ink">Today</span> · This branch
                   </span>
                 </p>
-                <div className="grid grid-cols-2 overflow-hidden rounded-app-card bg-paper shadow-[0_0_0_1px_var(--color-app-border)]">
-                  {STATS.map((stat, index) => (
-                    <div key={stat.label} className={`border-app-border px-4 py-3.5 ${index % 2 === 0 ? 'border-e' : ''} ${index < 2 ? 'border-b' : ''}`}>
-                      <p className="text-sm text-app-muted">{stat.label}</p>
-                      <p className="mt-1 text-[1.375rem] leading-7 font-semibold tracking-[-0.01em] text-ink tabular-nums">{stat.value}</p>
-                      <p className="mt-0.5 h-4 text-xs text-app-muted">{stat.note}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="rounded-app-card bg-paper p-4 shadow-[0_0_0_1px_var(--color-app-border)]">
-                  <p className="mb-3 font-semibold text-ink">Orders by type</p>
-                  {TYPES.map(([type, count, total]) => (
-                    <p key={type} className="flex border-b border-app-border py-2.5 text-sm last:border-0">
-                      <span className="flex-1 font-medium text-ink">{type}</span>
-                      <span className="text-app-muted tabular-nums">{count}</span>
-                      <span className="w-28 text-end font-semibold text-ink tabular-nums">{total}</span>
+                <div className="flex flex-col gap-4">
+                  <div className="grid grid-cols-2 gap-px overflow-hidden rounded-app-card bg-app-border shadow-[0_0_0_1px_var(--color-app-border),0_1px_2px_rgb(15_23_42/0.04)]">
+                    {STATS.map((stat) => (
+                      <div key={stat.label} className="bg-paper px-4 py-3.5">
+                        <p className="text-sm text-app-muted">{stat.label}</p>
+                        <p className="mt-1 text-[1.375rem] leading-7 font-semibold tracking-[-0.01em] text-ink tabular-nums">{stat.value}</p>
+                        <p className="mt-0.5 h-4 text-xs text-app-muted">{stat.note}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="rounded-app-card bg-paper p-4 shadow-[0_0_0_1px_var(--color-app-border),0_1px_2px_rgb(15_23_42/0.04)]">
+                    <p className="mb-3 font-semibold tracking-[-0.005em] text-ink">Orders by type</p>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {TYPES.map(([type, count, total]) => (
+                          <tr key={type} className="border-b border-app-border last:border-0">
+                            <th scope="row" className="py-2.5 text-start font-medium text-ink">{type}</th>
+                            <td className="py-2.5 text-end whitespace-nowrap text-app-muted tabular-nums">{count}</td>
+                            <td className="w-28 py-2.5 text-end font-semibold whitespace-nowrap text-ink tabular-nums">{total}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="rounded-app-card bg-paper p-4 shadow-[0_0_0_1px_var(--color-app-border),0_1px_2px_rgb(15_23_42/0.04)]">
+                    <p className="mb-3 font-semibold tracking-[-0.005em] text-ink">Cash vs digital</p>
+                    <p className="mb-4 h-2.5 overflow-hidden rounded-full bg-app-sunken">
+                      <span className="block h-full w-[65%] rounded-full bg-indigo" />
                     </p>
-                  ))}
-                </div>
-                <div className="rounded-app-card bg-paper p-4 shadow-[0_0_0_1px_var(--color-app-border)]">
-                  <p className="mb-3 font-semibold text-ink">Cash vs digital</p>
-                  <p className="mb-4 h-2.5 overflow-hidden rounded-full bg-app-sunken">
-                    <span className="block h-full w-[65%] rounded-full bg-indigo" />
-                  </p>
-                  {SPLIT.map(([label, total]) => (
-                    <p key={label} className="mt-2.5 flex justify-between gap-4 text-sm text-app-body first-of-type:mt-0">
-                      {label}
-                      <span className="font-semibold text-ink tabular-nums">{total}</span>
-                    </p>
-                  ))}
+                    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2.5 text-sm text-app-body">
+                      {SPLIT.map(([label, total]) => (
+                        <div key={label} className="contents">
+                          <dt>{label}</dt>
+                          <dd className="text-end font-semibold whitespace-nowrap text-ink tabular-nums">{total}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
                 </div>
               </div>
             </div>
