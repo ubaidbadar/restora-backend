@@ -1,5 +1,5 @@
 import AuditEntry from '../models/audit_entry';
-import withPerson from './order_timeline_people';
+import { withPerson } from './audit';
 
 /**
  * Adds recorded order activity in one indexed query for the whole page.
