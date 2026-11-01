@@ -30,6 +30,7 @@ export async function updateSettings(c: Context) {
     taxByPaymentMethod?: Record<string, number>;
     whatsappTemplates?: Record<string, string>;
     receipt?: Record<string, string>;
+    appearance?: Record<string, string>;
   };
 
   const settings = await loadSettings(c);
@@ -47,6 +48,9 @@ export async function updateSettings(c: Context) {
   }
   for (const [key, text] of Object.entries(body.receipt ?? {})) {
     settings.set(`receipt.${key}`, text || undefined);
+  }
+  for (const [key, value] of Object.entries(body.appearance ?? {})) {
+    settings.set(`appearance.${key}`, value);
   }
   settings.updatedAt = new Date().toISOString();
   await settings.save();

@@ -23,12 +23,20 @@ const receiptSchema = z.object({
   footer: z.string().trim().max(160, 'Keep it to 160 characters'),
 });
 
+/** The themes a restaurant can pick; each has a light and a dark side (the colours live in the web app). */
+const appearanceSchema = z.object({
+  theme: z.enum(['indigo', 'saffron', 'emerald', 'ocean', 'bordeaux', 'onyx']),
+  mode: z.enum(['light', 'dark', 'system']),
+  sidebar: z.enum(['theme', 'plain']),
+});
+
 export const settingsSchema = z.object({
   restaurantName: z.string().trim().min(1, 'Enter the restaurant name'),
   logo: z.string().optional().nullable(),
   taxByPaymentMethod: taxByPaymentMethodSchema,
   whatsappTemplates: whatsappTemplatesSchema,
   receipt: receiptSchema.partial().optional(),
+  appearance: appearanceSchema.partial().optional(),
 });
 
 /** `taxSet` and other read-only fields the client echoes back are ignored; saving any tax rate marks tax as set. */
@@ -38,6 +46,7 @@ export const settingsUpdateSchema = z.object({
   taxByPaymentMethod: taxByPaymentMethodSchema.partial().optional(),
   whatsappTemplates: whatsappTemplatesSchema.partial().optional(),
   receipt: receiptSchema.partial().optional(),
+  appearance: appearanceSchema.partial().optional(),
 });
 
 export default settingsSchema;
