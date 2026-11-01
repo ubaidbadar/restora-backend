@@ -144,7 +144,8 @@
 :root {
   --phone-radius: 2.75rem;
   --phone-bezel: 9px;
-  --phone-shadow: 0 40px 90px -30px rgb(23 19 74 / 0.6), inset 0 0 0 2px rgb(255 255 255 / 0.1);
+  /* Layered small blurs: one 90px blur was cut into a hard light box on 3x phone screens. */
+  --phone-shadow: 0 1px 2px rgb(23 19 74 / 0.12), 0 12px 24px -8px rgb(23 19 74 / 0.22), 0 32px 56px -24px rgb(23 19 74 / 0.35), inset 0 0 0 2px rgb(255 255 255 / 0.1);
 }
 @utility phone {
   border-radius: var(--phone-radius);
