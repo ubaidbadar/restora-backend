@@ -4,7 +4,7 @@ import Invitation from '../models/invitation';
 import Role from '../models/role';
 import Branch from '../models/branch';
 import Restaurant from '../models/restaurant';
-import logAudit from '../utils/audit';
+import logAudit, { auditActor } from '../utils/audit';
 import maskContact from '../utils/mask_contact';
 import randomToken from '../utils/random_token';
 import normalizePhone from '../utils/normalize_phone';
@@ -48,7 +48,6 @@ async function loadManageable(c: Context, id: string) {
   return member;
 }
 
-const auditActor = (c: Context) => ({ name: c.get('user')?.name, via: (c.get('via') ?? 'web') as 'web' | 'pos' });
 
 /** A member as the Staff list shows it, with their account's name and email. */
 function memberJson(member: IStaffMember & { _id: unknown }, user: { id: string; name: string; email: string; image: string | null } | null | undefined) {
@@ -399,7 +398,7 @@ async function join(c: Context, filter: Record<string, unknown>) {
     await logAudit({
       restaurantId: result.invitation.restaurantId,
       action: 'invitation.accepted',
-      actor: { name: user.name, via: 'web' },
+      actor: { userId: user.id, name: user.name, via: 'web' },
       target: { type: 'membership', id: String(result.member._id), label: user.name },
     });
   }

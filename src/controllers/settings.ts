@@ -65,7 +65,7 @@ export async function updateSettings(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'settings.updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'settings' },
   });
 
@@ -105,7 +105,7 @@ export async function uploadLogo(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'settings.logo_uploaded',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'settings', label: logoUrl ?? undefined },
   });
 

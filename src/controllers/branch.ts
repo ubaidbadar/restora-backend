@@ -16,7 +16,7 @@ export async function createBranch(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'branch.created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'branch', id: String(branch._id), label: branch.name },
   });
 
@@ -46,7 +46,7 @@ export async function updateBranch(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'branch.updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'branch', id, label: updated?.name },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     changes: { before: before.toObject() as any, after: updated?.toObject() as any },
@@ -74,7 +74,7 @@ export async function deleteBranch(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'branch.archived',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'branch', id, label: branch.name },
   });
 
@@ -95,7 +95,7 @@ export async function reopenBranch(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'branch.reopened',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'branch', id, label: branch.name },
   });
 

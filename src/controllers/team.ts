@@ -40,7 +40,7 @@ export async function createTeam(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'team.created',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'team', id: String(team._id), label: team.name },
   });
 
@@ -60,7 +60,7 @@ export async function updateTeam(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'team.updated',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'team', id, label: team.name },
   });
 
@@ -80,7 +80,7 @@ export async function deleteTeam(c: Context) {
   const user = c.get('user');
   await logAudit({
     action: 'team.archived',
-    actor: { name: user?.name, via: 'web' },
+    actor: { userId: user?.id, name: user?.name, via: 'web' },
     target: { type: 'team', id, label: team.name },
   });
 

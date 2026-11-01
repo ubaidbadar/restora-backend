@@ -47,7 +47,7 @@ export async function uploadFile(c: Context) {
 
     await logAudit({
       action: 'file.uploaded',
-      actor: { name: user?.name, via: 'web' },
+      actor: { userId: user?.id, name: user?.name, via: 'web' },
       target: { type: 'upload', id: result.key, label: result.url },
     });
     return c.json(uploadJson(result), 201);
@@ -62,7 +62,7 @@ export async function uploadFile(c: Context) {
 
     await logAudit({
       action: 'file.uploaded',
-      actor: { name: user?.name, via: 'web' },
+      actor: { userId: user?.id, name: user?.name, via: 'web' },
       target: { type: 'upload', id: result.key, label: result.url },
     });
     return c.json(uploadJson(result), 201);
