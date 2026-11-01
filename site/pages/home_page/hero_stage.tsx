@@ -25,10 +25,13 @@ const SPLIT = [
   ['Not collected yet (unpaid or khata)', 'Rs 5,800'],
 ];
 
-/** One thing happening somewhere in the restaurant: a note beside the phone (under it on a phone screen). */
+/**
+ * One thing happening somewhere in the restaurant: a note beside the phone. On a phone screen there is no room beside it,
+ * so the note shows inside the drawn phone instead, as the app shows it: a toast above the bottom bar.
+ */
 function Note({ at, className, children }: { at: number; className: string; children: ReactNode }) {
   return (
-    <div style={tourAt(at)} className={`absolute flex max-w-[13.5rem] items-center gap-2.5 rounded-[16px] p-3 text-[0.8rem] leading-snug shadow-lift animate-note max-sm:relative max-sm:inset-auto max-sm:w-[17.5rem] max-sm:max-w-none ${className}`}>
+    <div style={tourAt(at)} className={`absolute flex max-w-[13.5rem] items-center gap-2.5 rounded-[16px] p-3 text-[0.8rem] leading-snug shadow-lift animate-note max-sm:inset-x-0 max-sm:z-10 max-sm:mx-auto max-sm:w-[15.75rem] max-sm:max-w-none max-sm:rounded-[14px] max-sm:p-2.5 max-sm:text-[0.72rem] max-sm:[animation:rise_700ms_var(--ease-print)_var(--at,0s)_both] ${className}`}>
       {children}
     </div>
   );
@@ -42,7 +45,7 @@ function Note({ at, className, children }: { at: number; className: string; chil
  */
 export default function HeroStage() {
   return (
-    <div role="img" aria-label="Restora on a phone: today's numbers, orders by type and cash against digital, with a table's order, a waiter call, a booking and a payment arriving" className="relative mx-auto w-full max-w-[30rem] max-sm:flex max-sm:flex-col max-sm:items-center max-sm:gap-2.5 sm:h-[38rem]">
+    <div role="img" aria-label="Restora on a phone: today's numbers, orders by type and cash against digital, with a table's order, a waiter call, a booking and a payment arriving" className="relative mx-auto w-full max-w-[30rem] max-sm:flex max-sm:justify-center sm:h-[38rem]">
       <div className="relative h-[37.5rem] w-[17.5rem] animate-rise sm:absolute sm:inset-y-0 sm:end-0 sm:h-auto">
         <div className="phone relative h-full">
           <PhoneIsland />
@@ -110,8 +113,8 @@ export default function HeroStage() {
         </div>
       </div>
 
-      <Note at={0.9} className="sm:top-[8%] sm:start-0 bg-paper text-ink">
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-indigo-wash text-indigo">
+      <Note at={0.9} className="bottom-[9.25rem] sm:top-[8%] sm:bottom-auto sm:start-0 bg-paper text-ink">
+        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-indigo-wash text-indigo max-sm:size-7">
           <Smartphone className="size-4" />
         </span>
         <span>
@@ -132,7 +135,7 @@ export default function HeroStage() {
           <span className="block text-ink-3">Ahmed Raza · Table T12</span>
         </span>
       </Note>
-      <Note at={2.7} className="sm:top-[74%] sm:start-3 bg-leaf text-white">
+      <Note at={2.7} className="bottom-[5.5rem] sm:top-[74%] sm:bottom-auto sm:start-3 bg-leaf text-white">
         <Check className="size-5 shrink-0" strokeWidth={3} />
         <span>
           <span className="block font-semibold">Order #27 paid by JazzCash</span>
