@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Pause, Play } from 'lucide-react';
+import PhoneIsland from '../../../components/phone_island';
 import BoardScene from './board_scene';
 import MenuScene from './menu_scene';
 import PaidScene from './paid_scene';
@@ -65,7 +66,7 @@ export default function OrderTour() {
               data-tour-stage=""
               className="tour-stage"
             >
-              <span className="absolute top-3 left-1/2 z-10 hidden h-6 w-24 -translate-x-1/2 rounded-full bg-ink motion-safe:block" />
+              <PhoneIsland className="hidden motion-safe:block" />
               {STEPS.map((step, index) => (
                 <div
                   key={step.title}
