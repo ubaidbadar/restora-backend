@@ -16,13 +16,13 @@ const TYPES = [
   ['Dine-in', '38 orders', 'Rs 55,900'],
   ['Takeaway', '17 orders', 'Rs 19,250'],
   ['Delivery', '6 orders', 'Rs 9,200'],
-  ['Cancelled', '2 orders', 'Rs 1,850'],
+  ['Cancelled', '2 orders', 'Rs 2,100'],
 ];
 
 const SPLIT = [
-  ['Cash (41%)', 'Rs 31,200'],
-  ['Card, JazzCash, Easypaisa, bank (59%)', 'Rs 44,900'],
-  ['Not collected yet (unpaid or khata)', 'Rs 8,250'],
+  ['Cash (65%)', 'Rs 51,200'],
+  ['Card, JazzCash, Easypaisa, bank (35%)', 'Rs 27,350'],
+  ['Not collected yet (unpaid or khata)', 'Rs 5,800'],
 ];
 
 /** One thing happening somewhere in the restaurant: a note beside the phone (under it on a phone screen). */
@@ -51,27 +51,27 @@ export default function HeroStage() {
             <div className="min-h-0 flex-1 overflow-hidden">
               {/* The app at 384px wide, zoomed to the screen's 262px (17.5rem less the bezels). */}
               <div className="flex w-[384px] flex-col gap-4 px-4 pt-2 [zoom:0.682]">
-                <div className="flex items-end justify-between gap-4">
+                <div className="flex items-end justify-between gap-3 pb-1">
                   <div className="min-w-0">
-                    <p className="truncate text-[1.25rem] leading-tight font-semibold tracking-[-0.015em] text-ink">Lahori Karahi House</p>
+                    <p className="text-[1.25rem] leading-tight font-semibold tracking-[-0.015em] text-ink">Lahori Karahi House</p>
                     <p className="mt-0.5 text-sm text-app-muted">Gulberg</p>
                   </div>
-                  <span className="flex h-11 shrink-0 items-center gap-2 rounded-app-control bg-indigo px-4 text-sm font-medium text-white">
-                    <Plus className="size-4" />
-                    New order
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="flex items-center gap-2 text-sm text-app-body">
-                    <CalendarDays className="size-4 text-app-muted" />
-                    <span>
-                      <span className="font-semibold text-ink">Today</span> · This branch
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="grid size-11 place-items-center rounded-app-control border border-app-border-strong bg-paper text-ink">
+                      <SlidersHorizontal className="size-[18px]" />
                     </span>
-                  </p>
-                  <span className="grid size-11 place-items-center rounded-app-control border border-app-border-strong bg-paper text-ink">
-                    <SlidersHorizontal className="size-[18px]" />
-                  </span>
+                    <span className="flex h-11 items-center gap-2 rounded-app-control bg-indigo px-4 text-sm font-medium text-white">
+                      <Plus className="size-4" />
+                      New order
+                    </span>
+                  </div>
                 </div>
+                <p className="flex items-center gap-2 text-sm text-app-body">
+                  <CalendarDays className="size-4 text-app-muted" />
+                  <span>
+                    <span className="font-semibold text-ink">Today</span> · This branch
+                  </span>
+                </p>
                 <div className="grid grid-cols-2 overflow-hidden rounded-app-card bg-paper shadow-[0_0_0_1px_var(--color-app-border)]">
                   {STATS.map((stat, index) => (
                     <div key={stat.label} className={`border-app-border px-4 py-3.5 ${index % 2 === 0 ? 'border-e' : ''} ${index < 2 ? 'border-b' : ''}`}>
@@ -94,7 +94,7 @@ export default function HeroStage() {
                 <div className="rounded-app-card bg-paper p-4 shadow-[0_0_0_1px_var(--color-app-border)]">
                   <p className="mb-3 font-semibold text-ink">Cash vs digital</p>
                   <p className="mb-4 h-2.5 overflow-hidden rounded-full bg-app-sunken">
-                    <span className="block h-full w-[41%] rounded-full bg-indigo" />
+                    <span className="block h-full w-[65%] rounded-full bg-indigo" />
                   </p>
                   {SPLIT.map(([label, total]) => (
                     <p key={label} className="mt-2.5 flex justify-between gap-4 text-sm text-app-body first-of-type:mt-0">
