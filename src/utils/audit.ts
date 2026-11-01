@@ -42,7 +42,7 @@ export const withPerson: PipelineStage[] = [
       },
     },
   },
-  { $unset: 'person' },
+  { $unset: ['person', 'actor.userId'] },
 ];
 
 export async function logAudit(params: AuditParams): Promise<void> {
