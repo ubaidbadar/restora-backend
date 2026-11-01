@@ -25,6 +25,7 @@ import printHeader from '../utils/print_header';
 import queuePrintJobs from '../utils/queue_print_jobs';
 import kitchenChanges from '../utils/kitchen_changes';
 import orderChanges from '../utils/order_changes';
+import orderTimelines from '../utils/order_timelines';
 import AuditEntry from '../models/audit_entry';
 import { hasPermission } from '../middlewares/permission_guard';
 import { getTenantId } from '../middlewares/tenant_context';
@@ -105,16 +106,13 @@ export async function listOrders(c: Context) {
   }
 
   const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
-  return c.json(orders);
+  return c.json(await orderTimelines(orders));
 }
 
 const HISTORY_PAGE = 50;
 const HISTORY_MAX_DAYS = 366;
 const DAY_MS = 86_400_000;
-type HistoryRow = Pick<IOrder, '_id' | 'dailyToken' | 'dayKey' | 'createdAt' | 'type' | 'status' | 'paymentStatus' | 'total' | 'tableName'> & {
-  customer?: { name: string };
-  itemCount: number;
-};
+type HistoryRow = IOrder & { itemCount: number };
 
 /**
  * What `?q=` finds: a token (a short number), the start of a customer's name, part of their phone, or a table by name.
@@ -133,11 +131,11 @@ function historySearch(q: string): Record<string, unknown> {
 }
 
 /**
- * Orders of a span of days as a list, a page at a time: slim rows, the latest first (by day, then token, which the
+ * Orders of a span of days as a list, a page at a time: full orders and their timelines, latest first (by day, then token, which the
  * order index already holds). `?from=&to=` (at most a year), `?q=`, `?status=`, `?type=`, `?payment=`, `?cursor=` (the
  * last answer's `next`). The first page also has `summary`: the days' counts by status and type and their sales, for
  * the same days and search but every status and type, so the tabs keep their counts while one is picked.
- * One aggregation per call. The full order is GET /orders/:id.
+ * The first query pages the orders; one batched query adds their recorded history.
  */
 export async function orderHistory(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
@@ -172,13 +170,8 @@ export async function orderHistory(c: Context) {
     { $match: rowsMatch },
     { $sort: { dayKey: -1, dailyToken: -1, _id: -1 } },
     { $limit: HISTORY_PAGE + 1 },
-    {
-      $project: {
-        dailyToken: 1, dayKey: 1, createdAt: 1, type: 1, status: 1, paymentStatus: 1, total: 1, tableName: 1,
-        'customer.name': 1,
-        itemCount: { $sum: '$items.qty' },
-      },
-    },
+    { $addFields: { itemCount: { $sum: '$items.qty' } } },
+    { $project: { restaurantId: 0, __v: 0 } },
   ];
   // Sales leave out cancelled orders and guests' orders not accepted yet, like the dashboard.
   const summary: PipelineStage.FacetPipelineStage[] = [
@@ -196,7 +189,7 @@ export async function orderHistory(c: Context) {
     { $facet: cursor ? { rows } : { rows, summary } },
   ]);
   const found = result?.rows ?? [];
-  const orders = found.slice(0, HISTORY_PAGE).map((row) => ({ ...row, _id: String(row._id) }));
+  const orders = await orderTimelines(found.slice(0, HISTORY_PAGE).map((row) => ({ ...row, _id: String(row._id) })));
   const last = orders.at(-1);
   const next = found.length > HISTORY_PAGE && last ? `${last.dayKey}_${last.dailyToken}_${last._id}` : null;
   if (!result?.summary) return c.json({ orders, next });
@@ -259,7 +252,7 @@ export async function getOrder(c: Context) {
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
-  return c.json(order);
+  return c.json((await orderTimelines([order]))[0]);
 }
 
 /**
