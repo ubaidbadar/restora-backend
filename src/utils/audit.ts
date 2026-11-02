@@ -22,7 +22,7 @@ export const auditActor = (c: Context): IAuditActor => ({ userId: c.get('user')?
  * `was` with the name saved on the entry when they have been renamed since. A name alone can be changed or copied.
  * Entries from before accounts were saved, and from the system, keep just the saved name.
  */
-export const withPerson: PipelineStage[] = [
+export const withPerson: Exclude<PipelineStage, PipelineStage.Merge | PipelineStage.Out>[] = [
   {
     $lookup: {
       from: 'user',

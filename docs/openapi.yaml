@@ -590,14 +590,27 @@ paths:
     get:
       tags: [Orders]
       summary: List orders
+      description: |
+        Lists orders for the active branch and date range. Each order includes its embedded timeline `entries`
+        (audit history up to 200 items, oldest first).
       x-permission: orders:view
       parameters:
         - { name: date, in: query, description: 'Day in Pakistan time (YYYY-MM-DD). Defaults to today.', schema: { type: string, format: date } }
+        - { name: from, in: query, description: 'Start day for a range (YYYY-MM-DD)', schema: { type: string, format: date } }
+        - { name: to, in: query, description: 'End day for a range (YYYY-MM-DD)', schema: { type: string, format: date } }
+        - { name: since, in: query, description: 'Only orders changed from this timestamp on (ISO 8601)', schema: { type: string, format: date-time } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderStatus' } }
         - { name: customerId, in: query, schema: { type: string } }
         - { name: allDates, in: query, description: 'true lists every day', schema: { type: boolean } }
       responses:
-        '200': { $ref: '#/components/responses/Json' }
+        '200':
+          description: List of orders with embedded timeline entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
     post:
       tags: [Orders]
       summary: Place an order
@@ -687,6 +700,26 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Json' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/orders/{id}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Orders]
+      summary: Order timeline and activity history
+      description: |
+        Everything that happened to an order, oldest first (up to 200 entries): placing it, edits with the dishes
+        added, removed or recounted, moves on the board, payment and cancelling, each with who (as they are now) and when.
+      x-permission: orders:view
+      responses:
+        '200':
+          description: Chronological list of timeline audit entries for this order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderTimelineEntry'
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/orders/{id}/status:
     patch:
@@ -2341,6 +2374,36 @@ components:
             at: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        entries:
+          type: array
+          description: Timeline of changes and activity for this order, oldest first (up to 200 entries, populated on list)
+          items:
+            $ref: '#/components/schemas/OrderTimelineEntry'
+
+    OrderTimelineEntry:
+      type: object
+      description: One event in an order's timeline / audit history
+      properties:
+        _id: { type: string }
+        action:
+          type: string
+          description: Event action identifier (e.g. order.created, order.edited, order.status_updated, order.payment_recorded, order.cancelled)
+          example: order.created
+        actor:
+          type: object
+          description: Who performed the action, resolved with current profile details
+          properties:
+            name: { type: string }
+            email: { type: string }
+            was: { type: string, description: Name at the time of the event if different from current }
+            via: { type: string, enum: [web, pos, system] }
+        changes:
+          type: object
+          description: Snapshot of before and after states for edited fields
+          properties:
+            before: { type: object }
+            after: { type: object }
+        at: { type: string, format: date-time }
 
     ReservationCreate:
       type: object

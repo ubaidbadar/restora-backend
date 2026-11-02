@@ -89,14 +89,11 @@ export async function listOrders(c: Context) {
   if (status) filter.status = String(status);
 
   if (customerId) {
-    // A customer's history: every date.
     filter.customerId = String(customerId);
   } else if (c.req.query('allDates') !== 'true') {
-    // `?from=&to=` for a span of days, `?date=` for one, today when neither.
     filter.dayKey = { $gte: range.from, $lte: range.to };
   }
 
-  // `?since=`: only the orders changed from then on (the app catching up after its live stream reconnects).
   const since = c.req.query('since');
   if (since) {
     const at = new Date(since);
@@ -105,15 +102,13 @@ export async function listOrders(c: Context) {
   }
   const orders = await Order.aggregate([
     { $match: filter },
-    { $addFields: { _idStr: { $toString: '$_id' } } },
     {
       $lookup: {
         from: 'auditentries',
-        as: 'timeline',
-        localField: '_idStr',
-        foreignField: 'target.id',
+        as: 'entries',
+        let: { orderId: { $toString: '$_id' } },
         pipeline: [
-          { $match: { 'target.type': 'order', 'target.id': c.req.param('id') } },
+          { $match: { $expr: { $eq: ['$target.id', '$$orderId'] } } },
           { $sort: { at: 1 } },
           { $limit: 200 },
           { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
@@ -122,7 +117,6 @@ export async function listOrders(c: Context) {
       }
     }
   ]);
-  // const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
   return c.json(orders);
 }
 
