@@ -255,7 +255,9 @@ export async function streamOrders(c: Context) {
 }
 
 export async function getOrder(c: Context) {
-  const order = await Order.findById(c.req.param('id')).catch(() => null);
+  const id = c.req.param('id');
+  const oid = toObjectId(id);
+  const order = await Order.findOne(oid ? { $or: [{ _id: oid }, { clientId: id }] } : { clientId: id }).catch(() => null);
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
@@ -268,8 +270,17 @@ export async function getOrder(c: Context) {
  * orders have no "placed" entry; their placing is on the order itself.
  */
 export async function orderTimeline(c: Context) {
+  const id = c.req.param('id');
+  const oid = toObjectId(id);
+  const order = await Order.findOne(oid ? { $or: [{ _id: oid }, { clientId: id }] } : { clientId: id }).select('_id clientId');
+  const targetIds: string[] = [id];
+  if (order) {
+    if (order._id) targetIds.push(String(order._id));
+    if (order.clientId) targetIds.push(order.clientId);
+  }
+  const uniqueIds = Array.from(new Set(targetIds));
   const entries = await AuditEntry.aggregate([
-    { $match: { 'target.type': 'order', 'target.id': c.req.param('id') } },
+    { $match: { 'target.type': 'order', 'target.id': { $in: uniqueIds } } },
     { $sort: { at: 1 } },
     { $limit: 200 },
     { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
@@ -468,7 +479,7 @@ export async function createOrder(c: Context) {
           area: body.area || undefined,
           address: body.address || undefined,
           rider: body.rider || undefined,
-          takenBy: user?.name,
+          takenBy: body.takenBy || user?.name,
           dayKey: todayKey,
           clientId: body.clientId,
           placedAt: body.placedAt ? new Date(placed).toISOString() : undefined,
@@ -477,7 +488,7 @@ export async function createOrder(c: Context) {
       { session }
     );
 
-    await recordCustomerOrder(saved!, user?.name, session);
+    await recordCustomerOrder(saved!, body.takenBy || user?.name, session);
     return saved!;
   });
   let newOrder: Awaited<ReturnType<typeof create>>;
@@ -490,11 +501,17 @@ export async function createOrder(c: Context) {
     throw err;
   }
 
+  const actor = auditActor(c);
+  if (body.takenBy) {
+    actor.name = body.takenBy;
+    if (body.takenBy !== user?.name) delete actor.userId;
+  }
   await logAudit({
     action: 'order.created',
-    actor: auditActor(c),
+    actor,
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
     changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    at: body.placedAt,
   });
 
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
@@ -504,24 +521,32 @@ export async function createOrder(c: Context) {
 }
 
 /** Moves an order along the board. Cancelling has its own route and permission. */
-async function setStatus(c: Context, id: string, status: IOrder['status']) {
+async function setStatus(c: Context, id: string, status: IOrder['status'], meta?: { updatedBy?: string; updatedAt?: string }) {
   if (status === 'cancelled') throw httpError(400, 'Use Cancel order for that');
   // Only a guest's order from the table starts as pending; accepting it moves it to new, and it never goes back.
   if (status === 'pending') throw httpError(400, 'An order cannot go back to waiting for acceptance');
+  const oid = toObjectId(id);
+  const filter = oid ? { $or: [{ _id: oid }, { clientId: id }], status: { $ne: 'cancelled' } } : { clientId: id, status: { $ne: 'cancelled' } };
   const order = await Order.findOneAndUpdate(
-    { _id: id, status: { $ne: 'cancelled' } },
+    filter,
     { $set: { status } },
     { returnDocument: 'before' }
   ).catch(() => null);
   if (!order) throw httpError(404, 'Order not found or already cancelled');
 
+  const actor = auditActor(c);
+  if (meta?.updatedBy) {
+    actor.name = meta.updatedBy;
+    if (meta.updatedBy !== c.get('user')?.name) delete actor.userId;
+  }
   await logAudit({
     action: 'order.status_updated',
-    actor: auditActor(c),
-    target: { type: 'order', id, label: `#${order.dailyToken}` },
+    actor,
+    target: { type: 'order', id: String(order._id), label: `#${order.dailyToken}` },
     changes: { before: { status: order.status }, after: { status } },
+    at: meta?.updatedAt,
   });
-  const updated = await Order.findById(id);
+  const updated = await Order.findById(order._id);
   // A guest's order is printed for the kitchen once the staff accept it.
   if (updated && order.status === 'pending' && status === 'new') {
     await queuePrintJobs(updated, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
@@ -530,8 +555,8 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
 }
 
 export async function updateOrderStatus(c: Context) {
-  const { status } = c.get('validatedJson') as { status: IOrder['status'] };
-  return c.json(await setStatus(c, c.req.param('id') ?? '', status));
+  const { status, updatedBy, updatedAt } = c.get('validatedJson') as { status: IOrder['status']; updatedBy?: string; updatedAt?: string };
+  return c.json(await setStatus(c, c.req.param('id') ?? '', status, { updatedBy, updatedAt }));
 }
 
 export async function recordPayment(c: Context) {
@@ -607,17 +632,22 @@ export async function updateOrder(c: Context) {
   const id = c.req.param('id') ?? '';
   const body = { ...(c.get('validatedJson') as Record<string, unknown>) };
 
-  const order = await Order.findById(id).catch(() => null);
+  const oid = toObjectId(id);
+  const filter = oid ? { $or: [{ _id: oid }, { clientId: id }] } : { clientId: id };
+  const order = await Order.findOne(filter).catch(() => null);
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
 
   // The board sends `{ status }` here.
   if (body.status !== undefined) {
-    const { status, ...rest } = body;
-    if (Object.keys(rest).length === 0) return c.json(await setStatus(c, id, status as IOrder['status']));
-    await setStatus(c, id, status as IOrder['status']);
+    const { status, updatedBy, updatedAt, ...rest } = body;
+    const meta = { updatedBy: updatedBy as string | undefined, updatedAt: updatedAt as string | undefined };
+    if (Object.keys(rest).length === 0) return c.json(await setStatus(c, String(order._id), status as IOrder['status'], meta));
+    await setStatus(c, String(order._id), status as IOrder['status'], meta);
     delete body.status;
+    delete body.updatedBy;
+    delete body.updatedAt;
   }
 
   if (body.discount !== undefined || body.deliveryFee !== undefined) {
@@ -639,15 +669,26 @@ export async function updateOrder(c: Context) {
     body.tableName = table.name;
   }
 
-  const updated = await Order.findByIdAndUpdate(id, { $set: body }, { returnDocument: 'after' });
+  const updatedBy = body.updatedBy as string | undefined;
+  const updatedAt = body.updatedAt as string | undefined;
+  delete body.updatedBy;
+  delete body.updatedAt;
+
+  const updated = await Order.findByIdAndUpdate(order._id, { $set: body }, { returnDocument: 'after' });
 
   const changes = updated ? orderChanges(order.toObject(), updated.toObject()) : undefined;
   if (changes) {
+    const actor = auditActor(c);
+    if (updatedBy) {
+      actor.name = updatedBy;
+      if (updatedBy !== c.get('user')?.name) delete actor.userId;
+    }
     await logAudit({
       action: 'order.updated',
-      actor: auditActor(c),
-      target: { type: 'order', id, label: `#${order.dailyToken}` },
+      actor,
+      target: { type: 'order', id: String(order._id), label: `#${order.dailyToken}` },
       changes,
+      at: updatedAt,
     });
   }
 
@@ -668,7 +709,9 @@ export async function editOrder(c: Context) {
   const id = c.req.param('id') ?? '';
   const body = c.get('validatedJson');
 
-  const order = await Order.findById(id).catch(() => null);
+  const oid = toObjectId(id);
+  const filter = oid ? { $or: [{ _id: oid }, { clientId: id }] } : { clientId: id };
+  const order = await Order.findOne(filter).catch(() => null);
   if (!order) return c.json({ message: 'Order not found' }, 404);
   if (!EDITABLE_STATUSES.includes(order.status)) {
     return c.json({ message: 'This order is on the way or done, so it can no longer be changed' }, 400);
@@ -702,7 +745,7 @@ export async function editOrder(c: Context) {
   const isDelivery = body.type === 'delivery';
 
   const updated = await Order.findByIdAndUpdate(
-    id,
+    order._id,
     {
       $set: {
         customerId: found.customerId,
@@ -720,7 +763,7 @@ export async function editOrder(c: Context) {
         area: isDelivery ? body.area || undefined : undefined,
         address: isDelivery ? body.address || undefined : undefined,
         rider: isDelivery ? body.rider || undefined : undefined,
-        editedAt: new Date().toISOString(),
+        editedAt: body.editedAt || new Date().toISOString(),
       },
     },
     { returnDocument: 'after' }
@@ -729,11 +772,17 @@ export async function editOrder(c: Context) {
   // Saved again with nothing changed: nothing to add to its history.
   const changes = updated ? orderChanges(order.toObject(), updated.toObject()) : undefined;
   if (changes) {
+    const actor = auditActor(c);
+    if (body.editedBy) {
+      actor.name = body.editedBy;
+      if (body.editedBy !== c.get('user')?.name) delete actor.userId;
+    }
     await logAudit({
       action: 'order.edited',
-      actor: auditActor(c),
-      target: { type: 'order', id, label: `#${order.dailyToken}` },
+      actor,
+      target: { type: 'order', id: String(order._id), label: `#${order.dailyToken}` },
       changes,
+      at: body.editedAt,
     });
   }
 
@@ -753,13 +802,18 @@ export async function cancelOrder(c: Context) {
   // Apps from before cancel reasons send no body at all.
   const parsed = orderCancelSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ message: parsed.error.issues[0]?.message ?? 'Invalid input', issues: parsed.error.issues }, 400);
-  const { reason, note } = parsed.data;
-  const cancellation = { reason, note: note || undefined, byName: user?.name, at: new Date() };
+  const { reason, note, cancelledBy, cancelledAt } = parsed.data;
+  const actorName = cancelledBy || user?.name;
+  const cancelTime = cancelledAt ? new Date(cancelledAt) : new Date();
+  const cancellation = { reason, note: note || undefined, byName: actorName, at: cancelTime };
 
   let wasStatus: IOrder['status'] | undefined;
+  const oid = toObjectId(id);
+  const filter = oid ? { $or: [{ _id: oid }, { clientId: id }], status: { $ne: 'cancelled' } } : { clientId: id, status: { $ne: 'cancelled' } };
+
   const cancelled = await runInTransaction(async (session) => {
     const order = await Order.findOneAndUpdate(
-      { _id: id, status: { $ne: 'cancelled' } },
+      filter,
       { $set: { status: 'cancelled', cancellation } },
       { returnDocument: 'before', session }
     ).catch(() => null);
@@ -777,7 +831,7 @@ export async function cancelOrder(c: Context) {
         type: 'reversal',
         orderToken: order.dailyToken,
         note: `Order #${order.dailyToken} cancelled`,
-        byName: user?.name,
+        byName: actorName,
         session,
         alsoInc: { orderCount: -1, totalSpent: -order.total },
       });
@@ -787,11 +841,17 @@ export async function cancelOrder(c: Context) {
     return order;
   });
 
+  const actor = auditActor(c);
+  if (actorName) {
+    actor.name = actorName;
+    if (cancelledBy && cancelledBy !== user?.name) delete actor.userId;
+  }
   await logAudit({
     action: 'order.cancelled',
-    actor: auditActor(c),
-    target: { type: 'order', id, label: `#${cancelled.dailyToken}` },
+    actor,
+    target: { type: 'order', id: String(cancelled._id), label: `#${cancelled.dailyToken}` },
     changes: reason ? { after: { reason, note } } : undefined,
+    at: cancelledAt,
   });
 
   // The kitchen may be cooking it: every dish is printed as CANCEL.
