@@ -12,6 +12,7 @@ export interface AuditParams {
     before?: Record<string, unknown>;
     after?: Record<string, unknown>;
   };
+  at?: string;
 }
 
 /** Who made this request: their account, the name they go by now, and where (web or a POS terminal). */
@@ -58,7 +59,7 @@ export async function logAudit(params: AuditParams): Promise<void> {
         actor: params.actor,
         target: { ...params.target, id: params.target.id === undefined ? undefined : String(params.target.id) },
         changes: params.changes,
-        at: new Date().toISOString(),
+        at: params.at || new Date().toISOString(),
       })
     );
   } catch (error) {

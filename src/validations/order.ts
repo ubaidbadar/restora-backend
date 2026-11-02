@@ -31,6 +31,7 @@ export const orderCreateSchema = z
     paymentStatus: z.enum(PAYMENT_STATUSES).default('unpaid'),
     clientId: z.string().trim().min(8).max(64).optional(),
     placedAt: z.iso.datetime().optional(),
+    takenBy: z.string().optional(),
   })
   .superRefine((order, ctx) => {
     if (order.type === 'dine_in' && !order.tableId && !order.tableName) {
@@ -77,6 +78,8 @@ export const orderEditSchema = z
     rider: z.string().optional().nullable(),
     deliveryFee: z.coerce.number().min(0).default(0),
     discount: z.coerce.number().min(0).default(0),
+    editedBy: z.string().optional().nullable(),
+    editedAt: z.string().optional().nullable(),
   })
   .superRefine((order, ctx) => {
     if (order.type === 'dine_in' && !order.tableId && !order.tableName) ctx.addIssue({ code: 'custom', path: ['tableId'], message: 'Pick the table' });

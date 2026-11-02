@@ -268,8 +268,15 @@ export async function getOrder(c: Context) {
  * orders have no "placed" entry; their placing is on the order itself.
  */
 export async function orderTimeline(c: Context) {
+  const id = c.req.param('id');
+  const order = await Order.findOne({ $or: [{ _id: toObjectId(id) }, { clientId: id }] }).catch(() => null);
+  const targetIds = [id];
+  if (order) {
+    if (String(order._id) !== id) targetIds.push(String(order._id));
+    if (order.clientId && order.clientId !== id) targetIds.push(order.clientId);
+  }
   const entries = await AuditEntry.aggregate([
-    { $match: { 'target.type': 'order', 'target.id': c.req.param('id') } },
+    { $match: { 'target.type': 'order', 'target.id': { $in: targetIds } } },
     { $sort: { at: 1 } },
     { $limit: 200 },
     { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
@@ -468,7 +475,7 @@ export async function createOrder(c: Context) {
           area: body.area || undefined,
           address: body.address || undefined,
           rider: body.rider || undefined,
-          takenBy: user?.name,
+          takenBy: body.takenBy || user?.name,
           dayKey: todayKey,
           clientId: body.clientId,
           placedAt: body.placedAt ? new Date(placed).toISOString() : undefined,
@@ -490,11 +497,17 @@ export async function createOrder(c: Context) {
     throw err;
   }
 
+  const actor = auditActor(c);
+  if (body.takenBy) {
+    actor.name = body.takenBy;
+    delete actor.userId;
+  }
   await logAudit({
     action: 'order.created',
-    actor: auditActor(c),
+    actor,
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
     changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    at: body.placedAt ? new Date(placedTime(body.placedAt)).toISOString() : undefined,
   });
 
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
@@ -504,7 +517,7 @@ export async function createOrder(c: Context) {
 }
 
 /** Moves an order along the board. Cancelling has its own route and permission. */
-async function setStatus(c: Context, id: string, status: IOrder['status']) {
+async function setStatus(c: Context, id: string, status: IOrder['status'], meta?: { updatedBy?: string | null; updatedAt?: string | null }) {
   if (status === 'cancelled') throw httpError(400, 'Use Cancel order for that');
   // Only a guest's order from the table starts as pending; accepting it moves it to new, and it never goes back.
   if (status === 'pending') throw httpError(400, 'An order cannot go back to waiting for acceptance');
@@ -515,11 +528,17 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
   ).catch(() => null);
   if (!order) throw httpError(404, 'Order not found or already cancelled');
 
+  const actor = auditActor(c);
+  if (meta?.updatedBy) {
+    actor.name = meta.updatedBy;
+    delete actor.userId;
+  }
   await logAudit({
     action: 'order.status_updated',
-    actor: auditActor(c),
+    actor,
     target: { type: 'order', id, label: `#${order.dailyToken}` },
     changes: { before: { status: order.status }, after: { status } },
+    at: meta?.updatedAt || undefined,
   });
   const updated = await Order.findById(id);
   // A guest's order is printed for the kitchen once the staff accept it.
@@ -530,8 +549,8 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
 }
 
 export async function updateOrderStatus(c: Context) {
-  const { status } = c.get('validatedJson') as { status: IOrder['status'] };
-  return c.json(await setStatus(c, c.req.param('id') ?? '', status));
+  const body = c.get('validatedJson') as { status: IOrder['status']; updatedBy?: string; updatedAt?: string };
+  return c.json(await setStatus(c, c.req.param('id') ?? '', body.status, body));
 }
 
 export async function recordPayment(c: Context) {
@@ -729,11 +748,17 @@ export async function editOrder(c: Context) {
   // Saved again with nothing changed: nothing to add to its history.
   const changes = updated ? orderChanges(order.toObject(), updated.toObject()) : undefined;
   if (changes) {
+    const actor = auditActor(c);
+    if (body.editedBy) {
+      actor.name = body.editedBy;
+      delete actor.userId;
+    }
     await logAudit({
       action: 'order.edited',
-      actor: auditActor(c),
+      actor,
       target: { type: 'order', id, label: `#${order.dailyToken}` },
       changes,
+      at: body.editedAt || undefined,
     });
   }
 
@@ -753,8 +778,8 @@ export async function cancelOrder(c: Context) {
   // Apps from before cancel reasons send no body at all.
   const parsed = orderCancelSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ message: parsed.error.issues[0]?.message ?? 'Invalid input', issues: parsed.error.issues }, 400);
-  const { reason, note } = parsed.data;
-  const cancellation = { reason, note: note || undefined, byName: user?.name, at: new Date() };
+  const { reason, note, cancelledBy, cancelledAt } = parsed.data;
+  const cancellation = { reason, note: note || undefined, byName: cancelledBy || user?.name, at: cancelledAt ? new Date(cancelledAt) : new Date() };
 
   let wasStatus: IOrder['status'] | undefined;
   const cancelled = await runInTransaction(async (session) => {
@@ -787,11 +812,17 @@ export async function cancelOrder(c: Context) {
     return order;
   });
 
+  const actor = auditActor(c);
+  if (cancelledBy) {
+    actor.name = cancelledBy;
+    delete actor.userId;
+  }
   await logAudit({
     action: 'order.cancelled',
-    actor: auditActor(c),
+    actor,
     target: { type: 'order', id, label: `#${cancelled.dailyToken}` },
     changes: reason ? { after: { reason, note } } : undefined,
+    at: cancelledAt || undefined,
   });
 
   // The kitchen may be cooking it: every dish is printed as CANCEL.
