@@ -3,7 +3,6 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import { app } from '../index';
 import Order from '../src/models/order';
-import AuditEntry from '../src/models/audit_entry';
 import dayKey from '../src/utils/day_key';
 
 type Json = any;
@@ -55,8 +54,6 @@ beforeAll(async () => {
     }),
   );
   await Order.insertMany(docs);
-  const changed = await Order.findOne({ restaurantId, branchId, dayKey: today, dailyToken: 7 });
-  await AuditEntry.create({ restaurantId, action: 'order.edited', actor: { via: 'web', name: 'Chef Ali' }, target: { type: 'order', id: String(changed!._id) }, changes: { after: { lines: [{ name: 'Karahi', was: 1, now: 2 }] } } });
 });
 
 afterAll(async () => {
@@ -70,36 +67,14 @@ const history = async (query: string) => {
 };
 
 describe('Order history', () => {
-  it('answers the summary and the first 50 full orders, the latest first', async () => {
+  it('answers the summary and the first 50 slim rows, the latest first', async () => {
     const { status, body } = await history(`from=${yesterday}&to=${today}`);
     expect(status).toBe(200);
     expect(body.summary).toEqual({ count: 120, sales: 108 * 200, byStatus: { completed: 108, cancelled: 12 }, byType: { dine_in: 40, takeaway: 40, delivery: 40 } });
     expect(body.orders).toHaveLength(50);
     expect(body.orders[0]).toMatchObject({ dayKey: today, dailyToken: 60, itemCount: 2, total: 200 });
-    expect(body.orders[0].items).toMatchObject([{ name: 'Karahi', qty: 2 }]);
-    expect(body.orders[0].timeline).toEqual([]);
+    expect(body.orders[0].items).toBeUndefined();
     expect(body.next).toBe(`${today}_11_${body.orders[49]._id}`);
-  });
-
-  it('bundles detailed dishes and audit changes in the history, order, and today endpoints', async () => {
-    const { body } = await history(`from=${today}&q=7`);
-    const order = body.orders[0];
-    expect(order.items).toMatchObject([{ name: 'Karahi', price: 100, qty: 2 }]);
-    expect(order.customer.phone).toBe('+923001234567');
-    expect(order.timeline).toHaveLength(1);
-    expect(order.timeline[0]).toMatchObject({
-      action: 'order.edited',
-      actor: { name: 'Chef Ali' },
-      changes: { after: { lines: [{ name: 'Karahi', was: 1, now: 2 }] } },
-    });
-
-    const single = await app.request(`/api/v1/orders/${order._id}`, { headers });
-    expect(single.status).toBe(200);
-    expect(((await single.json()) as Json).timeline).toEqual(order.timeline);
-
-    const todayResponse = await app.request('/api/v1/orders', { headers });
-    const todayOrders = (await todayResponse.json()) as Json[];
-    expect(todayOrders.find((item) => item._id === order._id)?.timeline).toEqual(order.timeline);
   });
 
   it('pages through every order once with the cursor, with no summary after the first page', async () => {

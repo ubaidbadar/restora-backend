@@ -25,10 +25,9 @@ import printHeader from '../utils/print_header';
 import queuePrintJobs from '../utils/queue_print_jobs';
 import kitchenChanges from '../utils/kitchen_changes';
 import orderChanges from '../utils/order_changes';
-import orderTimelines from '../utils/order_timelines';
 import AuditEntry from '../models/audit_entry';
 import { hasPermission } from '../middlewares/permission_guard';
-import { getTenantId, runWithTenant } from '../middlewares/tenant_context';
+import { getTenantId } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
 import orderCancelSchema from '../validations/order_cancel';
 
@@ -106,13 +105,16 @@ export async function listOrders(c: Context) {
   }
 
   const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
-  return c.json(await orderTimelines(orders));
+  return c.json(orders);
 }
 
 const HISTORY_PAGE = 50;
 const HISTORY_MAX_DAYS = 366;
 const DAY_MS = 86_400_000;
-type HistoryRow = IOrder & { itemCount: number };
+type HistoryRow = Pick<IOrder, '_id' | 'dailyToken' | 'dayKey' | 'createdAt' | 'type' | 'status' | 'paymentStatus' | 'total' | 'tableName'> & {
+  customer?: { name: string };
+  itemCount: number;
+};
 
 /**
  * What `?q=` finds: a token (a short number), the start of a customer's name, part of their phone, or a table by name.
@@ -131,11 +133,11 @@ function historySearch(q: string): Record<string, unknown> {
 }
 
 /**
- * Orders of a span of days as a list, a page at a time: full orders and their timelines, latest first (by day, then token, which the
+ * Orders of a span of days as a list, a page at a time: slim rows, the latest first (by day, then token, which the
  * order index already holds). `?from=&to=` (at most a year), `?q=`, `?status=`, `?type=`, `?payment=`, `?cursor=` (the
  * last answer's `next`). The first page also has `summary`: the days' counts by status and type and their sales, for
  * the same days and search but every status and type, so the tabs keep their counts while one is picked.
- * The first query pages the orders; one batched query adds their recorded history.
+ * One aggregation per call. The full order is GET /orders/:id.
  */
 export async function orderHistory(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
@@ -170,8 +172,13 @@ export async function orderHistory(c: Context) {
     { $match: rowsMatch },
     { $sort: { dayKey: -1, dailyToken: -1, _id: -1 } },
     { $limit: HISTORY_PAGE + 1 },
-    { $addFields: { itemCount: { $sum: '$items.qty' } } },
-    { $project: { restaurantId: 0, __v: 0 } },
+    {
+      $project: {
+        dailyToken: 1, dayKey: 1, createdAt: 1, type: 1, status: 1, paymentStatus: 1, total: 1, tableName: 1,
+        'customer.name': 1,
+        itemCount: { $sum: '$items.qty' },
+      },
+    },
   ];
   // Sales leave out cancelled orders and guests' orders not accepted yet, like the dashboard.
   const summary: PipelineStage.FacetPipelineStage[] = [
@@ -189,7 +196,7 @@ export async function orderHistory(c: Context) {
     { $facet: cursor ? { rows } : { rows, summary } },
   ]);
   const found = result?.rows ?? [];
-  const orders = await orderTimelines(found.slice(0, HISTORY_PAGE).map((row) => ({ ...row, _id: String(row._id) })));
+  const orders = found.slice(0, HISTORY_PAGE).map((row) => ({ ...row, _id: String(row._id) }));
   const last = orders.at(-1);
   const next = found.length > HISTORY_PAGE && last ? `${last.dayKey}_${last.dailyToken}_${last._id}` : null;
   if (!result?.summary) return c.json({ orders, next });
@@ -228,19 +235,7 @@ export async function streamOrders(c: Context) {
       restaurantId,
       branchId,
       calls,
-      send: (event) => {
-        if (event.type === 'order.created' || event.type === 'order.updated') {
-          // The stream is shared by restaurants; restore this listener's tenant before reading its audit entries.
-          void runWithTenant(restaurantId, () => orderTimelines([event.data]))
-            .then(([order]) => stream.writeSSE({ event: event.type, data: JSON.stringify(order) }))
-            .catch((error) => {
-              console.error('[Order events] Could not attach order history:', error);
-              void stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
-            });
-        } else {
-          void stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
-        }
-      },
+      send: ({ type, data }) => void stream.writeSSE({ event: type, data: JSON.stringify(data) }),
     });
     const ping = setInterval(() => void stream.write(': ping\n\n'), 25_000);
     // Open until the app goes away or the time is up.
@@ -264,7 +259,7 @@ export async function getOrder(c: Context) {
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
-  return c.json((await orderTimelines([order]))[0]);
+  return c.json(order);
 }
 
 /**
@@ -505,7 +500,7 @@ export async function createOrder(c: Context) {
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
   await queuePrintJobs(newOrder, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
 
-  return c.json((await orderTimelines([newOrder]))[0], 201);
+  return c.json(newOrder, 201);
 }
 
 /** Moves an order along the board. Cancelling has its own route and permission. */
@@ -536,7 +531,7 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
 
 export async function updateOrderStatus(c: Context) {
   const { status } = c.get('validatedJson') as { status: IOrder['status'] };
-  return c.json((await orderTimelines([await setStatus(c, c.req.param('id') ?? '', status)]))[0]);
+  return c.json(await setStatus(c, c.req.param('id') ?? '', status));
 }
 
 export async function recordPayment(c: Context) {
@@ -605,7 +600,7 @@ export async function recordPayment(c: Context) {
     },
   });
 
-  return c.json((await orderTimelines([updated]))[0]);
+  return c.json(updated);
 }
 
 export async function updateOrder(c: Context) {
@@ -620,7 +615,7 @@ export async function updateOrder(c: Context) {
   // The board sends `{ status }` here.
   if (body.status !== undefined) {
     const { status, ...rest } = body;
-    if (Object.keys(rest).length === 0) return c.json((await orderTimelines([await setStatus(c, id, status as IOrder['status'])]))[0]);
+    if (Object.keys(rest).length === 0) return c.json(await setStatus(c, id, status as IOrder['status']));
     await setStatus(c, id, status as IOrder['status']);
     delete body.status;
   }
@@ -656,7 +651,7 @@ export async function updateOrder(c: Context) {
     });
   }
 
-  return c.json((await orderTimelines([updated]))[0]);
+  return c.json(updated);
 }
 
 /** Statuses in which the kitchen has the order's slip and may still be cooking it. */
@@ -748,7 +743,7 @@ export async function editOrder(c: Context) {
     await queuePrintJobs(updated, 'kitchen', printHeader(c), true, { items, label: 'CHANGED', key: `edit-${Date.now()}` }).catch((err) => console.error('[Print] Queueing kitchen changes failed:', err));
   }
 
-  return c.json((await orderTimelines([updated]))[0]);
+  return c.json(updated);
 }
 
 /** Cancels an order (or turns down a guest's), saving who did it, when and why. */
@@ -805,7 +800,7 @@ export async function cancelOrder(c: Context) {
     await queuePrintJobs(cancelled, 'kitchen', printHeader(c), true, { items, label: 'CANCELLED', key: 'cancel' }).catch((err) => console.error('[Print] Queueing the cancelled slip failed:', err));
   }
 
-  return c.json((await orderTimelines([cancelled]))[0]);
+  return c.json(cancelled);
 }
 
 export default {
