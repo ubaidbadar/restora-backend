@@ -103,8 +103,26 @@ export async function listOrders(c: Context) {
     if (Number.isNaN(at.getTime())) return c.json({ message: 'Use a time like 2026-01-31T09:30:00.000Z for since' }, 400);
     filter.updatedAt = { $gte: at };
   }
-
-  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
+  const orders = await Order.aggregate([
+    { $match: filter },
+    { $addFields: { _idStr: { $toString: '$_id' } } },
+    {
+      $lookup: {
+        from: 'auditentries',
+        as: 'timeline',
+        localField: '_idStr',
+        foreignField: 'target.id',
+        pipeline: [
+          { $match: { 'target.type': 'order', 'target.id': c.req.param('id') } },
+          { $sort: { at: 1 } },
+          { $limit: 200 },
+          { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
+          ...withPerson,
+        ]
+      }
+    }
+  ]);
+  // const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
   return c.json(orders);
 }
 
