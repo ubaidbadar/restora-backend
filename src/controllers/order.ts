@@ -267,7 +267,26 @@ export async function streamOrders(c: Context) {
 }
 
 export async function getOrder(c: Context) {
-  const order = await Order.findById(c.req.param('id')).catch(() => null);
+  const id = c.req.param('id') ?? '';
+  const objId = toObjectId(id);
+  if (!objId) return c.json({ message: 'Order not found' }, 404);
+  const [order] = await Order.aggregate([
+    { $match: { _id: objId } },
+    {
+      $lookup: {
+        from: 'auditentries',
+        as: 'entries',
+        let: { orderId: id },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$target.id', '$$orderId'] } } },
+          { $sort: { at: 1 } },
+          { $limit: 200 },
+          { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
+          ...withPerson,
+        ]
+      }
+    }
+  ]);
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
@@ -512,7 +531,16 @@ export async function createOrder(c: Context) {
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
   await queuePrintJobs(newOrder, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
 
-  return c.json(newOrder, 201);
+  const createdEntry = {
+    _id: String(newOrder._id) + '-created',
+    action: 'order.created',
+    actor: auditActor(c),
+    target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
+    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    at: newOrder.createdAt || new Date().toISOString(),
+  };
+
+  return c.json({ ...newOrder.toObject(), entries: [createdEntry] }, 201);
 }
 
 /** Moves an order along the board. Cancelling has its own route and permission. */
