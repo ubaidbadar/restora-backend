@@ -34,6 +34,7 @@ import pushDeviceRouter from './src/routes/push_device';
 import dashboardRouter from './src/routes/dashboard';
 import auditRouter from './src/routes/audit';
 import publicRouter from './src/routes/public';
+import whatsappRouter from './src/routes/whatsapp';
 import guestRequestRouter from './src/routes/guest_request';
 import accountRouter from './src/routes/account';
 import uploadRouter from './src/routes/upload';
@@ -107,6 +108,7 @@ const api = new Hono();
 
 // Public unauthenticated routes
 api.route('/public', publicRouter);
+api.route('/webhooks', whatsappRouter);
 
 // Everything below needs a sign-in (or an unlocked POS terminal), scoped to its restaurant.
 api.use('*', authGuard);
