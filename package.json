@@ -32,7 +32,7 @@
     "hono": "^4.13.13",
     "lucide-react": "^1.60.0",
     "mongoose": "^9.11.2",
-    "nodemailer": "^10.2.1",
+    "nodemailer": "^10.3.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-hook-form": "^7.91.0",
