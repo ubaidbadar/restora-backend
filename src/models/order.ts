@@ -2,6 +2,7 @@ import mongoose, { Schema, type Document, type Model } from 'mongoose';
 import tenantPlugin from './plugins/tenant_plugin';
 import ORDER_STATUSES, { type OrderStatus } from '../constants/order_status';
 import CANCEL_REASONS, { type CancelReason } from '../constants/cancel_reasons';
+import type { IAuditEntry } from './audit_entry';
 
 export interface IOrderItem {
   itemId: string;
@@ -68,6 +69,8 @@ export interface IOrder {
   editedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** Activity / audit timeline entries for the order (populated on listOrders). */
+  entries?: IAuditEntry[];
 }
 
 const OrderItemSchema = new Schema(

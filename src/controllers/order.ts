@@ -89,22 +89,34 @@ export async function listOrders(c: Context) {
   if (status) filter.status = String(status);
 
   if (customerId) {
-    // A customer's history: every date.
     filter.customerId = String(customerId);
   } else if (c.req.query('allDates') !== 'true') {
-    // `?from=&to=` for a span of days, `?date=` for one, today when neither.
     filter.dayKey = { $gte: range.from, $lte: range.to };
   }
 
-  // `?since=`: only the orders changed from then on (the app catching up after its live stream reconnects).
   const since = c.req.query('since');
   if (since) {
     const at = new Date(since);
     if (Number.isNaN(at.getTime())) return c.json({ message: 'Use a time like 2026-01-31T09:30:00.000Z for since' }, 400);
     filter.updatedAt = { $gte: at };
   }
-
-  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(500);
+  const orders = await Order.aggregate([
+    { $match: filter },
+    {
+      $lookup: {
+        from: 'auditentries',
+        as: 'entries',
+        let: { orderId: { $toString: '$_id' } },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$target.id', '$$orderId'] } } },
+          { $sort: { at: 1 } },
+          { $limit: 200 },
+          { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
+          ...withPerson,
+        ]
+      }
+    }
+  ]);
   return c.json(orders);
 }
 
@@ -255,7 +267,26 @@ export async function streamOrders(c: Context) {
 }
 
 export async function getOrder(c: Context) {
-  const order = await Order.findById(c.req.param('id')).catch(() => null);
+  const id = c.req.param('id') ?? '';
+  const objId = toObjectId(id);
+  if (!objId) return c.json({ message: 'Order not found' }, 404);
+  const [order] = await Order.aggregate([
+    { $match: { _id: objId } },
+    {
+      $lookup: {
+        from: 'auditentries',
+        as: 'entries',
+        let: { orderId: id },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$target.id', '$$orderId'] } } },
+          { $sort: { at: 1 } },
+          { $limit: 200 },
+          { $project: { action: 1, actor: 1, changes: 1, at: 1 } },
+          ...withPerson,
+        ]
+      }
+    }
+  ]);
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
@@ -500,7 +531,16 @@ export async function createOrder(c: Context) {
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
   await queuePrintJobs(newOrder, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
 
-  return c.json(newOrder, 201);
+  const createdEntry = {
+    _id: String(newOrder._id) + '-created',
+    action: 'order.created',
+    actor: auditActor(c),
+    target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
+    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    at: newOrder.createdAt || new Date().toISOString(),
+  };
+
+  return c.json({ ...newOrder.toObject(), entries: [createdEntry] }, 201);
 }
 
 /** Moves an order along the board. Cancelling has its own route and permission. */
