@@ -172,7 +172,7 @@ const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/restauran
 
 // Auto-connect to MongoDB if not in test environment and not already connected
 if (process.env.NODE_ENV !== 'test' && mongoose.connection.readyState === 0) {
-  console.log(`[Database] Connecting to MongoDB: ${mongoUri}`);
+  console.log('[Database] Connecting to MongoDB');
   mongoose
     .connect(mongoUri)
     .then(() => {
