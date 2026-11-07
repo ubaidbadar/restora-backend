@@ -7,7 +7,7 @@ test('printer pairing codes are exactly six decimal digits, including leading ze
   const codes = new Set<string>();
   for (let i = 0; i < 2_500; i++) {
     const { code } = newPairing();
-    assert.match(code, /^\\d{6}$/);
+    assert.match(code, /^\d{6}$/);
     leadingZero ||= code.startsWith('0');
     codes.add(code);
   }
