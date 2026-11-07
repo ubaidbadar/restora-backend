@@ -61,6 +61,9 @@ describe('Print agents', () => {
     expect(res.status).toBe(201);
     agent = res.body;
     expect(agent.pairing.code).toMatch(/^\d{6}$/);
+    const remaining = Date.parse(agent.pairing.expiresAt) - Date.now();
+    expect(remaining).toBeGreaterThan(9 * 60_000);
+    expect(remaining).toBeLessThanOrEqual(10 * 60_000);
     expect(agent.printers).toEqual([]);
     expect(agent.tokenLookup).toBeUndefined();
 
