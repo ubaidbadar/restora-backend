@@ -1,13 +1,10 @@
-import { randomInt } from 'node:crypto';
 import type { Context } from 'hono';
 import PrintAgent from '../models/print_agent';
 import logAudit, { auditActor } from '../utils/audit';
 import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
+import newPairing from '../utils/new_pairing';
 
-
-/** A 6-digit code, good for 10 minutes. A code another waiting agent has is refused by the unique index, so a new one is drawn. */
-const newPairing = () => ({ code: String(randomInt(0, 1_000_000)).padStart(6, '0'), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() });
 
 export async function listPrintAgents(c: Context) {
   return c.json(await PrintAgent.find({}).sort({ createdAt: 1 }));
