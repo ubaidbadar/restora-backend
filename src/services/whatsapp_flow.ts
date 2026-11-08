@@ -183,6 +183,13 @@ async function llmParse(text: string, live: Awaited<ReturnType<typeof menu>>) {
 async function confirm(connection: IWhatsAppConnection, phone: string, confirmMessageId: string) {
   // Take the cart atomically. Two overlapping Confirm taps must not consume the same cart twice.
   const filter = cartFilter(connection, phone);
+  const clientId = 'wa:' + connection.phoneNumberId + ':' + confirmMessageId;
+  let order = await Order.findOne({ clientId });
+  // Meta retries the same Confirm message after failures; never require the consumed cart again.
+  if (order) {
+    await deliverInvoice(connection, phone, order);
+    return;
+  }
   const original = await WhatsAppCart.findOne(filter);
   if (!original?.items.length || !original.quoteFingerprint) return say(connection, phone, 'Please review your cart and tap Confirm on the current summary. Send CART.');
   const quote = await priceItems(original.items.map((it) => ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
@@ -196,9 +203,7 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
   // Claim the exact cart revision shown to the customer before order creation.
   const cart = await WhatsAppCart.findOneAndDelete({ ...filter, quoteFingerprint: currentFingerprint });
   if (!cart) return say(connection, phone, 'Your cart changed. Send CART to review and confirm again.');
-  const clientId = 'wa:' + connection.phoneNumberId + ':' + confirmMessageId;
   try {
-    let order = await Order.findOne({ clientId });
     if (!order) {
       const priced = await priceItems(cart.items.map((it) => ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
       if (typeof priced === 'string') {
@@ -236,8 +241,11 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
     await say(connection, phone, 'Order #' + order.dailyToken + ' received. Status: ' + order.status + '.');
     await deliverInvoice(connection, phone, order);
   } catch (error) {
-    // Preserve the cart if payment or database operations fail; do not silently discard the customer's choices.
-    await WhatsAppCart.updateOne(filter, { $setOnInsert: { ...filter, items: cart.items } }, { upsert: true }).catch(() => {});
+    // Never restore a consumed cart after the order exists: retrying must not place another order.
+    const saved = order || await Order.findOne({ clientId });
+    if (!saved) {
+      await WhatsAppCart.updateOne(filter, { $setOnInsert: { ...filter, items: cart.items } }, { upsert: true }).catch(() => {});
+    }
     throw error;
   }
 }
