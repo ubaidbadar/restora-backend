@@ -39,6 +39,8 @@ export interface IOrder {
   dailyToken: number;
   branchId: string;
   customerId?: string;
+  /** Original WhatsApp ordering number; never infer invoice recipient from edited customer details. */
+  whatsappPhone?: string;
   /** Immutable WhatsApp recipient/number used for the order's invoice. */
   whatsappPhone?: string;
   whatsappPhoneNumberId?: string;
@@ -116,6 +118,7 @@ const OrderSchema = new Schema<IOrder>(
     dailyToken: { type: Number, required: true },
     branchId: { type: String, required: true, index: true },
     customerId: { type: String, index: true },
+    whatsappPhone: { type: String, index: true },
     whatsappPhone: { type: String },
     whatsappPhoneNumberId: { type: String },
     customer: { type: OrderCustomerSchema },
