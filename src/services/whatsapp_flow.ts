@@ -15,6 +15,7 @@ import onSale from '../utils/on_sale';
 import { paginateWhatsApp, safeWhatsAppText } from '../utils/whatsapp_menu';
 import { sendWhatsApp, uploadWhatsAppPdf } from './whatsapp_graph';
 import { invoiceMessage, invoicePdf } from '../utils/whatsapp_invoice';
+import WhatsAppInvoiceDelivery from '../models/whatsapp_invoice_delivery';
 import { withinWhatsAppWindow } from '../controllers/whatsapp_inbox';
 import type { IWhatsAppConnection } from '../models/whatsapp_connection';
 import type { IOrder } from '../models/order';
@@ -54,12 +55,13 @@ async function recordOutbound(connection: IWhatsAppConnection, phone: string, id
   });
 }
 async function send(connection: IWhatsAppConnection, phone: string, payload: Record<string, unknown>, type: string, preview?: string) {
-  if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) return;
+  if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) return null;
   const id = await sendWhatsApp(connection, phone, payload);
   await recordOutbound(connection, phone, id, type, preview);
+  return id;
 }
 async function say(connection: IWhatsAppConnection, phone: string, text: string) {
-  await send(connection, phone, { type: 'text', text: { body: text.slice(0, 4096) } }, 'text', text.slice(0, 4096));
+  return send(connection, phone, { type: 'text', text: { body: text.slice(0, 4096) } }, 'text', text.slice(0, 4096));
 }
 async function choose(connection: IWhatsAppConnection, phone: string, body: string, button: string, rows: Row[]) {
   if (!rows.length) return say(connection, phone, 'Nothing available right now. Please contact the restaurant.');
@@ -239,20 +241,57 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
     throw error;
   }
 }
-export async function deliverInvoice(connection: IWhatsAppConnection, phone: string, order: IOrder) {
-  if (order.whatsappPhone !== phone || order.whatsappPhoneNumberId !== connection.phoneNumberId) throw new Error('Invoice recipient/number must match the original WhatsApp order');
-  if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) return { templateRequired: true };
-  const [restaurant, branch] = await Promise.all([Restaurant.findById(connection.restaurantId), Branch.findById(connection.branchId)]);
-  const name = restaurant?.name || branch?.name || 'Restaurant';
-  const bill = invoiceMessage(order, name);
-  await say(connection, phone, bill);
-  // Recheck the window before media upload and before sending the document.
-  if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) return { templateRequired: true };
-  const pdf = invoicePdf(order, name, branch?.address);
-  const mediaId = await uploadWhatsAppPdf(connection, pdf, 'invoice-' + order.dailyToken + '.pdf');
-  if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) return { templateRequired: true };
-  await send(connection, phone, { type: 'document', document: { id: mediaId, filename: 'invoice-' + order.dailyToken + '.pdf' } }, 'document', 'Invoice #' + order.dailyToken);
-  return { templateRequired: false };
+export async function deliverInvoice(
+  connection: IWhatsAppConnection, phone: string, order: IOrder, stage: 'confirmed' | 'completed' = 'confirmed'
+) {
+  if (order.whatsappPhone !== phone || order.whatsappPhoneNumberId !== connection.phoneNumberId)
+    throw new Error('Invoice recipient/number must match the original WhatsApp order');
+  const orderId = String(order._id);
+  const key = { orderId, stage };
+  await WhatsAppInvoiceDelivery.findOneAndUpdate(key,
+    { $setOnInsert: { ...key, phone, phoneNumberId: connection.phoneNumberId, status: 'pending' } },
+    { upsert: true, returnDocument: 'after' });
+  if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) {
+    await WhatsAppInvoiceDelivery.updateOne({ ...key, status: { $ne: 'sent' } }, { $set: { status: 'template_required' } });
+    return { templateRequired: true };
+  }
+  const attempt = await WhatsAppInvoiceDelivery.findOneAndUpdate(
+    { ...key, status: { $in: ['pending', 'failed', 'template_required'] } },
+    { $set: { status: 'sending' }, $unset: { lastError: '' } },
+    { returnDocument: 'after' }
+  );
+  if (!attempt) return { templateRequired: false };
+  try {
+    const [restaurant, branch] = await Promise.all([
+      Restaurant.findById(connection.restaurantId), Branch.findById(connection.branchId),
+    ]);
+    const name = restaurant?.name || branch?.name || 'Restaurant';
+    if (!attempt.billMessageId) {
+      const billId = await say(connection, phone, invoiceMessage(order, name));
+      if (!billId) throw new Error('Customer service window expired before bill send');
+      await WhatsAppInvoiceDelivery.updateOne(key, { $set: { billMessageId: billId } });
+    }
+    if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) {
+      await WhatsAppInvoiceDelivery.updateOne(key, { $set: { status: 'template_required' } });
+      return { templateRequired: true };
+    }
+    const pdf = invoicePdf(order, name, branch?.address);
+    const mediaId = await uploadWhatsAppPdf(connection, pdf, 'invoice-' + order.dailyToken + '.pdf');
+    if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) {
+      await WhatsAppInvoiceDelivery.updateOne(key, { $set: { status: 'template_required' } });
+      return { templateRequired: true };
+    }
+    const documentId = await send(connection, phone, {
+      type: 'document', document: { id: mediaId, filename: 'invoice-' + order.dailyToken + '.pdf' },
+    }, 'document', 'Invoice #' + order.dailyToken);
+    if (!documentId) throw new Error('Customer service window expired before invoice send');
+    await WhatsAppInvoiceDelivery.updateOne(key, { $set: { documentMessageId: documentId, status: 'sent', sentAt: new Date() } });
+    return { templateRequired: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invoice send failed';
+    await WhatsAppInvoiceDelivery.updateOne(key, { $set: { status: 'failed', lastError: message.slice(0, 300) } });
+    throw error;
+  }
 }
 export async function processWhatsAppMessage(connection: IWhatsAppConnection, phone: string, message: Inbound) {
   const action = message.interactive?.list_reply?.id || message.interactive?.button_reply?.id || '';
