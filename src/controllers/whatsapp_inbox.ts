@@ -2,6 +2,8 @@ import type { Context } from 'hono';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import WhatsAppMessage from '../models/whatsapp_message';
 import Customer from '../models/customer';
+import Order from '../models/order';
+import WhatsAppInvoiceDelivery from '../models/whatsapp_invoice_delivery';
 import { whatsappPhone } from '../utils/whatsapp_phone';
 import { isWhatsAppWindowOpen } from '../utils/whatsapp_window';
 import { sendWhatsApp, WhatsAppSendError } from '../services/whatsapp_graph';
@@ -89,4 +91,37 @@ export async function updateWhatsAppConnection(c: Context) {
   ).select({ accessTokenEncrypted: 0 }).catch(() => null);
   if (!updated) return c.json({ message: 'WhatsApp connection not found' }, 404);
   return c.json(updated);
+}
+
+/** Inspect deliveries that failed or need an approved template; no template is sent here. */
+export async function listWhatsAppInvoices(c: Context) {
+  const branchId = c.get('branchId') as string | undefined;
+  const connections = await WhatsAppConnection.find(branchId ? { branchId } : {}).select({ phoneNumberId: 1 });
+  const ids = connections.map((connection) => connection.phoneNumberId);
+  const status = c.req.query('status');
+  const filter: Record<string, unknown> = { phoneNumberId: { $in: ids } };
+  if (status && ['pending', 'sending', 'sent', 'failed', 'template_required'].includes(status)) filter.status = status;
+  return c.json(await WhatsAppInvoiceDelivery.find(filter).sort({ createdAt: -1 }).limit(100));
+}
+
+/** Safe manual retry: only the original WhatsApp phone and sending number are ever used. */
+export async function retryWhatsAppInvoice(c: Context) {
+  const order = await Order.findById(c.req.param('orderId') ?? '').catch(() => null);
+  if (!order?.whatsappPhone || !order.whatsappPhoneNumberId)
+    return c.json({ message: 'This order did not originate from WhatsApp' }, 404);
+  const branchId = c.get('branchId') as string | undefined;
+  if (branchId && order.branchId !== branchId) return c.json({ message: 'Order not in this branch' }, 404);
+  const connection = await WhatsAppConnection.findOne({
+    phoneNumberId: order.whatsappPhoneNumberId, branchId: order.branchId,
+  });
+  if (!connection) return c.json({ message: 'Original WhatsApp sending number not connected' }, 404);
+  const { stage = 'confirmed' } = c.get('validatedJson') as { stage?: 'confirmed' | 'completed' };
+  const { deliverInvoice } = await import('../services/whatsapp_flow');
+  try {
+    const result = await deliverInvoice(connection, order.whatsappPhone, order, stage);
+    if (result.templateRequired) return c.json({ message: WINDOW_ERROR, code: 'template_required' }, 409);
+    return c.json({ success: true, stage });
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : 'WhatsApp invoice failed' }, 502);
+  }
 }
