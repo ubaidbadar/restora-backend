@@ -47,7 +47,7 @@ describe('WhatsApp Phase 2 pure helpers', () => {
     expect(bill).toContain('2 x Chicken Karahi');
     expect(bill).toContain('Rs 2800');
     expect(bill).toContain('Total: Rs 2920');
-    expect(pdf).toStartWith('%PDF-1.4');
+    expect(pdf.startsWith('%PDF-1.4')).toBe(true);
     expect(pdf).toContain('xref');
     expect(pdf).toContain('%%EOF');
     expect(pdf).toContain('Chicken Karahi');
