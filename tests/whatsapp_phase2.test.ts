@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { paginateWhatsApp } from '../src/utils/whatsapp_menu';
 import { whatsappPhone, graphPhone } from '../src/utils/whatsapp_phone';
 import { validateWhatsAppLLM } from '../src/utils/whatsapp_match';
+import { quoteActionId } from '../src/services/whatsapp_flow';
 import { isWhatsAppWindowOpen, WHATSAPP_CUSTOMER_WINDOW_MS } from '../src/utils/whatsapp_window';
 import { invoiceMessage, invoicePdf } from '../src/utils/whatsapp_invoice';
 import type { IOrder } from '../src/models/order';
@@ -118,5 +119,16 @@ describe('Natural-language menu validation', () => {
       [{ itemId: 'other', sizeId: 'bs', qty: -1, rawName: 'zinger' }], ['Unmatched drink']);
     expect(result.selections).toEqual([]);
     expect(result.unmatched).toContain('Unmatched drink');
+  });
+});
+
+describe('Cart-bound confirm buttons', () => {
+  it('rejects replay between identical quoted carts and later generations', () => {
+    const fingerprint = JSON.stringify([[{ itemId: 'dish', qty: 2, price: 1400 }], 2800]);
+    const first = quoteActionId(fingerprint, 'cart-A:0');
+    expect(first.startsWith('confirm:')).toBe(true);
+    expect(first).not.toBe(quoteActionId(fingerprint, 'cart-A:1'));
+    expect(first).not.toBe(quoteActionId(fingerprint, 'cart-B:0'));
+    expect(first).not.toBe(quoteActionId(JSON.stringify([[], 0]), 'cart-A:0'));
   });
 });
