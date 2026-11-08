@@ -36,6 +36,8 @@ import orderCancelSchema from '../validations/order_cancel';
 type PaymentMethod = NonNullable<IOrder['paymentMethod']>;
 
 /** The current branch must constrain direct order lookups and writes, not only the list endpoint. */
+function scopedOrderId(c: Context, id: string): { _id: string; branchId?: string };
+function scopedOrderId(c: Context, id: import('mongoose').Types.ObjectId): { _id: import('mongoose').Types.ObjectId; branchId?: string };
 function scopedOrderId(c: Context, id: string | import('mongoose').Types.ObjectId) {
   const branchId = c.get('branchId') as string | undefined;
   return { _id: id, ...(branchId ? { branchId } : {}) };
@@ -890,3 +892,4 @@ export default {
   edit: editOrder,
   cancel: cancelOrder,
 };
+

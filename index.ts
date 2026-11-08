@@ -111,7 +111,6 @@ const api = new Hono();
 // Public unauthenticated routes
 api.route('/public', publicRouter);
 api.route('/webhooks', whatsappRouter);
-// Separate platform staff authorization; never run through restaurant tenant context.
 api.route('/platform', platformAdminRouter);
 
 // Everything below needs a sign-in (or an unlocked POS terminal), scoped to its restaurant.
@@ -197,3 +196,4 @@ export default {
   port,
   fetch: app.fetch,
 };
+

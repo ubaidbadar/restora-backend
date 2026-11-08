@@ -122,16 +122,16 @@ async function showSizes(connection: IWhatsAppConnection, phone: string, itemId:
     return showQuantities(connection, phone, item.name);
   }
   await choose(connection, phone, 'Choose size for ' + item.name, 'Sizes',
-    item.sizes.slice(0, 9).map((size) => ({ id: 'size:' + item.id + ':' + size.id, title: size.name || 'Regular', description: 'Rs ' + size.price }))
-    .concat(item.sizes.length > 9 ? [{ id: 'sizes:' + item.id + ':1', title: 'More sizes' }] : []));
+    [...item.sizes.slice(0, 9).map((size) => ({ id: 'size:' + item.id + ':' + size.id, title: size.name || 'Regular', description: 'Rs ' + size.price })),
+      ...(item.sizes.length > 9 ? [{ id: 'sizes:' + item.id + ':1', title: 'More sizes' }] : [])]);
 }
 async function showSizePage(connection: IWhatsAppConnection, phone: string, itemId: string, page: number) {
   const item = (await menu(connection)).items.find((it) => it.id === itemId);
   if (!item) return say(connection, phone, 'Dish is unavailable. Send MENU.');
   const { rows, next } = paginateWhatsApp(item.sizes, page);
   await choose(connection, phone, 'Choose size for ' + item.name, 'Sizes',
-    rows.map((size) => ({ id: 'size:' + itemId + ':' + size.id, title: size.name || 'Regular', description: 'Rs ' + size.price }))
-      .concat(next === null ? [] : [{ id: 'sizes:' + itemId + ':' + next, title: 'More sizes' }]));
+    [...rows.map((size) => ({ id: 'size:' + itemId + ':' + size.id, title: size.name || 'Regular', description: 'Rs ' + size.price })),
+      ...(next === null ? [] : [{ id: 'sizes:' + itemId + ':' + next, title: 'More sizes' }])]);
 }
 async function showQuantities(connection: IWhatsAppConnection, phone: string, dish: string) {
   await choose(connection, phone, 'How many ' + dish + '?',
@@ -150,7 +150,7 @@ export function quoteActionId(fingerprint: string, cartIdentity: string): string
 }
 async function summary(connection: IWhatsAppConnection, phone: string) {
   const result = await pricedCart(connection, phone);
-  if ('error' in result) return say(connection, phone, result.error);
+  if (result.priced === undefined) return say(connection, phone, result.error);
   const lines = result.priced.map((item) => item.qty + ' x ' + item.name + (item.sizeName ? ' (' + item.sizeName + ')' : '') + ': Rs ' + item.qty * item.price);
   const body = ['Your order:', ...lines, 'Total: Rs ' + result.total, 'Confirm to place the order, or Cancel to discard.'].join('\n');
   // WhatsApp buttons allow only 1024 body characters. Never hide priced lines or the total.
@@ -460,3 +460,4 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
     return summary(connection, phone);
   }
 }
+

@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 import WhatsAppConnection from '../models/whatsapp_connection';
-import WhatsAppMessage from '../models/whatsapp_message';
+import WhatsAppMessage, { type IWhatsAppMessage } from '../models/whatsapp_message';
 import { verifyWhatsAppSignature } from '../utils/whatsapp_crypto';
 import { whatsappPhone } from '../utils/whatsapp_phone';
 import { processWhatsAppMessage } from '../services/whatsapp_flow';
@@ -14,7 +14,7 @@ type MetaMessage = {
 };
 type MetaStatus = { id?: string; status?: string; timestamp?: string; recipient_id?: string };
 type MetaChange = { value?: { metadata?: { phone_number_id?: string }; messages?: MetaMessage[]; statuses?: MetaStatus[] } };
-const STATUS_PRECONDITIONS: Record<string, string[]> = {
+const STATUS_PRECONDITIONS: Record<string, NonNullable<IWhatsAppMessage['deliveryStatus']>[]> = {
   sent: ['sent'],
   delivered: ['sent', 'delivered'],
   read: ['sent', 'delivered', 'read', 'failed'],
@@ -55,7 +55,7 @@ export async function receiveWebhook(c: Context) {
       const connection = await runWithoutTenant(() =>
         WhatsAppConnection.findOne({ phoneNumberId }));
       if (!connection?.restaurantId || connection.status !== 'connected') {
-        console.log('[WhatsApp] Ignoring webhook for unconnected or paused phone_number_id', phoneNumberId);
+        console.log('[WhatsApp] Ignoring webhook for disconnected or pending number', phoneNumberId);
         continue;
       }
       await runWithTenant(String(connection.restaurantId), async () => {
@@ -128,3 +128,4 @@ export async function receiveWebhook(c: Context) {
   return failures ? c.json({ message: 'WhatsApp message processing temporarily unavailable' }, 503) : c.json({ received: true }, 200);
 }
 export default { verifyWebhook, receiveWebhook };
+
