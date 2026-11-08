@@ -13,6 +13,7 @@ export interface IWhatsAppInvoiceDelivery {
   documentMessageId?: string;
   lastError?: string;
   sentAt?: Date;
+  updatedAt?: Date;
 }
 const schema = new Schema<IWhatsAppInvoiceDelivery>({
   orderId: { type: String, required: true },
