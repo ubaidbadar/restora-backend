@@ -11,7 +11,7 @@ const handle = (c: Context, e: unknown) => {
 export function whatsappSignupConfig(c: Context) {
   const configured = Boolean(process.env.WHATSAPP_META_APP_ID && process.env.WHATSAPP_META_APP_SECRET &&
     process.env.WHATSAPP_META_CONFIG_ID && process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY && process.env.WHATSAPP_APP_SECRET &&
-    process.env.WHATSAPP_VERIFY_TOKEN);
+    process.env.WHATSAPP_VERIFY_TOKEN && /^[a-f0-9]{64}$/i.test(process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY || ''));
   return c.json({ enabled: configured,
     appId: configured ? process.env.WHATSAPP_META_APP_ID : null,
     configId: configured ? process.env.WHATSAPP_META_CONFIG_ID : null });
@@ -33,6 +33,7 @@ export async function registerNumber(c: Context) {
   const { pin } = c.get('validatedJson') as { pin: string };
   const connection = await WhatsAppConnection.findOne({ _id: c.req.param('id'), branchId }).catch(() => null);
   if (!connection) return c.json({ message: 'WhatsApp connection not found' }, 404);
+  if (connection.status !== 'number_pending') return c.json({ message: 'This number does not require registration. Reconnect via Meta if its token expired.' }, 409);
   try { return c.json(await registerWithPin(connection, pin)); }
   catch (e) { return handle(c, e); }
 }

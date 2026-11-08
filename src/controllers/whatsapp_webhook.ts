@@ -54,8 +54,8 @@ export async function receiveWebhook(c: Context) {
       if (!phoneNumberId || (!Array.isArray(value?.messages) && !Array.isArray(value?.statuses))) continue;
       const connection = await runWithoutTenant(() =>
         WhatsAppConnection.findOne({ phoneNumberId }));
-      if (!connection?.restaurantId) {
-        console.log('[WhatsApp] Ignoring message for unconnected phone_number_id', phoneNumberId);
+      if (!connection?.restaurantId || connection.status !== 'connected') {
+        console.log('[WhatsApp] Ignoring webhook for unconnected or paused phone_number_id', phoneNumberId);
         continue;
       }
       await runWithTenant(String(connection.restaurantId), async () => {

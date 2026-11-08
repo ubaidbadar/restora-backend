@@ -7,7 +7,7 @@ import StaffMember from '../models/staff_member';
 import Customer from '../models/customer';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import PlatformAdmin from '../models/platform_admin';
-import { findAuthUserByEmail, findAuthUsers } from '../utils/auth_users';
+import { findAuthUserByEmail, findAuthUsers, toObjectId } from '../utils/auth_users';
 import { runWithoutTenant, runWithTenant } from '../middlewares/tenant_context';
 import { requirePlatformOwner, type PlatformAdminIdentity } from '../middlewares/platform_admin_guard';
 
@@ -89,6 +89,8 @@ export async function upsertPlatformTeam(c: Context) {
   const { email, role, enabled } = c.get('validatedJson') as { email: string; role: 'analyst' | 'support'; enabled: boolean };
   const target = await findAuthUserByEmail(email);
   if (!target) return c.json({ message: 'Team member must create and verify a Restora account first.' }, 404);
+  const verified = await mongoose.connection.db?.collection('user').findOne({ _id: toObjectId(target.id), emailVerified: true }, { projection: { _id: 1 } });
+  if (!verified) return c.json({ message: 'The teammate must verify their email before access can be granted.' }, 409);
   const userId = target.id;
   if (userId === actor.userId) return c.json({ message: 'Cannot change own platform role' }, 400);
   // A platform owner may grant only analyst/support roles; never create an owner via the API.
