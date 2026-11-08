@@ -333,8 +333,13 @@ export async function deliverInvoice(
     await WhatsAppInvoiceDelivery.updateOne({ ...key, status: { $ne: 'sent' } }, { $set: { status: 'template_required' } });
     return { templateRequired: true };
   }
+  // A crash may leave the job in 'sending'. Permit recovery after five minutes;
+  // each successfully recorded bill/document ID is reused rather than sent again.
   const attempt = await WhatsAppInvoiceDelivery.findOneAndUpdate(
-    { ...key, status: { $in: ['pending', 'failed', 'template_required'] } },
+    { ...key, $or: [
+      { status: { $in: ['pending', 'failed', 'template_required'] } },
+      { status: 'sending', updatedAt: { $lt: new Date(Date.now() - 5 * 60_000) } },
+    ] },
     { $set: { status: 'sending' }, $unset: { lastError: '' } },
     { returnDocument: 'after' }
   );
