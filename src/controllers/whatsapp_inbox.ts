@@ -4,7 +4,7 @@ import WhatsAppMessage from '../models/whatsapp_message';
 import Customer from '../models/customer';
 import Order from '../models/order';
 import WhatsAppInvoiceDelivery from '../models/whatsapp_invoice_delivery';
-import { whatsappPhone } from '../utils/whatsapp_phone';
+import { whatsappPhone, graphPhone } from '../utils/whatsapp_phone';
 import { isWhatsAppWindowOpen } from '../utils/whatsapp_window';
 import { sendWhatsApp, WhatsAppSendError } from '../services/whatsapp_graph';
 
@@ -17,12 +17,16 @@ export const WINDOW_ERROR = 'The 24-hour WhatsApp customer-service window is clo
 
 export async function listConversations(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
-  const filter: Record<string, unknown> = {};
-  if (branchId) filter.branchId = branchId;
+  // Historical Phase 1 records had no branchId/phone. Their receiving Meta
+  // phone_number_id is unique and remains the safe branch routing key.
+  const connected = branchId ? await WhatsAppConnection.find({ branchId }).select({ phoneNumberId: 1 }) : [];
+  const filter: Record<string, unknown> = branchId
+    ? { phoneNumberId: { $in: connected.map((entry) => entry.phoneNumberId) } }
+    : {};
   const conversations = await WhatsAppMessage.aggregate([
     { $match: filter },
     { $sort: { receivedAt: -1 } },
-    { $group: { _id: { phoneNumberId: '$phoneNumberId', phone: '$phone' }, last: { $first: '$$ROOT' }, count: { $sum: 1 } } },
+    { $group: { _id: { phoneNumberId: '$phoneNumberId', phone: { $ifNull: ['$phone', '$from'] } }, last: { $first: '$ROOT' }, count: { $sum: 1 } } },
     { $sort: { 'last.receivedAt': -1 } },
     { $limit: 100 },
     { $project: { _id: 0, phoneNumberId: '$_id.phoneNumberId', phone: '$_id.phone', last: 1, count: 1 } },
@@ -32,10 +36,23 @@ export async function listConversations(c: Context) {
   const normalized = conversations.map((row) => ({
     ...row, phone: whatsappPhone(String(row.phone || row.last?.from || '')),
   })).filter((row) => row.phone !== null);
-  const phones = normalized.map((row) => `+92${row.phone!.slice(1)}`);
+  // Coalesce legacy (Meta-format) and current (03-format) threads for one customer.
+  const merged = new Map<string, (typeof normalized)[number]>();
+  for (const row of normalized) {
+    const key = row.phoneNumberId + ':' + row.phone;
+    const earlier = merged.get(key);
+    if (!earlier) merged.set(key, row);
+    else {
+      earlier.count += row.count;
+      if (new Date(row.last?.receivedAt).getTime() > new Date(earlier.last?.receivedAt).getTime()) earlier.last = row.last;
+    }
+  }
+  const threads = [...merged.values()].sort((a, b) =>
+    new Date(b.last?.receivedAt).getTime() - new Date(a.last?.receivedAt).getTime()).slice(0, 100);
+  const phones = threads.map((row) => `+92${row.phone!.slice(1)}`);
   const customers = await Customer.find({ phone: { $in: phones } }).select({ phone: 1, name: 1 });
   const names = new Map(customers.map((customer) => [customer.phone, customer.name]));
-  return c.json(normalized.map((row) => ({
+  return c.json(threads.map((row) => ({
     ...row, customerName: names.get(`+92${row.phone!.slice(1)}`) || null,
   })));
 }
@@ -46,9 +63,13 @@ export async function getConversation(c: Context) {
   const phoneNumberId = c.req.query('phoneNumberId') || '';
   if (!phoneNumberId) return c.json({ message: 'phoneNumberId is required' }, 400);
   const branchId = c.get('branchId') as string | undefined;
-  const filter: Record<string, unknown> = { phone, phoneNumberId };
-  if (branchId) filter.branchId = branchId;
-  const messages = await WhatsAppMessage.find(filter).sort({ receivedAt: -1 }).limit(100);
+  // Explicitly authorize this receiving number before reading any legacy rows.
+  const connection = await WhatsAppConnection.findOne({ phoneNumberId, ...(branchId ? { branchId } : {}) });
+  if (!connection) return c.json({ message: 'Restaurant WhatsApp number not found' }, 404);
+  const from = graphPhone(phone);
+  const messages = await WhatsAppMessage.find({
+    phoneNumberId, $or: [{ phone }, { from }, { from: '+' + from }, { from: phone }],
+  }).sort({ receivedAt: -1 }).limit(100);
   return c.json({ messages: messages.reverse() });
 }
 
@@ -62,12 +83,19 @@ export async function replyToConversation(c: Context) {
   if (!(await withinWhatsAppWindow(phoneNumberId, phone))) return c.json({ message: WINDOW_ERROR, code: 'template_required' }, 409);
   try {
     const metaMessageId = await sendWhatsApp(connection, phone, { type: 'text', text: { body: text.trim() } });
-    const saved = await WhatsAppMessage.create({
-      branchId: connection.branchId, phoneNumberId, phone,
-      from: connection.phoneNumberDisplay, to: phone, direction: 'outbound',
-      metaMessageId, messageType: 'text', text: text.trim(), receivedAt: new Date(),
-    });
-    return c.json({ messageId: metaMessageId, message: saved }, 201);
+    try {
+      const saved = await WhatsAppMessage.create({
+        branchId: connection.branchId, phoneNumberId, phone,
+        from: connection.phoneNumberDisplay, to: phone, direction: 'outbound',
+        metaMessageId, messageType: 'text', text: text.trim(), receivedAt: new Date(),
+      });
+      return c.json({ messageId: metaMessageId, message: saved }, 201);
+    } catch (error) {
+      // Meta has already accepted the reply. Do not tell staff to resend it.
+      console.error('[WhatsApp] Staff reply accepted by Meta but inbox logging failed',
+        metaMessageId, error instanceof Error ? error.message : 'unknown error');
+      return c.json({ messageId: metaMessageId, sent: true, logged: false }, 202);
+    }
   } catch (error) {
     if (error instanceof WhatsAppSendError) return c.json({ message: error.message }, error.status as 409 | 400 | 502);
     throw error;
