@@ -126,6 +126,7 @@ async function summary(connection: IWhatsAppConnection, phone: string) {
   if ('error' in result) return say(connection, phone, result.error);
   const lines = result.priced.map((item) => item.qty + ' x ' + item.name + (item.sizeName ? ' (' + item.sizeName + ')' : '') + ': Rs ' + item.qty * item.price);
   const body = ['Your order:', ...lines, 'Total: Rs ' + result.total, 'Confirm to place the order, or Cancel to discard.'].join('\n');
+  await WhatsAppCart.updateOne(cartFilter(connection, phone), { $set: { quoteFingerprint: JSON.stringify([result.priced, result.total]) } });
   await send(connection, phone, { type: 'interactive', interactive: {
     type: 'button', body: { text: body.slice(0, 1024) },
     action: { buttons: [
@@ -180,8 +181,19 @@ async function llmParse(text: string, live: Awaited<ReturnType<typeof menu>>) {
 async function confirm(connection: IWhatsAppConnection, phone: string, confirmMessageId: string) {
   // Take the cart atomically. Two overlapping Confirm taps must not consume the same cart twice.
   const filter = cartFilter(connection, phone);
-  const cart = await WhatsAppCart.findOneAndDelete(filter);
-  if (!cart?.items.length) return say(connection, phone, 'There is no unconfirmed order. Send MENU to start.');
+  const original = await WhatsAppCart.findOne(filter);
+  if (!original?.items.length || !original.quoteFingerprint) return say(connection, phone, 'Please review your cart and tap Confirm on the current summary. Send CART.');
+  const quote = await priceItems(original.items.map((it) => ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
+  if (typeof quote === 'string') return say(connection, phone, quote + '. No order was placed. Send MENU.');
+  const currentFingerprint = JSON.stringify([quote, calcTotals(quote, 0, 0, 0).total]);
+  if (currentFingerprint !== original.quoteFingerprint) {
+    await WhatsAppCart.updateOne(filter, { $unset: { quoteFingerprint: '' } });
+    await say(connection, phone, 'The menu or prices changed. Please review the new total before confirming.');
+    return summary(connection, phone);
+  }
+  // Claim the exact cart revision shown to the customer before order creation.
+  const cart = await WhatsAppCart.findOneAndDelete({ ...filter, quoteFingerprint: currentFingerprint });
+  if (!cart) return say(connection, phone, 'Your cart changed. Send CART to review and confirm again.');
   const clientId = 'wa:' + connection.phoneNumberId + ':' + confirmMessageId;
   try {
     let order = await Order.findOne({ clientId });
@@ -251,7 +263,7 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
     await WhatsAppCart.deleteOne(cartFilter(connection, phone));
     return say(connection, phone, 'Cart cleared. Send MENU to begin again.');
   }
-  if (action === 'confirm' || lower === 'confirm') return confirm(connection, phone, message.id);
+  if (action === 'confirm') return confirm(connection, phone, message.id);
   if (action.startsWith('cats:')) return showCategories(connection, phone, parsePage(action.slice(5)));
   if (action.startsWith('category:')) return showItems(connection, phone, action.slice(9), 0);
   if (action.startsWith('dishes:')) {
