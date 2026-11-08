@@ -25,10 +25,17 @@ export async function listConversations(c: Context) {
     { $limit: 100 },
     { $project: { _id: 0, phoneNumberId: '$_id.phoneNumberId', phone: '$_id.phone', last: 1, count: 1 } },
   ]);
-  const phones = conversations.map((x) => `+92${x.phone.slice(1)}`);
+  // Phase 1 stored only `from`, not normalized `phone`/message content.
+  // Avoid crashing the inbox on those pre-migration rows.
+  const normalized = conversations.map((row) => ({
+    ...row, phone: whatsappPhone(String(row.phone || row.last?.from || '')),
+  })).filter((row) => row.phone !== null);
+  const phones = normalized.map((row) => `+92${row.phone!.slice(1)}`);
   const customers = await Customer.find({ phone: { $in: phones } }).select({ phone: 1, name: 1 });
   const names = new Map(customers.map((customer) => [customer.phone, customer.name]));
-  return c.json(conversations.map((row) => ({ ...row, customerName: names.get(`+92${row.phone.slice(1)}`) || null })));
+  return c.json(normalized.map((row) => ({
+    ...row, customerName: names.get(`+92${row.phone!.slice(1)}`) || null,
+  })));
 }
 
 export async function getConversation(c: Context) {
