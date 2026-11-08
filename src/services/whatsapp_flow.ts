@@ -193,14 +193,21 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
   if (!cart?.items.length) return say(connection, phone, 'There is no unconfirmed order. Send MENU to start.');
   if (cart.state === 'confirmed') return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
   if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed.');
+  if (!cart.quoteFingerprint) return say(connection, phone, 'Review the priced CART and tap its Confirm button before ordering.');
   const pricedBeforeClaim = await priceItems(cart.items.map((it) =>
     ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
   if (typeof pricedBeforeClaim === 'string') {
     return say(connection, phone, pricedBeforeClaim + '. Your order was NOT placed. Send MENU to update your cart.');
   }
-  // Claim the exact cart revision. No deletion until the order is safely persisted.
+  const approvedFingerprint = JSON.stringify([pricedBeforeClaim, calcTotals(pricedBeforeClaim, 0, 0, 0).total]);
+  if (cart.quoteFingerprint !== approvedFingerprint) {
+    await WhatsAppCart.updateOne({ ...filter, state: 'active', _id: cart._id }, { $unset: { quoteFingerprint: '' } });
+    await say(connection, phone, 'Menu prices changed. Please review the new summary and tap Confirm again.');
+    return summary(connection, phone);
+  }
+  // Claim the exact cart revision and exact prices that the customer approved.
   const claimed = await WhatsAppCart.findOneAndUpdate(
-    { ...filter, state: 'active', updatedAt: cart.updatedAt },
+    { ...filter, state: 'active', updatedAt: cart.updatedAt, quoteFingerprint: approvedFingerprint },
     { $set: { state: 'confirming' } }, { returnDocument: 'after' });
   if (!claimed) return say(connection, phone, 'Your cart changed. Review it again before confirming.');
   const clientId = 'wa:' + String(claimed._id) + ':' + claimed.generation;
@@ -217,6 +224,8 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
         ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
       if (typeof priced === 'string') throw new Error(priced);
       const totals = calcTotals(priced, 0, 0, 0);
+      if (JSON.stringify([priced, totals.total]) !== approvedFingerprint)
+        throw new Error('Menu price or availability changed. Review CART and confirm the new amount.');
       const normalizedPhone = '+92' + phone.slice(1);
       const customer = await Customer.findOneAndUpdate(
         { phone: normalizedPhone },
@@ -257,8 +266,8 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
       { $set: { state: 'confirmed', orderId: String(order._id), items: [] },
         $unset: { pendingItemId: '', pendingSizeId: '' } });
   } catch (error) {
-    await WhatsAppCart.updateOne({ ...filter, state: 'confirming' }, { $set: { state: 'active' } });
-    await say(connection, phone, 'Order not confirmed: ' + (error instanceof Error ? error.message : 'Please try again'));
+    await WhatsAppCart.updateOne({ ...filter, state: 'confirming' }, { $set: { state: 'active' }, $unset: { quoteFingerprint: '' } });
+    await say(connection, phone, 'Order not confirmed: ' + (error instanceof Error ? error.message : 'Please try again') + '. Send CART for a fresh summary.');
     return;
   }
   if (created) {
