@@ -129,7 +129,11 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
     // Restore a valid quote after an unrelated unmatched message.
     modelReply = { items: [{ itemId: dishId, sizeId, qty: 2, rawName: 'Chicken Karahi' }], unmatched: [] };
     expect((await webhook(event('inbound-typed-3', '2 Chicken Karahi'))).status).toBe(200);
-    const confirm = event('inbound-confirm-1', '', 'confirm');
+    const interactive = sent.filter((payload) => payload.type === 'interactive').at(-1);
+    const buttons = (interactive?.interactive as { action?: { buttons?: { reply?: { id?: string } }[] } } | undefined)?.action?.buttons || [];
+    const actionId = buttons.find((button) => button.reply?.id?.startsWith('confirm:'))?.reply?.id;
+    expect(actionId?.startsWith('confirm:')).toBe(true);
+    const confirm = event('inbound-confirm-1', '', actionId);
     expect((await webhook(confirm)).status).toBe(200);
     expect((await webhook(confirm)).status).toBe(200);
     await runWithTenant(restaurantId, async () => {
