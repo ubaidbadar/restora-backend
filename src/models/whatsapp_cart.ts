@@ -14,6 +14,8 @@ export interface IWhatsAppCart {
   orderId?: string;
   pendingItemId?: string;
   pendingSizeId?: string;
+  /** Exact live priced quote the customer saw before tapping Confirm. */
+  quoteSignature?: string;
   updatedAt?: Date;
 }
 const CartSchema = new Schema<IWhatsAppCart>({
@@ -27,6 +29,7 @@ const CartSchema = new Schema<IWhatsAppCart>({
   orderId: String,
   pendingItemId: String,
   pendingSizeId: String,
+  quoteSignature: String,
 }, { timestamps: true });
 CartSchema.plugin(tenantPlugin);
 CartSchema.index({ restaurantId: 1, phoneNumberId: 1, phone: 1 }, { unique: true });
