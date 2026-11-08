@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { paginateWhatsApp } from '../src/utils/whatsapp_menu';
 import { whatsappPhone, graphPhone } from '../src/utils/whatsapp_phone';
+import { isWhatsAppWindowOpen, WHATSAPP_CUSTOMER_WINDOW_MS } from '../src/utils/whatsapp_window';
 import { invoiceMessage, invoicePdf } from '../src/utils/whatsapp_invoice';
 import type { IOrder } from '../src/models/order';
 
@@ -56,5 +57,21 @@ describe('Stored-order invoice', () => {
     expect(source).toContain('TOTAL: Rs 2800');
     expect(source).toContain('%%EOF');
     expect(source).toContain('xref');
+  });
+});
+
+describe('WhatsApp 24-hour policy boundary', () => {
+  const now = Date.parse('2026-11-09T12:00:00.000Z');
+  it('permits recent customer messages', () => {
+    expect(isWhatsAppWindowOpen(new Date(now - 10_000), now)).toBe(true);
+  });
+  it('rejects exactly 24 hours and older', () => {
+    expect(isWhatsAppWindowOpen(new Date(now - WHATSAPP_CUSTOMER_WINDOW_MS), now)).toBe(false);
+    expect(isWhatsAppWindowOpen(new Date(now - WHATSAPP_CUSTOMER_WINDOW_MS - 1), now)).toBe(false);
+  });
+  it('rejects missing, invalid or excessively future timestamps', () => {
+    expect(isWhatsAppWindowOpen(null, now)).toBe(false);
+    expect(isWhatsAppWindowOpen('not-a-date', now)).toBe(false);
+    expect(isWhatsAppWindowOpen(new Date(now + 61_000), now)).toBe(false);
   });
 });
