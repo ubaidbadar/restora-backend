@@ -8,6 +8,9 @@ export interface IWhatsAppCart {
   phoneNumberId: string;
   phone: string;
   items: { itemId: string; sizeId?: string; qty: number }[];
+  state: 'active' | 'confirming' | 'confirmed';
+  generation: number;
+  orderId?: string;
   pendingItemId?: string;
   pendingSizeId?: string;
   updatedAt?: Date;
@@ -17,6 +20,9 @@ const CartSchema = new Schema<IWhatsAppCart>({
   phoneNumberId: { type: String, required: true },
   phone: { type: String, required: true },
   items: [{ _id: false, itemId: { type: String, required: true }, sizeId: String, qty: { type: Number, required: true, min: 1, max: 20 } }],
+  state: { type: String, enum: ['active','confirming','confirmed'], default: 'active' },
+  generation: { type: Number, default: 0 },
+  orderId: String,
   pendingItemId: String,
   pendingSizeId: String,
 }, { timestamps: true });
