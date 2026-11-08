@@ -10,6 +10,7 @@ export interface IWhatsAppCart {
   items: { itemId: string; sizeId?: string; qty: number }[];
   state: 'active' | 'confirming' | 'confirmed';
   generation: number;
+  quoteFingerprint?: string;
   orderId?: string;
   pendingItemId?: string;
   pendingSizeId?: string;
@@ -22,6 +23,7 @@ const CartSchema = new Schema<IWhatsAppCart>({
   items: [{ _id: false, itemId: { type: String, required: true }, sizeId: String, qty: { type: Number, required: true, min: 1, max: 20 } }],
   state: { type: String, enum: ['active','confirming','confirmed'], default: 'active' },
   generation: { type: Number, default: 0 },
+  quoteFingerprint: String,
   orderId: String,
   pendingItemId: String,
   pendingSizeId: String,
