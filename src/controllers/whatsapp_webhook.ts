@@ -54,7 +54,7 @@ export async function receiveWebhook(c: Context) {
       await runWithTenant(String(connection.restaurantId), async () => {
         for (const message of value.messages!) {
           if (!message?.id || !message.from) continue;
-          const phone = whatsappPhone(message.from) || message.from.replace(/\D/g, '').slice(0, 24);
+          const phone = whatsappPhone(message.from);
           if (!phone) continue;
           const text = (
             message.text?.body || message.image?.caption ||
@@ -77,7 +77,7 @@ export async function receiveWebhook(c: Context) {
           }
           // Only one processor may act on a given Meta ID. Failed actions are retriable.
           const claimed = await WhatsAppMessage.findOneAndUpdate(
-            { metaMessageId: message.id, direction: 'inbound', processedAt: { $exists: false }, processingAt: { $exists: false } },
+            { metaMessageId: message.id, direction: 'inbound', processedAt: { $exists: false }, $or: [{ processingAt: { $exists: false } }, { processingAt: { $lt: new Date(Date.now() - 90_000) } }] },
             { $set: { processingAt: new Date() } }, { returnDocument: 'after' });
           if (!claimed) continue;
           try {
