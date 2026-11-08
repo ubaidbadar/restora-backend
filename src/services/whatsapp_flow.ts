@@ -344,6 +344,11 @@ export async function deliverInvoice(
     { returnDocument: 'after' }
   );
   if (!attempt) return { templateRequired: false };
+  // A retry must never resend a PDF already acknowledged and recorded by Meta.
+  if (attempt.documentMessageId) {
+    await WhatsAppInvoiceDelivery.updateOne(key, { $set: { status: 'sent', sentAt: new Date() } });
+    return { templateRequired: false };
+  }
   try {
     const [restaurant, branch] = await Promise.all([
       Restaurant.findById(connection.restaurantId), Branch.findById(connection.branchId),
