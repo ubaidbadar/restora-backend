@@ -64,3 +64,22 @@ export async function replyToConversation(c: Context) {
     throw error;
   }
 }
+
+// Per-restaurant settings; never expose the encrypted Graph API token to the browser.
+export async function listWhatsAppConnections(c: Context) {
+  const branchId = c.get('branchId') as string | undefined;
+  const connections = await WhatsAppConnection.find(branchId ? { branchId } : {})
+    .select({ accessTokenEncrypted: 0 });
+  return c.json(connections);
+}
+export async function updateWhatsAppConnection(c: Context) {
+  const branchId = c.get('branchId') as string | undefined;
+  const id = c.req.param('id') ?? '';
+  const { invoiceOnComplete } = c.get('validatedJson') as { invoiceOnComplete: boolean };
+  const updated = await WhatsAppConnection.findOneAndUpdate(
+    { _id: id, ...(branchId ? { branchId } : {}) },
+    { $set: { invoiceOnComplete } }, { returnDocument: 'after' }
+  ).select({ accessTokenEncrypted: 0 }).catch(() => null);
+  if (!updated) return c.json({ message: 'WhatsApp connection not found' }, 404);
+  return c.json(updated);
+}
