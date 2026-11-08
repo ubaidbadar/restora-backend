@@ -19,6 +19,7 @@ export interface IWhatsAppConnection {
   accessTokenEncrypted?: string;
   status: 'connected' | 'disconnected' | 'token_expired' | 'number_pending';
   messagingLimit?: number;
+  invoiceOnComplete?: boolean;
   connectedAt?: Date;
   createdAt?: string;
   updatedAt?: string;
@@ -38,6 +39,7 @@ const WhatsAppConnectionSchema = new Schema<IWhatsAppConnection>(
       index: true,
     },
     messagingLimit: { type: Number },
+    invoiceOnComplete: { type: Boolean, default: false },
     connectedAt: { type: Date },
   },
   { timestamps: true }
