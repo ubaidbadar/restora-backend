@@ -1,0 +1,38 @@
+name: Platform admin and WhatsApp feature checks
+on:
+  push:
+    branches: ['feature/platform-admin-whatsapp-onboarding']
+  pull_request:
+    paths:
+      - 'src/controllers/platform_admin.ts'
+      - 'src/controllers/whatsapp_onboarding.ts'
+      - 'src/services/whatsapp_onboarding.ts'
+      - 'tests/platform_admin.test.ts'
+      - 'tests/whatsapp_embedded_signup.test.ts'
+      - '.github/workflows/platform-feature-checks.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      SMTP_HOST: smtp.ci.invalid
+      SMTP_USER: ci@example.invalid
+      SMTP_PASS: fake-for-tests-only
+      MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.cache/mongodb-binaries
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/cache@v4
+        with:
+          path: .cache/mongodb-binaries
+          key: mongo-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test tests/platform_admin.test.ts
+      - run: bun test tests/whatsapp_embedded_signup.test.ts
