@@ -36,7 +36,7 @@ import auditRouter from './src/routes/audit';
 import publicRouter from './src/routes/public';
 import whatsappRouter from './src/routes/whatsapp';
 import whatsappInboxRouter from './src/routes/whatsapp_inbox';
-import whatsappInboxRouter from './src/routes/whatsapp_inbox';
+import platformAdminRouter from './src/routes/platform_admin';
 import guestRequestRouter from './src/routes/guest_request';
 import accountRouter from './src/routes/account';
 import uploadRouter from './src/routes/upload';
@@ -111,6 +111,8 @@ const api = new Hono();
 // Public unauthenticated routes
 api.route('/public', publicRouter);
 api.route('/webhooks', whatsappRouter);
+// Separate platform staff authorization; never run through restaurant tenant context.
+api.route('/platform', platformAdminRouter);
 
 // Everything below needs a sign-in (or an unlocked POS terminal), scoped to its restaurant.
 api.use('*', authGuard);
@@ -121,7 +123,6 @@ api.route('/branches', branchRouter);
 api.route('/customers', customerRouter);
 api.route('/menu', menuRouter);
 api.route('/orders', orderRouter);
-api.route('/whatsapp', whatsappInboxRouter);
 api.route('/whatsapp', whatsappInboxRouter);
 api.route('/tables', tableRouter);
 api.route('/reservations', reservationRouter);
