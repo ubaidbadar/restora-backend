@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { paginateWhatsApp } from '../src/utils/whatsapp_menu';
 import { whatsappPhone, graphPhone } from '../src/utils/whatsapp_phone';
+import { validateWhatsAppLLM } from '../src/utils/whatsapp_match';
 import { isWhatsAppWindowOpen, WHATSAPP_CUSTOMER_WINDOW_MS } from '../src/utils/whatsapp_window';
 import { invoiceMessage, invoicePdf } from '../src/utils/whatsapp_invoice';
 import type { IOrder } from '../src/models/order';
@@ -73,5 +74,49 @@ describe('WhatsApp 24-hour policy boundary', () => {
     expect(isWhatsAppWindowOpen(null, now)).toBe(false);
     expect(isWhatsAppWindowOpen('not-a-date', now)).toBe(false);
     expect(isWhatsAppWindowOpen(new Date(now + 61_000), now)).toBe(false);
+  });
+});
+
+describe('Natural-language menu validation', () => {
+  const dishes = [
+    { id: 'a', name: 'Chicken Karahi', sizes: [{ id: 'as', name: 'Regular', price: 1400 }] },
+    { id: 'b', name: 'Zinger Burger', sizes: [{ id: 'bs', name: 'Regular', price: 550 }] },
+    { id: 'c', name: 'Spicy Zinger', sizes: [{ id: 'cs', name: 'Regular', price: 650 }] },
+    { id: 'd', name: 'Pizza', sizes: [{ id: 'small', name: 'Small', price: 700 }, { id: 'large', name: 'Large', price: 1100 }] },
+  ];
+  it('accepts a uniquely matched live item and quantity, ignoring invented prices', () => {
+    const result = validateWhatsAppLLM('2 chicken karahi please', dishes,
+      [{ itemId: 'a', sizeId: 'as', qty: 2, rawName: 'chicken karahi', price: 1 }], []);
+    expect(result.selections).toEqual([{ itemId: 'a', sizeId: 'as', qty: 2 }]);
+    expect(result.unmatched).toEqual([]);
+  });
+  it('rejects a real menu ID paired with an unrelated customer phrase', () => {
+    const result = validateWhatsAppLLM('2 chicken karahi', dishes,
+      [{ itemId: 'b', sizeId: 'bs', qty: 2, rawName: 'chicken karahi' }], []);
+    expect(result.selections).toHaveLength(0);
+    expect(result.unmatched).toContain('chicken karahi');
+  });
+  it('clarifies a phrase matching multiple live dishes', () => {
+    const result = validateWhatsAppLLM('1 zinger', dishes,
+      [{ itemId: 'b', sizeId: 'bs', qty: 1, rawName: 'zinger' }], []);
+    expect(result.selections).toHaveLength(0);
+    expect(result.unmatched).toContain('zinger');
+  });
+  it('requires an explicitly identified size when a dish has multiple sizes', () => {
+    const result = validateWhatsAppLLM('1 pizza', dishes,
+      [{ itemId: 'd', sizeId: 'large', qty: 1, rawName: 'pizza' }], []);
+    expect(result.selections).toHaveLength(0);
+    expect(result.unmatched[0]).toContain('which size');
+  });
+  it('accepts an explicitly specified unique size', () => {
+    const result = validateWhatsAppLLM('1 large pizza', dishes,
+      [{ itemId: 'd', sizeId: 'large', qty: 1, rawName: 'pizza', rawSize: 'large' }], []);
+    expect(result.selections).toHaveLength(1);
+  });
+  it('rejects nonexistent items and invalid quantities', () => {
+    const result = validateWhatsAppLLM('2 zinger', dishes,
+      [{ itemId: 'other', sizeId: 'bs', qty: -1, rawName: 'zinger' }], ['Unmatched drink']);
+    expect(result.selections).toEqual([]);
+    expect(result.unmatched).toContain('Unmatched drink');
   });
 });
