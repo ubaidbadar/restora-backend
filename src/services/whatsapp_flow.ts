@@ -131,13 +131,13 @@ async function summary(connection: IWhatsAppConnection, phone: string) {
   if ('error' in result) return say(connection, phone, result.error);
   const lines = result.priced.map((item) => item.qty + ' x ' + item.name + (item.sizeName ? ' (' + item.sizeName + ')' : '') + ': Rs ' + item.qty * item.price);
   const body = ['Your order:', ...lines, 'Total: Rs ' + result.total, 'Confirm to place the order, or Cancel to discard.'].join('\n');
-  await WhatsAppCart.updateOne(cartFilter(connection, phone), { $set: { quoteFingerprint: JSON.stringify([result.priced, result.total]) } });
   // WhatsApp buttons allow only 1024 body characters. Never hide priced lines or the total.
+  // Do not authorize Confirm until the customer actually receives the priced summary.
   if (body.length > 1024) {
     const summaryId = await say(connection, phone, body);
     if (!summaryId) return;
   }
-  await send(connection, phone, { type: 'interactive', interactive: {
+  const sentId = await send(connection, phone, { type: 'interactive', interactive: {
     type: 'button', body: { text: body.length > 1024 ? 'Total: Rs ' + result.total + '. Confirm or cancel this order.' : body },
     action: { buttons: [
       { type: 'reply', reply: { id: 'confirm', title: 'Confirm' } },
@@ -145,6 +145,11 @@ async function summary(connection: IWhatsAppConnection, phone: string) {
       { type: 'reply', reply: { id: 'menu', title: 'Add more' } },
     ] },
   } }, 'interactive', body);
+  if (!sentId) return;
+  await WhatsAppCart.updateOne(
+    { ...cartFilter(connection, phone), state: 'active', updatedAt: result.cart.updatedAt },
+    { $set: { quoteFingerprint: JSON.stringify([result.priced, result.total]) } },
+  );
 }
 function parsePage(value: string) {
   const n = Number(value);
