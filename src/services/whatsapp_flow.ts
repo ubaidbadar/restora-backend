@@ -224,6 +224,9 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
         ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
       if (typeof priced === 'string') throw new Error(priced);
       const totals = calcTotals(priced, 0, 0, 0);
+      if (JSON.stringify([priced, totals.total]) !== cart.quoteFingerprint) {
+        throw new Error('The menu prices changed; review your cart and confirm the new total');
+      }
       if (JSON.stringify([priced, totals.total]) !== approvedFingerprint)
         throw new Error('Menu price or availability changed. Review CART and confirm the new amount.');
       const normalizedPhone = '+92' + phone.slice(1);
