@@ -34,6 +34,12 @@ import orderCancelSchema from '../validations/order_cancel';
 
 type PaymentMethod = NonNullable<IOrder['paymentMethod']>;
 
+/** The current branch must constrain direct order lookups and writes, not only the list endpoint. */
+function scopedOrderId(c: Context, id: string | import('mongoose').Types.ObjectId) {
+  const branchId = c.get('branchId') as string | undefined;
+  return { _id: id, ...(branchId ? { branchId } : {}) };
+}
+
 
 async function taxRateFor(method: PaymentMethod | undefined): Promise<number> {
   if (!method) return 0;
@@ -272,7 +278,7 @@ export async function getOrder(c: Context) {
   const objId = toObjectId(id);
   if (!objId) return c.json({ message: 'Order not found' }, 404);
   const [order] = await Order.aggregate([
-    { $match: { _id: objId } },
+    { $match: scopedOrderId(c, objId) },
     {
       $lookup: {
         from: 'auditentries',
@@ -300,6 +306,8 @@ export async function getOrder(c: Context) {
  * orders have no "placed" entry; their placing is on the order itself.
  */
 export async function orderTimeline(c: Context) {
+  const order = await Order.findOne(scopedOrderId(c, c.req.param('id') ?? '')).select({ _id: 1 }).catch(() => null);
+  if (!order) return c.json({ message: 'Order not found' }, 404);
   const entries = await AuditEntry.aggregate([
     { $match: { 'target.type': 'order', 'target.id': c.req.param('id') } },
     { $sort: { at: 1 } },
@@ -550,7 +558,7 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
   // Only a guest's order from the table starts as pending; accepting it moves it to new, and it never goes back.
   if (status === 'pending') throw httpError(400, 'An order cannot go back to waiting for acceptance');
   const order = await Order.findOneAndUpdate(
-    { _id: id, status: { $ne: 'cancelled' } },
+    { ...scopedOrderId(c, id), status: { $ne: 'cancelled' } },
     { $set: { status } },
     { returnDocument: 'before' }
   ).catch(() => null);
@@ -562,7 +570,7 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
     target: { type: 'order', id, label: `#${order.dailyToken}` },
     changes: { before: { status: order.status }, after: { status } },
   });
-  const updated = await Order.findById(id);
+  const updated = await Order.findOne(scopedOrderId(c, id));
   // A guest's order is printed for the kitchen once the staff accept it.
   if (updated && order.status === 'pending' && status === 'new') {
     await queuePrintJobs(updated, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
@@ -600,7 +608,7 @@ export async function recordPayment(c: Context) {
   };
   const user = c.get('user');
 
-  const order = await Order.findById(id).catch(() => null);
+  const order = await Order.findOne(scopedOrderId(c, id)).catch(() => null);
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
@@ -627,7 +635,7 @@ export async function recordPayment(c: Context) {
   const updated = await runInTransaction(async (session) => {
     // Only an unpaid order can be paid, checked in the same write, so a double tap cannot charge twice.
     const paid = await Order.findOneAndUpdate(
-      { _id: id, paymentStatus: 'unpaid', status: { $ne: 'cancelled' } },
+      { ...scopedOrderId(c, id), paymentStatus: 'unpaid', status: { $ne: 'cancelled' } },
       {
         $set: {
           paymentMethod,
@@ -663,7 +671,7 @@ export async function updateOrder(c: Context) {
   const id = c.req.param('id') ?? '';
   const body = { ...(c.get('validatedJson') as Record<string, unknown>) };
 
-  const order = await Order.findById(id).catch(() => null);
+  const order = await Order.findOne(scopedOrderId(c, id)).catch(() => null);
   if (!order) {
     return c.json({ message: 'Order not found' }, 404);
   }
@@ -695,7 +703,7 @@ export async function updateOrder(c: Context) {
     body.tableName = table.name;
   }
 
-  const updated = await Order.findByIdAndUpdate(id, { $set: body }, { returnDocument: 'after' });
+  const updated = await Order.findOneAndUpdate(scopedOrderId(c, id), { $set: body }, { returnDocument: 'after' });
 
   const changes = updated ? orderChanges(order.toObject(), updated.toObject()) : undefined;
   if (changes) {
@@ -724,7 +732,7 @@ export async function editOrder(c: Context) {
   const id = c.req.param('id') ?? '';
   const body = c.get('validatedJson');
 
-  const order = await Order.findById(id).catch(() => null);
+  const order = await Order.findOne(scopedOrderId(c, id)).catch(() => null);
   if (!order) return c.json({ message: 'Order not found' }, 404);
   if (!EDITABLE_STATUSES.includes(order.status)) {
     return c.json({ message: 'This order is on the way or done, so it can no longer be changed' }, 400);
@@ -757,8 +765,8 @@ export async function editOrder(c: Context) {
   const totals = calcTotals(items, body.discount || 0, 0, deliveryFee);
   const isDelivery = body.type === 'delivery';
 
-  const updated = await Order.findByIdAndUpdate(
-    id,
+  const updated = await Order.findOneAndUpdate(
+    scopedOrderId(c, id),
     {
       $set: {
         customerId: found.customerId,
@@ -815,7 +823,7 @@ export async function cancelOrder(c: Context) {
   let wasStatus: IOrder['status'] | undefined;
   const cancelled = await runInTransaction(async (session) => {
     const order = await Order.findOneAndUpdate(
-      { _id: id, status: { $ne: 'cancelled' } },
+      { ...scopedOrderId(c, id), status: { $ne: 'cancelled' } },
       { $set: { status: 'cancelled', cancellation } },
       { returnDocument: 'before', session }
     ).catch(() => null);
