@@ -61,7 +61,14 @@ async function recordOutbound(connection: IWhatsAppConnection, phone: string, id
 async function send(connection: IWhatsAppConnection, phone: string, payload: Record<string, unknown>, type: string, preview?: string) {
   if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) return null;
   const id = await sendWhatsApp(connection, phone, payload);
-  await recordOutbound(connection, phone, id, type, preview);
+  // Graph accepted the message; an inbox logging failure must not cause Meta to
+  // retry the inbound webhook and send the same customer response again.
+  try {
+    await recordOutbound(connection, phone, id, type, preview);
+  } catch (error) {
+    console.error('[WhatsApp] Graph sent message but outbound inbox logging failed', id,
+      error instanceof Error ? error.message : 'unknown error');
+  }
   return id;
 }
 async function say(connection: IWhatsAppConnection, phone: string, text: string) {
@@ -200,7 +207,19 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
   const filter = cartFilter(connection, phone);
   const cart = await WhatsAppCart.findOne(filter);
   if (!cart?.items.length) return say(connection, phone, 'There is no unconfirmed order. Send MENU to start.');
-  if (cart.state === 'confirmed') return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
+  if (cart.state === 'confirmed') {
+    const saved = cart.orderId ? await Order.findOne({
+      _id: cart.orderId, branchId: connection.branchId,
+      whatsappPhone: phone, whatsappPhoneNumberId: connection.phoneNumberId,
+    }).catch(() => null) : null;
+    if (saved) {
+      // A webhook retry after an invoice/network failure must resume delivery
+      // for the existing order, never create a new order from the old cart.
+      await deliverInvoice(connection, phone, saved);
+      return say(connection, phone, 'Order #' + saved.dailyToken + ' is already confirmed.');
+    }
+    return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
+  }
   if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed.');
   if (!cart.quoteFingerprint || quoteActionId(cart.quoteFingerprint) !== actionId) return say(connection, phone, 'That Confirm button is outdated. Send CART and confirm the latest summary.');
   const pricedBeforeClaim = await priceItems(cart.items.map((it) =>
