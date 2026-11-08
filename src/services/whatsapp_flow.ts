@@ -145,8 +145,8 @@ async function pricedCart(connection: IWhatsAppConnection, phone: string) {
   return { priced, total: calcTotals(priced, 0, 0, 0).total, cart } as const;
 }
 /** Bind a Confirm tap to the exact quoted cart, not whichever cart is current later. */
-export function quoteActionId(fingerprint: string): string {
-  return 'confirm:' + createHash('sha256').update(fingerprint).digest('hex').slice(0, 24);
+export function quoteActionId(fingerprint: string, cartIdentity: string): string {
+  return 'confirm:' + createHash('sha256').update(cartIdentity + ':' + fingerprint).digest('hex').slice(0, 24);
 }
 async function summary(connection: IWhatsAppConnection, phone: string) {
   const result = await pricedCart(connection, phone);
@@ -162,7 +162,7 @@ async function summary(connection: IWhatsAppConnection, phone: string) {
   const sentId = await send(connection, phone, { type: 'interactive', interactive: {
     type: 'button', body: { text: body.length > 1024 ? 'Total: Rs ' + result.total + '. Confirm or cancel this order.' : body },
     action: { buttons: [
-      { type: 'reply', reply: { id: quoteActionId(JSON.stringify([result.priced, result.total])), title: 'Confirm' } },
+      { type: 'reply', reply: { id: quoteActionId(JSON.stringify([result.priced, result.total]), String(result.cart._id) + ':' + (result.cart.generation || 0)), title: 'Confirm' } },
       { type: 'reply', reply: { id: 'cancel', title: 'Cancel' } },
       { type: 'reply', reply: { id: 'menu', title: 'Add more' } },
     ] },
@@ -221,7 +221,7 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
     return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
   }
   if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed.');
-  if (!cart.quoteFingerprint || quoteActionId(cart.quoteFingerprint) !== actionId) return say(connection, phone, 'That Confirm button is outdated. Send CART and confirm the latest summary.');
+  if (!cart.quoteFingerprint || quoteActionId(cart.quoteFingerprint, String(cart._id) + ':' + (cart.generation || 0)) !== actionId) return say(connection, phone, 'That Confirm button is outdated. Send CART and confirm the latest summary.');
   const pricedBeforeClaim = await priceItems(cart.items.map((it) =>
     ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
   if (typeof pricedBeforeClaim === 'string') {
