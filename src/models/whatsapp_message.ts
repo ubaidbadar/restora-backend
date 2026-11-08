@@ -20,6 +20,7 @@ export interface IWhatsAppMessage {
   receivedAt: Date;
   processedAt?: Date;
   processingAt?: Date;
+  processingAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -38,6 +39,7 @@ const WhatsAppMessageSchema = new Schema<IWhatsAppMessage>({
   interactiveId: String,
   receivedAt: { type: Date, required: true },
   processedAt: Date,
+  processingAt: Date,
   processingAt: Date,
 }, { timestamps: true });
 WhatsAppMessageSchema.plugin(tenantPlugin);
