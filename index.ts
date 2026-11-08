@@ -36,7 +36,6 @@ import auditRouter from './src/routes/audit';
 import publicRouter from './src/routes/public';
 import whatsappRouter from './src/routes/whatsapp';
 import whatsappInboxRouter from './src/routes/whatsapp_inbox';
-import whatsappInboxRouter from './src/routes/whatsapp_inbox';
 import guestRequestRouter from './src/routes/guest_request';
 import accountRouter from './src/routes/account';
 import uploadRouter from './src/routes/upload';
@@ -122,7 +121,6 @@ api.route('/customers', customerRouter);
 api.route('/menu', menuRouter);
 api.route('/orders', orderRouter);
 api.route('/whatsapp', whatsappInboxRouter);
-api.route('/whatsapp', whatsappInboxRouter);
 api.route('/tables', tableRouter);
 api.route('/reservations', reservationRouter);
 api.route('/roles', roleRouter);
@@ -196,3 +194,4 @@ export default {
   port,
   fetch: app.fetch,
 };
+

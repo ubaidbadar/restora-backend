@@ -34,7 +34,7 @@ export function validateWhatsAppLLM(
     const entry = menu.find((candidate) => candidate.id === item.itemId);
     const matches = menu.filter((candidate) => wordsContain(normalized(candidate.name), name));
     // The requested phrase must occur in the actual message, and map to exactly one dish.
-    if (!name || name.length < 3 || !wordsContain(request, name) || matches.length !== 1 || matches[0]?.id !== entry?.id) {
+    if (!entry || !name || name.length < 3 || !wordsContain(request, name) || matches.length !== 1 || matches[0]?.id !== entry.id) {
       unmatched.push(typeof item.rawName === 'string' ? item.rawName : 'Unknown dish');
       continue;
     }
@@ -55,3 +55,4 @@ export function validateWhatsAppLLM(
   }
   return { selections, unmatched: unmatched.slice(0, 20) };
 }
+
