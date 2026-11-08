@@ -81,9 +81,12 @@ export async function receiveWebhook(c: Context) {
             { $set: { processingAt: new Date() } }, { returnDocument: 'after' });
           if (!claimed) continue;
           try {
-            await processWhatsAppMessage(connection, phone, {
-              id: message.id, type: message.type, text: message.text, interactive: message.interactive,
-            });
+            // An unprovisioned number may receive/store messages, but cannot send replies.
+            if (connection.status === 'connected' && connection.accessTokenEncrypted) {
+              await processWhatsAppMessage(connection, phone, {
+                id: message.id, type: message.type, text: message.text, interactive: message.interactive,
+              });
+            }
             await WhatsAppMessage.updateOne({ _id: claimed._id }, { $set: { processedAt: new Date() }, $unset: { processingAt: '' } });
           } catch (error) {
             failures++;
