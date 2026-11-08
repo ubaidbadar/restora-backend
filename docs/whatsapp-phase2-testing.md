@@ -9,7 +9,7 @@ This branch implements API-only WhatsApp ordering. **Do not treat it as producti
 - A separate **customer test number** that can message the restaurant's own WhatsApp Business number. Never use Restora's OTP platform number for restaurant chat.
 
 ## Automated check
-Run `bun run check` on a checkout of `dev` with dependencies installed. This runs the TypeScript compiler and Bun tests including `tests/whatsapp_phase2.test.ts`. The repository currently has no standalone ESLint configuration; linting is not included in this command.
+Run `bun run check` on a checkout of `dev` with dependencies installed. This runs TypeScript typechecking, the local WhatsApp syntax/security lint (`scripts/lint_whatsapp.ts`), and Bun test suites including `tests/whatsapp_phase2.test.ts`, `tests/whatsapp_phase2_unit.test.ts`, and `tests/whatsapp_webhook_integration.test.ts`. The focused safety lint is not a repository-wide ESLint replacement.
 
 ## End-to-end test plan
 1. **Webhook security/dedupe**: GET with a wrong `hub.verify_token` must return HTTP 403 with `Verification token mismatch`. POST unsigned/wrong HMAC must return 401. Send one real WhatsApp text message from the customer to the connected restaurant number; replay the exact signed POST to verify the Meta message ID is stored once in `WhatsAppMessage` with the right `restaurantId` and `branchId`.
