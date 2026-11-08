@@ -193,7 +193,12 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
       }
       const totals = calcTotals(priced, 0, 0, 0);
       const today = dayKey();
-      const customer = await Customer.findOne({ phone: '+92' + phone.slice(1) });
+      const normalizedPhone = '+92' + phone.slice(1);
+      const customer = await Customer.findOneAndUpdate(
+        { phone: normalizedPhone },
+        { $setOnInsert: { name: 'WhatsApp Guest', phone: normalizedPhone, source: 'whatsapp' } },
+        { upsert: true, returnDocument: 'after' }
+      );
       try {
         order = await runInTransaction(async (session) => {
           const counter = await DailyCounter.findOneAndUpdate(
@@ -203,7 +208,7 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
             dailyToken: counter?.seq || 1, branchId: connection.branchId, type: 'takeaway', status: 'pending',
             items: priced, subtotal: totals.subtotal, discount: 0, taxRate: 0, tax: 0, deliveryFee: 0,
             total: totals.total, paymentStatus: 'unpaid', dayKey: today, clientId,
-            whatsappPhone: phone,
+            whatsappPhone: phone, whatsappPhoneNumberId: connection.phoneNumberId,
             ...(customer ? { customerId: String(customer._id), customer: { _id: String(customer._id), name: customer.name, phone: customer.phone } } : {}),
             takenBy: 'Guest (WhatsApp)',
           }], { session });
@@ -223,7 +228,7 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
   }
 }
 export async function deliverInvoice(connection: IWhatsAppConnection, phone: string, order: IOrder) {
-  if (order.whatsappPhone !== phone) throw new Error('Invoice recipient must match the original WhatsApp order number');
+  if (order.whatsappPhone !== phone || order.whatsappPhoneNumberId !== connection.phoneNumberId) throw new Error('Invoice recipient/number must match the original WhatsApp order');
   if (!await withinWhatsAppWindow(connection.phoneNumberId, phone)) return { templateRequired: true };
   const [restaurant, branch] = await Promise.all([Restaurant.findById(connection.restaurantId), Branch.findById(connection.branchId)]);
   const name = restaurant?.name || branch?.name || 'Restaurant';
