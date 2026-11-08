@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import Branch from '../models/branch';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import { finishWhatsAppSignup, registerWithPin, OnboardingError } from '../services/whatsapp_onboarding';
+import logAudit, { auditActor } from '../utils/audit';
 
 const handle = (c: Context, e: unknown) => {
   if (e instanceof OnboardingError) return c.json({ message: e.message }, e.statusCode);
@@ -24,7 +25,11 @@ export async function connectWhatsApp(c: Context) {
   if (!branch) return c.json({ message: 'The selected branch is inactive.' }, 409);
   const { code, wabaId, phoneNumberId } = c.get('validatedJson') as { code: string; wabaId: string; phoneNumberId?: string };
   try {
-    return c.json(await finishWhatsAppSignup({ restaurantId, branchId, code, wabaId, phoneNumberId }), 201);
+    const result = await finishWhatsAppSignup({ restaurantId, branchId, code, wabaId, phoneNumberId });
+    await logAudit({ action: 'whatsapp.connected', actor: auditActor(c),
+      target: { type: 'whatsapp_connection', id: result.id, label: result.phoneNumberDisplay },
+      changes: { after: { status: result.status } } });
+    return c.json(result, 201);
   } catch (e) { return handle(c, e); }
 }
 export async function registerNumber(c: Context) {
@@ -34,7 +39,12 @@ export async function registerNumber(c: Context) {
   const connection = await WhatsAppConnection.findOne({ _id: c.req.param('id'), branchId }).catch(() => null);
   if (!connection) return c.json({ message: 'WhatsApp connection not found' }, 404);
   if (connection.status !== 'number_pending') return c.json({ message: 'This number does not require registration. Reconnect via Meta if its token expired.' }, 409);
-  try { return c.json(await registerWithPin(connection, pin)); }
+  try {
+    const result = await registerWithPin(connection, pin);
+    await logAudit({ action: 'whatsapp.registered', actor: auditActor(c),
+      target: { type: 'whatsapp_connection', id: String(connection._id), label: connection.phoneNumberDisplay } });
+    return c.json(result);
+  }
   catch (e) { return handle(c, e); }
 }
 export async function disconnectNumber(c: Context) {
@@ -45,5 +55,7 @@ export async function disconnectNumber(c: Context) {
     { returnDocument: 'after' }).catch(() => null);
   if (!connection) return c.json({ message: 'Connection not found' }, 404);
   // Deliberately do not unsubscribe the whole WABA: that may affect other numbers.
+  await logAudit({ action: 'whatsapp.disconnected', actor: auditActor(c),
+    target: { type: 'whatsapp_connection', id: String(connection._id), label: connection.phoneNumberDisplay } });
   return c.json({ id: String(connection._id), status: connection.status });
 }
