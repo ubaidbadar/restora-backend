@@ -39,6 +39,9 @@ export interface IOrder {
   dailyToken: number;
   branchId: string;
   customerId?: string;
+  /** Immutable WhatsApp recipient/number used for the order's invoice. */
+  whatsappPhone?: string;
+  whatsappPhoneNumberId?: string;
   customer?: IOrderCustomer;
   type: 'dine_in' | 'takeaway' | 'delivery';
   status: OrderStatus;
@@ -113,6 +116,8 @@ const OrderSchema = new Schema<IOrder>(
     dailyToken: { type: Number, required: true },
     branchId: { type: String, required: true, index: true },
     customerId: { type: String, index: true },
+    whatsappPhone: { type: String },
+    whatsappPhoneNumberId: { type: String },
     customer: { type: OrderCustomerSchema },
     type: { type: String, enum: ['dine_in', 'takeaway', 'delivery'], required: true },
     status: {
