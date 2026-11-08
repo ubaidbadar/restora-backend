@@ -19,6 +19,7 @@ export interface IWhatsAppMessage {
   interactiveId?: string;
   receivedAt: Date;
   processedAt?: Date;
+  processingAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -37,6 +38,7 @@ const WhatsAppMessageSchema = new Schema<IWhatsAppMessage>({
   interactiveId: String,
   receivedAt: { type: Date, required: true },
   processedAt: Date,
+  processingAt: Date,
 }, { timestamps: true });
 WhatsAppMessageSchema.plugin(tenantPlugin);
 WhatsAppMessageSchema.index({ restaurantId: 1, metaMessageId: 1 }, { unique: true });
