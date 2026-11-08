@@ -432,6 +432,7 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
     return summary(connection, phone);
   }
   if (lower === 'cart') return summary(connection, phone);
+  if (action) return say(connection, phone, 'That menu choice is no longer available. Send MENU to browse the latest menu, or CART to review your order.');
   if (text) {
     const inProgress = await WhatsAppCart.findOne(cartFilter(connection, phone));
     if (inProgress?.state === 'confirming') return say(connection, phone, 'Please wait while your order is confirmed.');
