@@ -7,122 +7,94 @@ import { whatsappPhone } from '../utils/whatsapp_phone';
 import { processWhatsAppMessage } from '../services/whatsapp_flow';
 
 type MetaMessage = {
-  id: string;
-  from: string;
-  timestamp?: string;
-  type?: string;
+  id?: string; from?: string; timestamp?: string; type?: string;
   text?: { body?: string };
   image?: { id?: string; mime_type?: string; caption?: string };
-  interactive?: {
-    type?: string;
-    list_reply?: { id?: string; title?: string };
-    button_reply?: { id?: string; title?: string };
-  };
+  interactive?: { type?: string; list_reply?: { id?: string; title?: string }; button_reply?: { id?: string; title?: string } };
 };
-type MetaChangeValue = {
-  metadata?: { phone_number_id?: string };
-  messages?: MetaMessage[];
-};
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+type MetaChange = { value?: { metadata?: { phone_number_id?: string }; messages?: MetaMessage[] } };
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** Preserve Meta's existing verification handshake exactly. */
 export async function verifyWebhook(c: Context) {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');
   const challenge = c.req.query('hub.challenge');
   const expected = process.env.WHATSAPP_VERIFY_TOKEN;
-  if (mode === 'subscribe' && expected && token === expected && challenge) {
-    return c.text(challenge, 200);
-  }
+  if (mode === 'subscribe' && expected && token === expected && challenge) return c.text(challenge, 200);
   return c.json({ message: 'Verification token mismatch' }, 403);
 }
-
 export async function receiveWebhook(c: Context) {
-  const appSecret = process.env.WHATSAPP_APP_SECRET;
-  if (!appSecret) {
-    console.error('[WhatsApp] WHATSAPP_APP_SECRET is not configured; refusing webhook POST');
+  const secret = process.env.WHATSAPP_APP_SECRET;
+  if (!secret) {
+    console.error('[WhatsApp] WHATSAPP_APP_SECRET not configured');
     return c.json({ message: 'WhatsApp webhook is not configured' }, 503);
   }
   const rawBody = await c.req.text();
-  if (!verifyWhatsAppSignature(rawBody, c.req.header('x-hub-signature-256'), appSecret)) {
+  if (!verifyWhatsAppSignature(rawBody, c.req.header('x-hub-signature-256'), secret))
     return c.json({ message: 'Invalid signature' }, 401);
-  }
-  let body: unknown;
-  try { body = JSON.parse(rawBody); }
-  catch { return c.json({ message: 'Invalid JSON' }, 400); }
-  if (!isRecord(body) || body.object !== 'whatsapp_business_account') {
+  let parsed: unknown;
+  try { parsed = JSON.parse(rawBody); } catch { return c.json({ message: 'Invalid JSON' }, 400); }
+  if (!isRecord(parsed) || parsed.object !== 'whatsapp_business_account')
     return c.json({ message: 'Not a WhatsApp event' }, 400);
-  }
-
-  const entries = Array.isArray(body.entry) ? body.entry : [];
+  const entries = Array.isArray(parsed.entry) ? parsed.entry : [];
+  let failures = 0;
   for (const entry of entries) {
     if (!isRecord(entry) || !Array.isArray(entry.changes)) continue;
-    for (const change of entry.changes) {
-      if (!isRecord(change) || !isRecord(change.value)) continue;
-      const value = change.value as MetaChangeValue;
-      const phoneNumberId = value.metadata?.phone_number_id;
-      const messages = Array.isArray(value.messages) ? value.messages : [];
-      if (!phoneNumberId || !messages.length) continue;
+    for (const change of entry.changes as MetaChange[]) {
+      const value = change?.value;
+      const phoneNumberId = value?.metadata?.phone_number_id;
+      if (!phoneNumberId || !Array.isArray(value?.messages)) continue;
       const connection = await runWithoutTenant(() =>
-        WhatsAppConnection.findOne({ phoneNumberId, status: { $ne: 'disconnected' } })
-      );
+        WhatsAppConnection.findOne({ phoneNumberId, status: { $ne: 'disconnected' } }));
       if (!connection?.restaurantId) {
-        console.log('[WhatsApp] Ignoring unmapped phone_number_id');
+        console.log('[WhatsApp] Ignoring message for unconnected phone_number_id', phoneNumberId);
         continue;
       }
       await runWithTenant(String(connection.restaurantId), async () => {
-        for (const message of messages) {
-          if (!message?.id || !message?.from) continue;
-          const phone = whatsappPhone(message.from);
+        for (const message of value.messages!) {
+          if (!message?.id || !message.from) continue;
+          const phone = whatsappPhone(message.from) || message.from.replace(/\D/g, '').slice(0, 24);
           if (!phone) continue;
-          const receivedAtRaw = message.timestamp ? Number(message.timestamp) * 1000 : Date.now();
-          const receivedAt = Number.isFinite(receivedAtRaw) && receivedAtRaw > 0
-            ? new Date(receivedAtRaw) : new Date();
-          const record = {
-            branchId: connection.branchId,
-            phoneNumberId, phone, from: message.from,
-            to: connection.phoneNumberDisplay, direction: 'inbound' as const,
-            metaMessageId: message.id, messageType: message.type || 'unknown',
-            text: message.text?.body || message.image?.caption || message.interactive?.list_reply?.title || message.interactive?.button_reply?.title,
-            mediaId: message.image?.id,
-            mediaMimeType: message.image?.mime_type,
-            interactiveId: message.interactive?.list_reply?.id || message.interactive?.button_reply?.id,
-            receivedAt,
-          };
-          // Unique index is authoritative; find-then-create alone races under webhook retries.
-          const saved = await WhatsAppMessage.findOneAndUpdate(
-            { metaMessageId: message.id }, { $setOnInsert: record },
-            { upsert: true, returnDocument: 'after' }
-          );
-          if (!saved || saved.processedAt) continue;
-          // Claim delivery with a recoverable lease; only one concurrent worker handles a message.
-          const leaseBefore = new Date(Date.now() - 90_000);
+          const text = (
+            message.text?.body || message.image?.caption ||
+            message.interactive?.list_reply?.title || message.interactive?.button_reply?.title || ''
+          ).slice(0, 4096);
+          const interactiveId = message.interactive?.list_reply?.id || message.interactive?.button_reply?.id;
+          const seconds = Number(message.timestamp);
+          const receivedAt = seconds > 0 && Number.isFinite(seconds) ? new Date(seconds * 1000) : new Date();
+          const existing = await WhatsAppMessage.findOne({ metaMessageId: message.id });
+          if (!existing) {
+            try {
+              await WhatsAppMessage.create({
+                branchId: connection.branchId, phoneNumberId, phone, from: message.from,
+                direction: 'inbound', metaMessageId: message.id, messageType: message.type || 'unknown',
+                text, interactiveId, mediaId: message.image?.id, mediaMimeType: message.image?.mime_type, receivedAt,
+              });
+            } catch (error) {
+              if ((error as { code?: number }).code !== 11000) { failures++; continue; }
+            }
+          }
+          // Only one processor may act on a given Meta ID. Failed actions are retriable.
           const claimed = await WhatsAppMessage.findOneAndUpdate(
-            { _id: saved._id, processedAt: { $exists: false },
-              $or: [{ processingAt: { $exists: false } }, { processingAt: { $lt: leaseBefore } }] },
-            { $set: { processingAt: new Date() } }, { returnDocument: 'after' }
-          );
+            { metaMessageId: message.id, direction: 'inbound', processedAt: { $exists: false }, processingAt: { $exists: false } },
+            { $set: { processingAt: new Date() } }, { returnDocument: 'after' });
           if (!claimed) continue;
           try {
-            if (message.type === 'text' || message.type === 'interactive') {
-              await processWhatsAppMessage(connection, phone, message);
-            }
-            await WhatsAppMessage.updateOne({ _id: saved._id }, {
-              $set: { processedAt: new Date() }, $unset: { processingAt: '' },
+            await processWhatsAppMessage(connection, phone, {
+              id: message.id, type: message.type, text: message.text, interactive: message.interactive,
             });
+            await WhatsAppMessage.updateOne({ _id: claimed._id }, { $set: { processedAt: new Date() }, $unset: { processingAt: '' } });
           } catch (error) {
-            await WhatsAppMessage.updateOne({ _id: saved._id }, { $unset: { processingAt: '' } }).catch(() => {});
-            console.error('[WhatsApp] Processing message failed:', (error as Error).message);
-            // Meta must retry transient failures, including failed Graph sends.
-            throw error;
+            failures++;
+            console.error('[WhatsApp] Message processing failed', message.id, error instanceof Error ? error.message : 'unknown error');
+            await WhatsAppMessage.updateOne({ _id: claimed._id }, { $unset: { processingAt: '' } });
           }
         }
       });
     }
   }
-  return c.json({ received: true }, 200);
+  // Meta retries when processing fails. Dedupe records make replay safe.
+  return failures ? c.json({ message: 'WhatsApp message processing temporarily unavailable' }, 503) : c.json({ received: true }, 200);
 }
-
 export default { verifyWebhook, receiveWebhook };
