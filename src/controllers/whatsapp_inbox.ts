@@ -3,13 +3,13 @@ import WhatsAppConnection from '../models/whatsapp_connection';
 import WhatsAppMessage from '../models/whatsapp_message';
 import Customer from '../models/customer';
 import { whatsappPhone } from '../utils/whatsapp_phone';
+import { isWhatsAppWindowOpen } from '../utils/whatsapp_window';
 import { sendWhatsApp, WhatsAppSendError } from '../services/whatsapp_graph';
 
-const WINDOW_MS = 24 * 60 * 60 * 1000;
 export async function withinWhatsAppWindow(phoneNumberId: string, phone: string) {
   const latest = await WhatsAppMessage.findOne({ phoneNumberId, phone, direction: 'inbound' })
     .sort({ receivedAt: -1 }).select({ receivedAt: 1 });
-  return !!latest && Date.now() - latest.receivedAt.getTime() < WINDOW_MS && latest.receivedAt.getTime() <= Date.now() + 60_000;
+  return isWhatsAppWindowOpen(latest?.receivedAt);
 }
 export const WINDOW_ERROR = 'The 24-hour WhatsApp customer-service window is closed. Use the template-message route instead; no message was sent.';
 
