@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import MenuCategory from '../models/menu_category';
 import MenuItem from '../models/menu_item';
 import WhatsAppCart from '../models/whatsapp_cart';
@@ -34,9 +35,9 @@ function cartFilter(connection: IWhatsAppConnection, phone: string) {
 async function menu(connection: IWhatsAppConnection) {
   const [categories, items] = await Promise.all([
     MenuCategory.find({}).sort({ sortOrder: 1 }),
-    MenuItem.find({ hidden: false }).sort({ createdAt: 1 }),
+    MenuItem.find({}).sort({ createdAt: 1 }),
   ]);
-  const available = items.filter((it) => !it.soldOutBranchIds.includes(connection.branchId) &&
+  const available = items.filter((it) => !it.hidden && !it.soldOutBranchIds.includes(connection.branchId) &&
     onSale(it) && (it.includes || []).every((part) => {
       const dish = items.find((candidate) => String(candidate._id) === part.itemId);
       return !!dish && !dish.soldOutBranchIds.includes(connection.branchId);
@@ -126,6 +127,10 @@ async function pricedCart(connection: IWhatsAppConnection, phone: string) {
   if (typeof priced === 'string') return { error: priced + '. Send MENU to update your cart.' } as const;
   return { priced, total: calcTotals(priced, 0, 0, 0).total, cart } as const;
 }
+/** Bind a Confirm tap to the exact quoted cart, not whichever cart is current later. */
+export function quoteActionId(fingerprint: string): string {
+  return 'confirm:' + createHash('sha256').update(fingerprint).digest('hex').slice(0, 24);
+}
 async function summary(connection: IWhatsAppConnection, phone: string) {
   const result = await pricedCart(connection, phone);
   if ('error' in result) return say(connection, phone, result.error);
@@ -140,7 +145,7 @@ async function summary(connection: IWhatsAppConnection, phone: string) {
   const sentId = await send(connection, phone, { type: 'interactive', interactive: {
     type: 'button', body: { text: body.length > 1024 ? 'Total: Rs ' + result.total + '. Confirm or cancel this order.' : body },
     action: { buttons: [
-      { type: 'reply', reply: { id: 'confirm', title: 'Confirm' } },
+      { type: 'reply', reply: { id: quoteActionId(JSON.stringify([result.priced, result.total])), title: 'Confirm' } },
       { type: 'reply', reply: { id: 'cancel', title: 'Cancel' } },
       { type: 'reply', reply: { id: 'menu', title: 'Add more' } },
     ] },
@@ -181,13 +186,13 @@ async function llmParse(text: string, live: Awaited<ReturnType<typeof menu>>) {
     return { error: 'No dishes found. Send MENU to browse.' } as const;
   return checked as { selections: { itemId: string; sizeId: string; qty: number }[]; unmatched: string[] };
 }
-async function confirm(connection: IWhatsAppConnection, phone: string, confirmMessageId: string) {
+async function confirm(connection: IWhatsAppConnection, phone: string, confirmMessageId: string, actionId: string) {
   const filter = cartFilter(connection, phone);
   const cart = await WhatsAppCart.findOne(filter);
   if (!cart?.items.length) return say(connection, phone, 'There is no unconfirmed order. Send MENU to start.');
   if (cart.state === 'confirmed') return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
   if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed.');
-  if (!cart.quoteFingerprint) return say(connection, phone, 'Review the priced CART and tap its Confirm button before ordering.');
+  if (!cart.quoteFingerprint || quoteActionId(cart.quoteFingerprint) !== actionId) return say(connection, phone, 'That Confirm button is outdated. Send CART and confirm the latest summary.');
   const pricedBeforeClaim = await priceItems(cart.items.map((it) =>
     ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
   if (typeof pricedBeforeClaim === 'string') {
@@ -343,22 +348,30 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
   const lower = text.toLowerCase();
   if (action === 'menu' || /^(menu|hi|hello|start)$/i.test(text)) return showCategories(connection, phone, 0);
   if (action === 'cancel' || lower === 'cancel') {
-    await WhatsAppCart.deleteOne(cartFilter(connection, phone));
+    const cart = await WhatsAppCart.findOne(cartFilter(connection, phone));
+    if (cart?.state === 'confirming') return say(connection, phone, 'Your order is being confirmed. Please check its status before cancelling.');
+    await WhatsAppCart.deleteOne({ ...cartFilter(connection, phone), state: { $ne: 'confirming' } });
     return say(connection, phone, 'Cart cleared. Send MENU to begin again.');
   }
-  if (action === 'confirm') return confirm(connection, phone, message.id);
+  if (action.startsWith('confirm:')) return confirm(connection, phone, message.id, action);
   if (action.startsWith('cats:')) return showCategories(connection, phone, parsePage(action.slice(5)));
   if (action.startsWith('category:')) return showItems(connection, phone, action.slice(9), 0);
   if (action.startsWith('dishes:')) {
     const parts = action.split(':');
     return showItems(connection, phone, parts[1] || '', parsePage(parts[2] || '0'));
   }
-  if (action.startsWith('dish:')) return showSizes(connection, phone, action.slice(5));
+  if (action.startsWith('dish:')) {
+    const cart = await WhatsAppCart.findOne(cartFilter(connection, phone));
+    if (cart?.state === 'confirming') return say(connection, phone, 'Please wait while we confirm your current order.');
+    return showSizes(connection, phone, action.slice(5));
+  }
   if (action.startsWith('sizes:')) {
     const parts = action.split(':');
     return showSizePage(connection, phone, parts[1] || '', parsePage(parts[2] || '0'));
   }
   if (action.startsWith('size:')) {
+    const inProgress = await WhatsAppCart.findOne(cartFilter(connection, phone));
+    if (inProgress?.state === 'confirming') return say(connection, phone, 'Please wait while your order is confirmed.');
     await resetConfirmedCart(connection, phone);
     const [, itemId, sizeId] = action.split(':');
     const entry = (await menu(connection)).items.find((it) => it.id === itemId);
@@ -369,6 +382,8 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
     return showQuantities(connection, phone, entry.name);
   }
   if (action.startsWith('qty:')) {
+    const inProgress = await WhatsAppCart.findOne(cartFilter(connection, phone));
+    if (inProgress?.state === 'confirming') return say(connection, phone, 'Please wait while your order is confirmed.');
     const qty = Number(action.slice(4));
     if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) return say(connection, phone, 'Choose a quantity from 1 to 10.');
     const cart = await WhatsAppCart.findOne(cartFilter(connection, phone));
@@ -385,6 +400,8 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
   }
   if (lower === 'cart') return summary(connection, phone);
   if (text) {
+    const inProgress = await WhatsAppCart.findOne(cartFilter(connection, phone));
+    if (inProgress?.state === 'confirming') return say(connection, phone, 'Please wait while your order is confirmed.');
     await resetConfirmedCart(connection, phone);
     const live = await menu(connection);
     const parsed = await llmParse(text, live);
