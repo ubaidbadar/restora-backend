@@ -14,6 +14,7 @@ import dayKey from '../utils/day_key';
 import onSale from '../utils/on_sale';
 import { paginateWhatsApp, safeWhatsAppText } from '../utils/whatsapp_menu';
 import { sendWhatsApp, uploadWhatsAppPdf } from './whatsapp_graph';
+import notifyStaff from './push';
 import { invoiceMessage, invoicePdf } from '../utils/whatsapp_invoice';
 import WhatsAppInvoiceDelivery from '../models/whatsapp_invoice_delivery';
 import { withinWhatsAppWindow } from '../controllers/whatsapp_inbox';
@@ -90,6 +91,7 @@ async function showItems(connection: IWhatsAppConnection, phone: string, categor
       ...(next === null ? [] : [{ id: 'dishes:' + categoryId + ':' + next, title: 'More dishes' }])]);
 }
 async function showSizes(connection: IWhatsAppConnection, phone: string, itemId: string) {
+  await resetConfirmedCart(connection, phone);
   const live = await menu(connection);
   const item = live.items.find((it) => it.id === itemId);
   if (!item) return say(connection, phone, 'This dish is unavailable. Send MENU for current options.');
@@ -186,73 +188,96 @@ async function llmParse(text: string, live: Awaited<ReturnType<typeof menu>>) {
   return { selections, unmatched } as const;
 }
 async function confirm(connection: IWhatsAppConnection, phone: string, confirmMessageId: string) {
-  // Take the cart atomically. Two overlapping Confirm taps must not consume the same cart twice.
   const filter = cartFilter(connection, phone);
-  const clientId = 'wa:' + connection.phoneNumberId + ':' + confirmMessageId;
-  let order = await Order.findOne({ clientId });
-  // Meta retries the same Confirm message after failures; never require the consumed cart again.
-  if (order) {
-    await deliverInvoice(connection, phone, order);
-    return;
+  const cart = await WhatsAppCart.findOne(filter);
+  if (!cart?.items.length) return say(connection, phone, 'There is no unconfirmed order. Send MENU to start.');
+  if (cart.state === 'confirmed') return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
+  if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed.');
+  const pricedBeforeClaim = await priceItems(cart.items.map((it) =>
+    ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
+  if (typeof pricedBeforeClaim === 'string') {
+    return say(connection, phone, pricedBeforeClaim + '. Your order was NOT placed. Send MENU to update your cart.');
   }
-  const original = await WhatsAppCart.findOne(filter);
-  if (!original?.items.length || !original.quoteFingerprint) return say(connection, phone, 'Please review your cart and tap Confirm on the current summary. Send CART.');
-  const quote = await priceItems(original.items.map((it) => ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
-  if (typeof quote === 'string') return say(connection, phone, quote + '. No order was placed. Send MENU.');
-  const currentFingerprint = JSON.stringify([quote, calcTotals(quote, 0, 0, 0).total]);
-  if (currentFingerprint !== original.quoteFingerprint) {
-    await WhatsAppCart.updateOne(filter, { $unset: { quoteFingerprint: '' } });
-    await say(connection, phone, 'The menu or prices changed. Please review the new total before confirming.');
-    return summary(connection, phone);
-  }
-  // Claim the exact cart revision shown to the customer before order creation.
-  const cart = await WhatsAppCart.findOneAndDelete({ ...filter, quoteFingerprint: currentFingerprint });
-  if (!cart) return say(connection, phone, 'Your cart changed. Send CART to review and confirm again.');
+  // Claim the exact cart revision. No deletion until the order is safely persisted.
+  const claimed = await WhatsAppCart.findOneAndUpdate(
+    { ...filter, state: 'active', updatedAt: cart.updatedAt },
+    { $set: { state: 'confirming' } }, { returnDocument: 'after' });
+  if (!claimed) return say(connection, phone, 'Your cart changed. Review it again before confirming.');
+  const clientId = 'wa:' + String(claimed._id) + ':' + claimed.generation;
+  let order: IOrder;
+  let created = false;
   try {
-    if (!order) {
-      const priced = await priceItems(cart.items.map((it) => ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
-      if (typeof priced === 'string') {
-        await WhatsAppCart.updateOne(filter, { $setOnInsert: { ...filter, items: cart.items } }, { upsert: true });
-        return say(connection, phone, priced + '. Your order was NOT placed. Send MENU to change it.');
-      }
+    const existing = await Order.findOne({ clientId });
+    if (existing) order = existing;
+    else {
+      const outstanding = await Order.countDocuments({ branchId: connection.branchId, whatsappPhone: phone, status: 'pending' });
+      if (outstanding >= 3) throw new Error('Your earlier orders are waiting for staff. Please contact the restaurant.');
+      // Recompute price with the exact live menu; never accept LLM-provided prices.
+      const priced = await priceItems(claimed.items.map((it) =>
+        ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
+      if (typeof priced === 'string') throw new Error(priced);
       const totals = calcTotals(priced, 0, 0, 0);
-      const today = dayKey();
       const normalizedPhone = '+92' + phone.slice(1);
       const customer = await Customer.findOneAndUpdate(
         { phone: normalizedPhone },
         { $setOnInsert: { name: 'WhatsApp Guest', phone: normalizedPhone, source: 'whatsapp' } },
         { upsert: true, returnDocument: 'after' }
       );
+      if (!customer) throw new Error('Could not save customer');
       try {
         order = await runInTransaction(async (session) => {
+          const prior = await Order.findOne({ clientId }).session(session || null);
+          if (prior) return prior;
+          const today = dayKey();
           const counter = await DailyCounter.findOneAndUpdate(
             { restaurantId: connection.restaurantId, branchId: connection.branchId, dayKey: today },
             { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after', session });
-          const [made] = await Order.create([{
+          const [saved] = await Order.create([{
             dailyToken: counter?.seq || 1, branchId: connection.branchId, type: 'takeaway', status: 'pending',
             items: priced, subtotal: totals.subtotal, discount: 0, taxRate: 0, tax: 0, deliveryFee: 0,
             total: totals.total, paymentStatus: 'unpaid', dayKey: today, clientId,
             whatsappPhone: phone, whatsappPhoneNumberId: connection.phoneNumberId,
-            ...(customer ? { customerId: String(customer._id), customer: { _id: String(customer._id), name: customer.name, phone: customer.phone } } : {}),
+            customerId: String(customer._id),
+            customer: { _id: String(customer._id), name: customer.name, phone: customer.phone },
             takenBy: 'Guest (WhatsApp)',
           }], { session });
-          return made!;
+          if (!saved) throw new Error('Could not save order');
+          created = true;
+          return saved;
         });
       } catch (error) {
-        if ((error as { code?: number }).code === 11000) order = await Order.findOne({ clientId });
-        if (!order) throw error;
+        if ((error as { code?: number }).code === 11000) {
+          const duplicate = await Order.findOne({ clientId });
+          if (duplicate) order = duplicate;
+          else throw error;
+        } else throw error;
       }
     }
-    await say(connection, phone, 'Order #' + order.dailyToken + ' received. Status: ' + order.status + '.');
-    await deliverInvoice(connection, phone, order);
+    await WhatsAppCart.updateOne({ ...filter, state: 'confirming' },
+      { $set: { state: 'confirmed', orderId: String(order._id), items: [] },
+        $unset: { pendingItemId: '', pendingSizeId: '' } });
   } catch (error) {
-    // Never restore a consumed cart after the order exists: retrying must not place another order.
-    const saved = order || await Order.findOne({ clientId });
-    if (!saved) {
-      await WhatsAppCart.updateOne(filter, { $setOnInsert: { ...filter, items: cart.items } }, { upsert: true }).catch(() => {});
-    }
-    throw error;
+    await WhatsAppCart.updateOne({ ...filter, state: 'confirming' }, { $set: { state: 'active' } });
+    await say(connection, phone, 'Order not confirmed: ' + (error instanceof Error ? error.message : 'Please try again'));
+    return;
   }
+  if (created) {
+    notifyStaff(String(connection.restaurantId), connection.branchId, 'orders:view', {
+      title: 'WhatsApp order #' + order.dailyToken,
+      body: order.items.map((it) => it.qty + ' x ' + it.name).join(', '),
+      screen: 'orders', tag: 'order-' + String(order._id),
+    }).catch((error) => console.error('[WhatsApp] Staff notification failed:', error));
+  }
+  await say(connection, phone, 'Order #' + order.dailyToken + ' received. Status: ' + order.status + '.');
+  try { await deliverInvoice(connection, phone, order); }
+  catch (error) { console.error('[WhatsApp] Invoice send failed:', error instanceof Error ? error.message : 'unknown error'); }
+}
+async function resetConfirmedCart(connection: IWhatsAppConnection, phone: string) {
+  const filter = cartFilter(connection, phone);
+  await WhatsAppCart.findOneAndUpdate({ ...filter, state: 'confirmed' },
+    { $set: { state: 'active', items: [] },
+      $unset: { orderId: '', pendingItemId: '', pendingSizeId: '' },
+      $inc: { generation: 1 } });
 }
 export async function deliverInvoice(
   connection: IWhatsAppConnection, phone: string, order: IOrder, stage: 'confirmed' | 'completed' = 'confirmed'
@@ -328,6 +353,7 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
     return showSizePage(connection, phone, parts[1] || '', parsePage(parts[2] || '0'));
   }
   if (action.startsWith('size:')) {
+    await resetConfirmedCart(connection, phone);
     const [, itemId, sizeId] = action.split(':');
     const entry = (await menu(connection)).items.find((it) => it.id === itemId);
     if (!entry || !entry.sizes.some((s) => s.id === sizeId)) return say(connection, phone, 'That size is unavailable. Send MENU.');
@@ -353,6 +379,7 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
   }
   if (lower === 'cart') return summary(connection, phone);
   if (text) {
+    await resetConfirmedCart(connection, phone);
     const live = await menu(connection);
     const parsed = await llmParse(text, live);
     if ('error' in parsed) return say(connection, phone, parsed.error);
