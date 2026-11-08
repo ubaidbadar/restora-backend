@@ -7,6 +7,7 @@ import AddonGroup, { type IAddonGroup } from '../models/addon_group';
 import lookup from '../utils/lookup';
 import { toObjectId } from '../utils/auth_users';
 import Customer from '../models/customer';
+import WhatsAppConnection from '../models/whatsapp_connection';
 import DailyCounter from '../models/daily_counter';
 import Settings from '../models/settings';
 import Table from '../models/table';
@@ -565,6 +566,21 @@ async function setStatus(c: Context, id: string, status: IOrder['status']) {
   // A guest's order is printed for the kitchen once the staff accept it.
   if (updated && order.status === 'pending' && status === 'new') {
     await queuePrintJobs(updated, 'kitchen', printHeader(c), true).catch((err) => console.error('[Print] Queueing kitchen slips failed:', err));
+  }
+  // Optional second invoice on completion, only to the original WhatsApp sender.
+  // Outside the 24-hour window, the invoice delivery record becomes template_required, never sent freely.
+  if (updated && status === 'completed' && order.status !== 'completed' && updated.whatsappPhone && updated.whatsappPhoneNumberId) {
+    const connection = await WhatsAppConnection.findOne({
+      phoneNumberId: updated.whatsappPhoneNumberId, branchId: updated.branchId, invoiceOnComplete: true,
+    });
+    if (connection) {
+      try {
+        const { deliverInvoice } = await import('../services/whatsapp_flow');
+        await deliverInvoice(connection, updated.whatsappPhone, updated, 'completed');
+      } catch (err) {
+        console.error('[WhatsApp] Completion invoice failed:', err instanceof Error ? err.message : 'unknown error');
+      }
+    }
   }
   return updated;
 }
