@@ -125,6 +125,24 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
       expect(await Order.countDocuments({ whatsappPhone: '03001234567' })).toBe(0);
     });
   });
+  it('rejects a stale Confirm button after the customer changes the cart', async () => {
+    const latestConfirm = () => {
+      const interactive = sent.filter((payload) => payload.type === 'interactive').at(-1);
+      const buttons = (interactive?.interactive as { action?: { buttons?: { reply?: { id?: string } }[] } } | undefined)?.action?.buttons || [];
+      return buttons.find((button) => button.reply?.id?.startsWith('confirm:'))?.reply?.id;
+    };
+    modelReply = { items: [{ itemId: dishId, sizeId, qty: 1, rawName: 'Chicken Karahi' }], unmatched: [] };
+    expect((await webhook(event('stale-first-quote', '1 Chicken Karahi'))).status).toBe(200);
+    const staleAction = latestConfirm();
+    expect(staleAction?.startsWith('confirm:')).toBe(true);
+    modelReply = { items: [{ itemId: dishId, sizeId, qty: 2, rawName: 'Chicken Karahi' }], unmatched: [] };
+    expect((await webhook(event('stale-second-quote', '2 Chicken Karahi'))).status).toBe(200);
+    expect(latestConfirm()).not.toBe(staleAction);
+    expect((await webhook(event('stale-confirm-tap', '', staleAction))).status).toBe(200);
+    await runWithTenant(restaurantId, async () => {
+      expect(await Order.countDocuments({ whatsappPhone: '03001234567' })).toBe(0);
+    });
+  });
   it('confirmed cart creates one pending order and sends priced bill plus PDF', async () => {
     // Restore a valid quote after an unrelated unmatched message.
     modelReply = { items: [{ itemId: dishId, sizeId, qty: 2, rawName: 'Chicken Karahi' }], unmatched: [] };
