@@ -12,7 +12,14 @@ type MetaMessage = {
   image?: { id?: string; mime_type?: string; caption?: string };
   interactive?: { type?: string; list_reply?: { id?: string; title?: string }; button_reply?: { id?: string; title?: string } };
 };
-type MetaChange = { value?: { metadata?: { phone_number_id?: string }; messages?: MetaMessage[] } };
+type MetaStatus = { id?: string; status?: string; timestamp?: string; recipient_id?: string };
+type MetaChange = { value?: { metadata?: { phone_number_id?: string }; messages?: MetaMessage[]; statuses?: MetaStatus[] } };
+const STATUS_PRECONDITIONS: Record<string, string[]> = {
+  sent: ['sent'],
+  delivered: ['sent', 'delivered'],
+  read: ['sent', 'delivered', 'read', 'failed'],
+  failed: ['sent', 'failed'],
+};
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -44,15 +51,35 @@ export async function receiveWebhook(c: Context) {
     for (const change of entry.changes as MetaChange[]) {
       const value = change?.value;
       const phoneNumberId = value?.metadata?.phone_number_id;
-      if (!phoneNumberId || !Array.isArray(value?.messages)) continue;
+      if (!phoneNumberId || (!Array.isArray(value?.messages) && !Array.isArray(value?.statuses))) continue;
       const connection = await runWithoutTenant(() =>
-        WhatsAppConnection.findOne({ phoneNumberId, status: { $ne: 'disconnected' } }));
+        WhatsAppConnection.findOne({ phoneNumberId }));
       if (!connection?.restaurantId) {
         console.log('[WhatsApp] Ignoring message for unconnected phone_number_id', phoneNumberId);
         continue;
       }
       await runWithTenant(String(connection.restaurantId), async () => {
-        for (const message of value.messages!) {
+        // Meta sends delivery receipts in statuses[], not messages[]. Store
+        // them on the original outbound record; do not regress read -> sent.
+        for (const status of Array.isArray(value.statuses) ? value.statuses : []) {
+          if (!status?.id || !status.status || !STATUS_PRECONDITIONS[status.status]) continue;
+          const recipient = status.recipient_id ? whatsappPhone(status.recipient_id) : null;
+          const seconds = Number(status.timestamp);
+          const deliveryStatusAt = seconds > 0 && Number.isFinite(seconds) ? new Date(seconds * 1000) : new Date();
+          const allowed = STATUS_PRECONDITIONS[status.status]!;
+          try {
+            await WhatsAppMessage.updateOne({
+              metaMessageId: status.id, phoneNumberId, direction: 'outbound',
+              ...(recipient ? { phone: recipient } : {}),
+              $or: [{ deliveryStatus: { $exists: false } }, { deliveryStatus: { $in: allowed.slice(0, -1) } }],
+            }, { $set: { deliveryStatus: status.status, deliveryStatusAt } });
+          } catch (error) {
+            failures++;
+            console.error('[WhatsApp] Unable to persist delivery receipt', status.id,
+              error instanceof Error ? error.message : 'unknown error');
+          }
+        }
+        for (const message of Array.isArray(value.messages) ? value.messages : []) {
           if (!message?.id || !message.from) continue;
           const phone = whatsappPhone(message.from);
           if (!phone) continue;
