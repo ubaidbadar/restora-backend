@@ -1,3 +1,4 @@
+import { orderTransitionConditions } from '../utils/order_status_transition';
 import type { Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ClientSession, PipelineStage } from 'mongoose';
@@ -555,14 +556,23 @@ export async function createOrder(c: Context) {
 /** Moves an order along the board. Cancelling has its own route and permission. */
 async function setStatus(c: Context, id: string, status: IOrder['status']) {
   if (status === 'cancelled') throw httpError(400, 'Use Cancel order for that');
-  // Only a guest's order from the table starts as pending; accepting it moves it to new, and it never goes back.
   if (status === 'pending') throw httpError(400, 'An order cannot go back to waiting for acceptance');
+  const conditions = orderTransitionConditions(status);
+  if (!conditions.length) throw httpError(400, 'Invalid order status transition');
+  // Filter the previous state and order type in the *write*. Simultaneous
+  // devices cannot overwrite a later status with an older one.
   const order = await Order.findOneAndUpdate(
-    { ...scopedOrderId(c, id), status: { $ne: 'cancelled' } },
+    { ...scopedOrderId(c, id), $or: conditions },
     { $set: { status } },
     { returnDocument: 'before' }
   ).catch(() => null);
-  if (!order) throw httpError(404, 'Order not found or already cancelled');
+  if (!order) {
+    const current = await Order.findOne(scopedOrderId(c, id));
+    if (!current) throw httpError(404, 'Order not found');
+    // A duplicate request after a dropped response is safe to repeat.
+    if (current.status === status) return current;
+    throw httpError(409, `Order is already ${current.status}. Refresh the board before moving it to ${status}.`);
+  }
 
   await logAudit({
     action: 'order.status_updated',
