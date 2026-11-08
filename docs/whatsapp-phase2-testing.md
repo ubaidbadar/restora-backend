@@ -24,3 +24,14 @@ Run `bun run check` on a checkout of `dev` with dependencies installed. This run
 
 ## Not included
 No UI, onboarding, new templates, or payment collection. Sending an approved template from a pending invoice record requires a separate future implementation. Server-side order-processing and Graph integration still require live staging verification.
+
+## Delivery recovery
+- Staff with `orders:view` can inspect `GET /api/v1/whatsapp/invoices?status=failed` or `?status=template_required`.
+- Staff with `orders:update` can retry an unsent invoice inside a reopened 24-hour window using `POST /api/v1/whatsapp/orders/{orderId}/invoice/retry` with JSON `{"stage":"confirmed"}` (or `"completed"`).
+- A `template_required` response means no free-form message was sent. An approved-template sending implementation is intentionally out of scope.
+- If Graph accepted a message but the server crashed before recording its returned message ID, an operator retry can resend that particular message. Review the inbox before retrying an uncertain partial delivery.
+
+## Current limitations
+- The built-in PDF uses ASCII Courier for portable printability; Urdu and other non-ASCII characters are replaced with question marks. A font-embedding enhancement and real printer/PDF viewer checks are needed before claiming full multilingual invoice support.
+- Live Meta Graph API delivery cannot be verified by the mocked integration test. Test real message ID responses, connection credentials, and customer-device receipt in staging.
+- Mandatory menu add-ons are not collected through this WhatsApp flow yet. Those dishes require an additional selection step or explicit availability handling before broader rollout.
