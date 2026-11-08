@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import MenuCategory from '../models/menu_category';
 import MenuItem from '../models/menu_item';
+import AddonGroup from '../models/addon_group';
 import WhatsAppCart from '../models/whatsapp_cart';
 import WhatsAppMessage from '../models/whatsapp_message';
 import Order from '../models/order';
@@ -97,6 +98,15 @@ async function showSizes(connection: IWhatsAppConnection, phone: string, itemId:
   const live = await menu(connection);
   const item = live.items.find((it) => it.id === itemId);
   if (!item) return say(connection, phone, 'This dish is unavailable. Send MENU for current options.');
+  // Existing order pricing requires mandatory add-ons; WhatsApp currently has no
+  // add-on selector. Explain this instead of inviting a cart that cannot confirm.
+  const rawItem = await MenuItem.findById(itemId);
+  if (rawItem?.addonGroupIds?.length) {
+    const groups = await AddonGroup.find({ _id: { $in: rawItem.addonGroupIds } });
+    if (groups.some((group) => group.min > 0)) {
+      return say(connection, phone, item.name + ' needs customization. Please ask restaurant staff to order it for you. Send MENU for other dishes.');
+    }
+  }
   // A dish may have many sizes; show paginated size variants when necessary.
   if (item.sizes.length === 1) {
     await WhatsAppCart.findOneAndUpdate(cartFilter(connection, phone),
@@ -343,6 +353,10 @@ export async function deliverInvoice(
   }
 }
 export async function processWhatsAppMessage(connection: IWhatsAppConnection, phone: string, message: Inbound) {
+  const branch = await Branch.findById(connection.branchId);
+  if (!branch || branch.isActive === false) {
+    return say(connection, phone, 'This restaurant branch is not taking WhatsApp orders right now. Please contact the restaurant.');
+  }
   const action = message.interactive?.list_reply?.id || message.interactive?.button_reply?.id || '';
   const text = (message.text?.body || '').trim();
   const lower = text.toLowerCase();
