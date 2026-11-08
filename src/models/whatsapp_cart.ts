@@ -3,6 +3,7 @@ import tenantPlugin from './plugins/tenant_plugin';
 
 /** One editable WhatsApp cart per connected number and customer. It is not an order. */
 export interface IWhatsAppCart {
+  _id?: string;
   restaurantId?: string;
   branchId: string;
   phoneNumberId: string;
