@@ -13,6 +13,7 @@ import runInTransaction from '../utils/transaction';
 import dayKey from '../utils/day_key';
 import onSale from '../utils/on_sale';
 import { paginateWhatsApp, safeWhatsAppText } from '../utils/whatsapp_menu';
+import { validateWhatsAppLLM } from '../utils/whatsapp_match';
 import { sendWhatsApp, uploadWhatsAppPdf } from './whatsapp_graph';
 import notifyStaff from './push';
 import { invoiceMessage, invoicePdf } from '../utils/whatsapp_invoice';
@@ -158,7 +159,7 @@ async function llmParse(text: string, live: Awaited<ReturnType<typeof menu>>) {
   const response = await fetch(url, {
     method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_object' }, messages: [
-      { role: 'system', content: 'Extract requested dishes and integer quantities only. Return JSON object with items:[{itemId, sizeId, qty}], unmatched:[strings]. Use only IDs from the supplied menu. Never guess, substitute or calculate prices. If ambiguous put the phrase in unmatched.' },
+      { role: 'system', content: 'Extract requested dishes and integer quantities only. Return JSON object with items:[{itemId, sizeId, qty, rawName, rawSize}], unmatched:[strings]. Copy rawName as the exact dish phrase from the customer text and rawSize as its exact size phrase if specified. Use only IDs from the supplied menu. Never guess, substitute or calculate prices. If a dish or size is ambiguous put the phrase in unmatched.' },
       { role: 'user', content: JSON.stringify({ text, menu: live.items }) },
     ] }),
     signal: AbortSignal.timeout(20_000),
@@ -170,22 +171,10 @@ async function llmParse(text: string, live: Awaited<ReturnType<typeof menu>>) {
   catch { return { error: 'I could not understand that order. Please send MENU.' } as const; }
   if (!parsed || typeof parsed !== 'object') return { error: 'Please send MENU.' } as const;
   const value = parsed as { items?: unknown; unmatched?: unknown };
-  const items = Array.isArray(value.items) ? value.items : [];
-  const unmatched = Array.isArray(value.unmatched) ? value.unmatched.filter((x): x is string => typeof x === 'string').slice(0, 10) : [];
-  const selections: { itemId: string; sizeId: string; qty: number }[] = [];
-  for (const raw of items) {
-    if (!raw || typeof raw !== 'object') { unmatched.push('Unrecognized item'); continue; }
-    const pick = raw as Record<string, unknown>;
-    const entry = live.items.find((it) => it.id === pick.itemId);
-    const size = entry?.sizes.find((s) => s.id === pick.sizeId);
-    if (!entry || !size || typeof pick.qty !== 'number' || !Number.isInteger(pick.qty) || pick.qty < 1 || pick.qty > MAX_QTY) {
-      unmatched.push(typeof pick.itemId === 'string' ? pick.itemId : 'Unrecognized item');
-      continue;
-    }
-    selections.push({ itemId: entry.id, sizeId: size.id, qty: pick.qty });
-  }
-  if (!selections.length && !unmatched.length) return { error: 'No dishes found. Send MENU to browse.' } as const;
-  return { selections, unmatched } as const;
+  const checked = validateWhatsAppLLM(text, live.items, value.items, value.unmatched);
+  if (!checked.selections.length && !checked.unmatched.length)
+    return { error: 'No dishes found. Send MENU to browse.' } as const;
+  return checked as { selections: { itemId: string; sizeId: string; qty: number }[]; unmatched: string[] };
 }
 async function confirm(connection: IWhatsAppConnection, phone: string, confirmMessageId: string) {
   const filter = cartFilter(connection, phone);
