@@ -18,6 +18,8 @@ export interface IWhatsAppMessage {
   mediaMimeType?: string;
   interactiveId?: string;
   receivedAt: Date;
+  deliveryStatus?: 'sent' | 'delivered' | 'read' | 'failed';
+  deliveryStatusAt?: Date;
   processedAt?: Date;
   processingAt?: Date;
   createdAt?: Date;
@@ -37,6 +39,8 @@ const WhatsAppMessageSchema = new Schema<IWhatsAppMessage>({
   mediaMimeType: String,
   interactiveId: String,
   receivedAt: { type: Date, required: true },
+  deliveryStatus: { type: String, enum: ['sent', 'delivered', 'read', 'failed'] },
+  deliveryStatusAt: Date,
   processedAt: Date,
   processingAt: Date,
 }, { timestamps: true });
