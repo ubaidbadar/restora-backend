@@ -167,4 +167,24 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
     expect(sent.some((payload) => payload.type === 'document')).toBe(true);
     expect(sent.some((payload) => JSON.stringify(payload).includes('Rs 2800'))).toBe(true);
   });
+  it('records Meta read receipts and ignores late delivered/sent downgrades', async () => {
+    const outbound = await runWithTenant(restaurantId, () =>
+      WhatsAppMessage.findOne({ direction: 'outbound', messageType: 'document' }).sort({ receivedAt: -1 }));
+    expect(outbound?.metaMessageId).toBeTruthy();
+    const receipt = (status: string) => ({
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ value: { metadata: { phone_number_id: NUMBER }, statuses: [{
+        id: outbound!.metaMessageId, recipient_id: FROM, status, timestamp: String(Math.floor(Date.now() / 1000)),
+      }] } }] }],
+    });
+    expect((await webhook(receipt('sent'))).status).toBe(200);
+    expect((await webhook(receipt('delivered'))).status).toBe(200);
+    expect((await webhook(receipt('read'))).status).toBe(200);
+    expect((await webhook(receipt('delivered'))).status).toBe(200);
+    await runWithTenant(restaurantId, async () => {
+      const updated = await WhatsAppMessage.findById(outbound!._id);
+      expect(updated?.deliveryStatus).toBe('read');
+    });
+  });
+
 });
