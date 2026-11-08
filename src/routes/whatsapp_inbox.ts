@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { whatsappSignupConfig, connectWhatsApp, registerNumber, disconnectNumber } from '../controllers/whatsapp_onboarding';
 import { z } from 'zod';
 import requirePermission from '../middlewares/permission_guard';
 import validateBody from '../validations/validator';
@@ -9,6 +10,16 @@ const replySchema = z.object({
   phoneNumberId: z.string().min(1).max(100),
   text: z.string().trim().min(1).max(4096),
 });
+router.get('/signup/config', requirePermission('devices:manage'), whatsappSignupConfig);
+router.post('/signup/complete', requirePermission('devices:manage'), validateBody(z.object({
+  code: z.string().min(10).max(4096),
+  wabaId: z.string().regex(/^\\d{5,30}$/),
+  phoneNumberId: z.string().regex(/^\\d{5,30}$/),
+})), connectWhatsApp);
+router.post('/connections/:id/register', requirePermission('devices:manage'), validateBody(z.object({
+  pin: z.string().regex(/^\\d{6}$/, 'Enter a six-digit registration PIN'),
+})), registerNumber);
+router.post('/connections/:id/disconnect', requirePermission('devices:manage'), disconnectNumber);
 router.get('/connections', requirePermission('devices:manage'), listWhatsAppConnections);
 router.patch('/connections/:id', requirePermission('devices:manage'), validateBody(z.object({ invoiceOnComplete: z.boolean() })), updateWhatsAppConnection);
 router.get('/invoices', requirePermission('orders:view'), listWhatsAppInvoices);
