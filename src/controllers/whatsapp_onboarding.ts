@@ -22,7 +22,7 @@ export async function connectWhatsApp(c: Context) {
   if (!restaurantId || !branchId) return c.json({ message: 'Choose a restaurant branch first.' }, 409);
   const branch = await Branch.findOne({ _id: branchId, isActive: { $ne: false } });
   if (!branch) return c.json({ message: 'The selected branch is inactive.' }, 409);
-  const { code, wabaId, phoneNumberId } = c.get('validatedJson') as { code: string; wabaId: string; phoneNumberId: string };
+  const { code, wabaId, phoneNumberId } = c.get('validatedJson') as { code: string; wabaId: string; phoneNumberId?: string };
   try {
     return c.json(await finishWhatsAppSignup({ restaurantId, branchId, code, wabaId, phoneNumberId }), 201);
   } catch (e) { return handle(c, e); }

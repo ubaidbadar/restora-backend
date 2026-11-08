@@ -37,34 +37,42 @@ export async function exchangeEmbeddedCode(code: string) {
 }
 
 export async function finishWhatsAppSignup(params: {
-  restaurantId: string; branchId: string; wabaId: string; phoneNumberId: string; code: string;
+  restaurantId: string; branchId: string; wabaId: string; phoneNumberId?: string; code: string;
 }) {
   const { restaurantId, branchId, wabaId, phoneNumberId, code } = params;
-  if (!META_ID.test(wabaId) || !META_ID.test(phoneNumberId)) throw new OnboardingError(400, 'Invalid Meta account or number ID');
-  // Global uniqueness matters: one phone may not become another tenant's number.
-  const previous = await runWithoutTenant(() => WhatsAppConnection.findOne({ phoneNumberId }));
-  if (previous && (String(previous.restaurantId) !== restaurantId || previous.branchId !== branchId)) {
-    throw new OnboardingError(409, 'This WhatsApp number is already connected to another restaurant or branch.');
-  }
+  if (!META_ID.test(wabaId) || (phoneNumberId && !META_ID.test(phoneNumberId)))
+    throw new OnboardingError(400, 'Invalid Meta account or number ID');
   const token = await exchangeEmbeddedCode(code);
   // Validates server-side that the token actually has access to the claimed WABA and number.
   const phoneList = await graph<{ data?: { id: string; display_phone_number?: string; status?: string }[] }>(
     `/${wabaId}/phone_numbers?fields=id,display_phone_number,status&limit=100`, token);
-  const phone = phoneList.data?.find(entry => entry.id === phoneNumberId);
-  if (!phone) throw new OnboardingError(400, 'Meta did not grant access to that WhatsApp number. Please connect again.');
+  // Meta's coexistence finish event can omit phone_number_id. Resolve it
+  // only when this WABA offers exactly one number, never guess among many.
+  const candidates = phoneList.data || [];
+  const phone = phoneNumberId ? candidates.find(entry => entry.id === phoneNumberId)
+    : candidates.length === 1 ? candidates[0] : undefined;
+  if (!phone) throw new OnboardingError(409,
+    'Meta did not identify one WhatsApp number. If multiple numbers belong to this account, select the number in Meta and retry.');
+  const verifiedPhoneId = phone.id;
+  // Global routing identity is unique across all tenants and branches.
+  const previous = await runWithoutTenant(() => WhatsAppConnection.findOne({ phoneNumberId: verifiedPhoneId }));
+  if (previous && (String(previous.restaurantId) !== restaurantId || previous.branchId !== branchId)) {
+    throw new OnboardingError(409, 'This WhatsApp number is already connected to another restaurant or branch.');
+  }
   // A subscribed WABA routes Meta webhooks to our verified public endpoint.
-  await graph<{ success: boolean }>(`/${wabaId}/subscribed_apps`, token, 'POST');
+  const subscription = await graph<{ success?: boolean }>(`/${wabaId}/subscribed_apps`, token, 'POST');
+  if (!subscription.success) throw new OnboardingError(502, 'Meta did not confirm webhook subscription. Please retry.');
   // Never mark the number connected if Meta still needs registration.
   const status: IWhatsAppConnection['status'] = phone.status === 'CONNECTED' ? 'connected' : 'number_pending';
   try {
-    const connected = await WhatsAppConnection.findOneAndUpdate({ phoneNumberId, branchId },
+    const connected = await WhatsAppConnection.findOneAndUpdate({ phoneNumberId: verifiedPhoneId, branchId },
       { $set: { wabaId, phoneNumberDisplay: phone.display_phone_number || phoneNumberId,
         accessTokenEncrypted: encryptWhatsAppToken(token), status,
         ...(status === 'connected' ? { connectedAt: new Date() } : {}) },
       }, { upsert: true, returnDocument: 'after', runValidators: true });
     if (!connected) throw new OnboardingError(502, 'Unable to save the WhatsApp connection');
     return { id: String(connected._id), status: connected.status, phoneNumberDisplay: connected.phoneNumberDisplay,
-      phoneNumberId, nextStep: status === 'number_pending' ? 'register' : 'ready' };
+      phoneNumberId: verifiedPhoneId, nextStep: status === 'number_pending' ? 'register' : 'ready' };
   } catch (error) {
     if ((error as { code?: number }).code === 11000) throw new OnboardingError(409, 'WhatsApp number is already linked. Reload the connection list.');
     throw error;
@@ -79,7 +87,8 @@ export async function registerWithPin(connection: IWhatsAppConnection, pin: stri
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ messaging_product: 'whatsapp', pin }), signal: AbortSignal.timeout(12_000),
   });
-  if (!res.ok) {
+  const result = await res.json().catch(() => ({})) as { success?: boolean | string };
+  if (!res.ok || !(result.success === true || result.success === 'true')) {
     console.error('[WhatsApp Signup] Registration rejected', { status: res.status, phoneNumberId: connection.phoneNumberId });
     throw new OnboardingError(502, 'Meta could not register the number. Verify the PIN and number eligibility.');
   }
