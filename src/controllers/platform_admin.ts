@@ -7,6 +7,7 @@ import StaffMember from '../models/staff_member';
 import Customer from '../models/customer';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import PlatformAdmin from '../models/platform_admin';
+import { findAuthUserByEmail, findAuthUsers } from '../utils/auth_users';
 import { runWithoutTenant, runWithTenant } from '../middlewares/tenant_context';
 import { requirePlatformOwner, type PlatformAdminIdentity } from '../middlewares/platform_admin_guard';
 
@@ -78,18 +79,22 @@ export async function restaurantDetails(c: Context) {
 export async function listPlatformTeam(c: Context) {
   if (!requirePlatformOwner(c)) return c.json({ message: 'Owner access required' }, 403);
   const users = await runWithoutTenant(() => PlatformAdmin.find().select('userId role enabled createdAt').lean());
-  return c.json(users.map(u => ({ userId: u.userId, role: u.role, enabled: u.enabled, createdAt: u.createdAt })));
+  const details = await findAuthUsers(users.map(u => u.userId));
+  return c.json(users.map(u => ({ userId: u.userId, email: details.get(u.userId)?.email || '(account unavailable)', role: u.role, enabled: u.enabled, createdAt: u.createdAt })));
 }
 
 export async function upsertPlatformTeam(c: Context) {
   const actor = requirePlatformOwner(c);
   if (!actor) return c.json({ message: 'Owner access required' }, 403);
-  const { userId, role, enabled } = c.get('validatedJson') as { userId: string; role: 'analyst' | 'support'; enabled: boolean };
+  const { email, role, enabled } = c.get('validatedJson') as { email: string; role: 'analyst' | 'support'; enabled: boolean };
+  const target = await findAuthUserByEmail(email);
+  if (!target) return c.json({ message: 'Team member must create and verify a Restora account first.' }, 404);
+  const userId = target.id;
   if (userId === actor.userId) return c.json({ message: 'Cannot change own platform role' }, 400);
   // A platform owner may grant only analyst/support roles; never create an owner via the API.
   const result = await runWithoutTenant(() => PlatformAdmin.findOneAndUpdate({ userId }, {
     $set: { role, enabled },
   }, { upsert: true, returnDocument: 'after', runValidators: true }));
   console.info('[Platform Audit] team access changed', { actor: actor.userId, target: userId, role, enabled });
-  return c.json({ userId: result!.userId, role: result!.role, enabled: result!.enabled });
+  return c.json({ userId: result!.userId, email: target.email, role: result!.role, enabled: result!.enabled });
 }

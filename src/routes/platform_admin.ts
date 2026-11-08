@@ -12,7 +12,7 @@ router.get('/restaurants', listRestaurants);
 router.get('/restaurants/:id', restaurantDetails);
 router.get('/team', listPlatformTeam);
 router.put('/team', validateBody(z.object({
-  userId: z.string().min(3).max(128),
+  email: z.email().max(254),
   role: z.enum(['analyst', 'support']),
   enabled: z.boolean(),
 })), upsertPlatformTeam);
