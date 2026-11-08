@@ -33,7 +33,7 @@ export interface ICustomer {
   totalSpent?: number;
   lastOrderAt?: string;
   lastOrder?: ILastOrder;
-  source?: 'staff' | 'qr' | 'import';
+  source?: 'staff' | 'qr' | 'import' | 'whatsapp';
   whatsappOptIn?: { at: string; source: string };
   createdAt?: Date | string;
   updatedAt?: Date | string;
@@ -75,7 +75,7 @@ const CustomerSchema = new Schema<ICustomer>(
     totalSpent: { type: Number, default: 0 },
     lastOrderAt: { type: String },
     lastOrder: { type: LastOrderSchema },
-    source: { type: String, enum: ['staff', 'qr', 'import'], default: 'staff' },
+    source: { type: String, enum: ['staff', 'qr', 'import', 'whatsapp'], default: 'staff' },
     whatsappOptIn: {
       at: { type: String },
       source: { type: String },
