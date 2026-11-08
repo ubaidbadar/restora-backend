@@ -137,7 +137,12 @@ describe('Hardening', () => {
     expect(saved.items[0].qty).toBe(3);
     expect(saved.total).toBe(order.items[0].price * 3);
     expect(saved.dailyToken).toBe(order.dailyToken);
-    expect((await api(a, 'PATCH', `/orders/${order._id}`, { status: 'completed' })).status).toBe(200);
+    // Staff must advance the order through each stage. A direct jump to completed
+    // is a conflict, not a valid way to finish an editable order.
+    expect((await api(a, 'PATCH', `/orders/${order._id}`, { status: 'completed' })).status).toBe(409);
+    for (const status of ['preparing', 'ready', 'completed']) {
+      expect((await api(a, 'PATCH', `/orders/${order._id}`, { status })).status).toBe(200);
+    }
     expect((await api(a, 'PUT', `/orders/${order._id}`, { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }] })).status).toBe(400);
   });
 
