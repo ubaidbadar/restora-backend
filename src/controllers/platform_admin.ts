@@ -7,6 +7,8 @@ import StaffMember from '../models/staff_member';
 import Customer from '../models/customer';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import PlatformAdmin from '../models/platform_admin';
+import PlatformAuditEntry from '../models/platform_audit_entry';
+import runInTransaction from '../utils/transaction';
 import { findAuthUserByEmail, findAuthUsers, toObjectId } from '../utils/auth_users';
 import { runWithoutTenant, runWithTenant } from '../middlewares/tenant_context';
 import { requirePlatformOwner, type PlatformAdminIdentity } from '../middlewares/platform_admin_guard';
@@ -94,9 +96,44 @@ export async function upsertPlatformTeam(c: Context) {
   const userId = target.id;
   if (userId === actor.userId) return c.json({ message: 'Cannot change own platform role' }, 400);
   // A platform owner may grant only analyst/support roles; never create an owner via the API.
-  const result = await runWithoutTenant(() => PlatformAdmin.findOneAndUpdate({ userId }, {
-    $set: { role, enabled },
-  }, { upsert: true, returnDocument: 'after', runValidators: true }));
-  console.info('[Platform Audit] team access changed', { actor: actor.userId, target: userId, role, enabled });
+  const result = await runWithoutTenant(() => runInTransaction(async session => {
+    const prior = await PlatformAdmin.findOne({ userId }, null, { session });
+    const updated = await PlatformAdmin.findOneAndUpdate({ userId }, {
+      $set: { role, enabled },
+    }, { upsert: true, returnDocument: 'after', runValidators: true, session });
+    await PlatformAuditEntry.create([{
+      action: 'platform.team_access_changed',
+      actorUserId: actor.userId, targetUserId: userId,
+      before: prior ? { role: prior.role, enabled: prior.enabled } : undefined,
+      after: { role, enabled }, at: new Date(),
+    }], { session });
+    return updated;
+  }));
+  console.info('[Platform Audit] team access changed', { actor: actor.userId, target: userId });
   return c.json({ userId: result!.userId, email: target.email, role: result!.role, enabled: result!.enabled });
+}
+
+/** Platform privilege history is only visible to owners; no restaurant data is copied here. */
+export async function platformActivity(c: Context) {
+  if (!requirePlatformOwner(c)) return c.json({ message: 'Owner access required' }, 403);
+  const entries = await runWithoutTenant(() => PlatformAuditEntry.find().sort({ at: -1 }).limit(100).lean());
+  const ids = entries.flatMap(e => [e.actorUserId, e.targetUserId]);
+  const users = await findAuthUsers(ids);
+  return c.json(entries.map(e => ({
+    id: String(e._id), action: e.action, at: e.at,
+    actor: users.get(e.actorUserId)?.email || 'Unknown account',
+    target: users.get(e.targetUserId)?.email || 'Unknown account',
+    before: e.before, after: e.after,
+  })), 200, { 'Cache-Control': 'no-store' });
+}
+
+export function platformHealth(c: Context) {
+  const whatsappConfigured = Boolean(process.env.WHATSAPP_META_APP_ID && process.env.WHATSAPP_META_APP_SECRET &&
+    process.env.WHATSAPP_META_CONFIG_ID && process.env.WHATSAPP_APP_SECRET &&
+    /^[a-f0-9]{64}$/i.test(process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY || ''));
+  return c.json({
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'unavailable',
+    whatsappSignup: whatsappConfigured ? 'configured' : 'configuration_required',
+    checkedAt: new Date().toISOString(),
+  }, 200, { 'Cache-Control': 'no-store' });
 }

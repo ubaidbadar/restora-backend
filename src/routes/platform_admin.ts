@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { platformAdminGuard } from '../middlewares/platform_admin_guard';
 import validateBody from '../validations/validator';
-import { adminMe, overview, listRestaurants, restaurantDetails, listPlatformTeam, upsertPlatformTeam } from '../controllers/platform_admin';
+import { adminMe, overview, listRestaurants, restaurantDetails, listPlatformTeam, upsertPlatformTeam, platformActivity, platformHealth } from '../controllers/platform_admin';
 
 const router = new Hono();
 router.use('*', platformAdminGuard);
@@ -11,6 +11,8 @@ router.get('/overview', overview);
 router.get('/restaurants', listRestaurants);
 router.get('/restaurants/:id', restaurantDetails);
 router.get('/team', listPlatformTeam);
+router.get('/activity', platformActivity);
+router.get('/health', platformHealth);
 router.put('/team', validateBody(z.object({
   email: z.email().max(254),
   role: z.enum(['analyst', 'support']),
