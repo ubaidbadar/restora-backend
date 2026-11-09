@@ -13,7 +13,7 @@ const replySchema = z.object({
 router.get('/signup/config', requirePermission('devices:manage'), whatsappSignupConfig);
 router.post('/signup/complete', requirePermission('devices:manage'), validateBody(z.object({
   code: z.string().min(10).max(4096),
-  wabaId: z.string().regex(/^\d{5,30}$/),
+  wabaId: z.string().regex(/^\d{5,30}$/).optional(),
   phoneNumberId: z.string().regex(/^\d{5,30}$/).optional(),
 })), connectWhatsApp);
 router.post('/connections/:id/register', requirePermission('devices:manage'), validateBody(z.object({

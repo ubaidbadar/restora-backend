@@ -18,6 +18,7 @@ const WABA = '1234567890123';
 const PHONE = '923000123456';
 const PHONE_ID = '555666777888';
 let calls: string[] = [];
+let authorizedWabas = [WABA];
 
 async function signup(email: string, name: string) {
   const res = await app.request('/api/v1/auth/sign-up/email', {
@@ -54,6 +55,10 @@ beforeAll(async () => {
     const url = String(input);
     calls.push(url);
     if (url.includes('/oauth/access_token')) return Response.json({ access_token: 'mock-bisu-token' });
+    if (url.includes('/debug_token')) return Response.json({ data: {
+      app_id: '111222333444', is_valid: true,
+      granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: authorizedWabas }],
+    } });
     if (url.includes('/phone_numbers')) return Response.json({ data: [{
       id: PHONE_ID, display_phone_number: PHONE, status: 'PENDING',
     }] });
@@ -93,6 +98,26 @@ describe('WhatsApp self-service Embedded Signup', () => {
     expect(JSON.stringify(rows)).not.toContain('accessTokenEncrypted');
     expect(JSON.stringify(rows)).not.toContain('mock-bisu-token');
     expect(calls.some(url => url.endsWith('/subscribed_apps'))).toBe(true);
+  });
+  it('recovers one token-authorized WABA from a code-only Meta v4 callback', async () => {
+    const response = await call(a, 'POST', '/signup/complete', { code: 'code-only-auth-123456' });
+    expect(response.status).toBe(201);
+    const body = await response.json() as { phoneNumberId: string };
+    expect(body.phoneNumberId).toBe(PHONE_ID);
+    expect(calls.some(url => url.includes('/debug_token'))).toBe(true);
+    const list = await call(a, 'GET', '/connections');
+    expect(await list.json() as unknown[]).toHaveLength(1);
+  });
+  it('never guesses among multiple WABAs or WABAs without scoped access', async () => {
+    for (const ids of [[WABA, '999888777666'], []]) {
+      authorizedWabas = ids;
+      try {
+        const response = await call(a, 'POST', '/signup/complete', { code: 'code-only-ambiguous-12345' });
+        expect(response.status).toBe(409);
+      } finally {
+        authorizedWabas = [WABA];
+      }
+    }
   });
   it('cannot claim another restaurant or branch number', async () => {
     const response = await call(b, 'POST', '/signup/complete', { code: 'another-auth-code-12345', wabaId: WABA, phoneNumberId: PHONE_ID });
