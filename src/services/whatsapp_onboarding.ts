@@ -31,8 +31,45 @@ export async function exchangeEmbeddedCode(code: string) {
   const { id, secret } = credentials();
   const query = new URLSearchParams({ client_id: id, client_secret: secret, code });
   const res = await fetch(`${GRAPH}/oauth/access_token?${query}`, { signal: AbortSignal.timeout(12_000) });
-  const data = await res.json().catch(() => ({})) as { access_token?: string };
-  if (!res.ok || !data.access_token) throw new OnboardingError(400, 'Meta authorization expired or was rejected. Please connect again.');
+  const data = await res.json().catch(() => ({})) as {
+    access_token?: string;
+    error?: {
+      code?: number;
+      error_subcode?: number;
+      is_transient?: boolean;
+      message?: string;
+      fbtrace_id?: string;
+    };
+  };
+  if (!res.ok || !data.access_token) {
+    const error = data.error;
+    const code = Number.isSafeInteger(error?.code) ? error!.code : undefined;
+    const subcode = Number.isSafeInteger(error?.error_subcode) ? error!.error_subcode : undefined;
+    // Classify Meta's description, but never log or return its raw text:
+    // OAuth messages can contain user-supplied or sensitive request values.
+    const message = error?.message || '';
+    const reason = /redirect[_ ]uri/i.test(message) ? 'redirect_uri'
+      : /client[_ ]secret|app secret|client[_ ]id|app id/i.test(message) ? 'app_credentials'
+      : /already (?:been )?used|used already/i.test(message) ? 'code_reused'
+      : /expir/i.test(message) ? 'code_expired' : 'unclassified';
+    console.error('[WhatsApp Signup] Meta OAuth code exchange failed', {
+      httpStatus: res.status, metaCode: code, metaSubcode: subcode,
+      reason, transient: error?.is_transient === true,
+      traceId: typeof error?.fbtrace_id === 'string' && /^[A-Za-z0-9_-]{5,100}$/.test(error.fbtrace_id)
+        ? error.fbtrace_id : undefined,
+    });
+    if (res.status >= 500 || error?.is_transient === true)
+      throw new OnboardingError(502, 'Meta could not process signup right now. Please retry.');
+    if (reason === 'redirect_uri')
+      throw new OnboardingError(400, 'Meta OAuth redirect URI mismatch. Check Facebook Login for Business redirect and JavaScript SDK domain settings.');
+    if (reason === 'app_credentials')
+      throw new OnboardingError(400, 'Meta rejected the app credentials. Check WHATSAPP_META_APP_ID and WHATSAPP_META_APP_SECRET belong to the same Meta app.');
+    if (reason === 'code_reused')
+      throw new OnboardingError(400, 'Meta authorization code was already used. Start a fresh WhatsApp signup.');
+    if (reason === 'code_expired')
+      throw new OnboardingError(400, 'Meta authorization code expired. Start a fresh WhatsApp signup.');
+    throw new OnboardingError(400, `Meta rejected the authorization code (error ${code ?? 'unknown'}${subcode === undefined ? '' : `, subcode ${subcode}`}). Check Meta app credentials and Facebook Login for Business settings.`);
+  }
   return data.access_token;
 }
 
