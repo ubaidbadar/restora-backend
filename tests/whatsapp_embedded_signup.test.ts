@@ -19,6 +19,7 @@ const PHONE = '923000123456';
 const PHONE_ID = '555666777888';
 let calls: string[] = [];
 let authorizedWabas = [WABA];
+let oauthFailure: { status: number; code: number; subcode?: number; message: string; transient?: boolean } | null = null;
 
 async function signup(email: string, name: string) {
   const res = await app.request('/api/v1/auth/sign-up/email', {
@@ -54,7 +55,14 @@ beforeAll(async () => {
   globalThis.fetch = (async (input: RequestInfo | URL, options?: RequestInit) => {
     const url = String(input);
     calls.push(url);
-    if (url.includes('/oauth/access_token')) return Response.json({ access_token: 'mock-bisu-token' });
+    if (url.includes('/oauth/access_token')) {
+      if (oauthFailure) return Response.json({ error: {
+        code: oauthFailure.code, error_subcode: oauthFailure.subcode,
+        message: oauthFailure.message, is_transient: oauthFailure.transient,
+        fbtrace_id: 'TestTrace001',
+      } }, { status: oauthFailure.status });
+      return Response.json({ access_token: 'mock-bisu-token' });
+    }
     if (url.includes('/debug_token')) return Response.json({ data: {
       app_id: '111222333444', is_valid: true,
       granular_scopes: [{ scope: 'whatsapp_business_management', target_ids: authorizedWabas }],
@@ -84,6 +92,55 @@ describe('WhatsApp self-service Embedded Signup', () => {
     expect(data.appId).toBe('111222333444');
     expect(JSON.stringify(data)).not.toContain('not-a-real-secret');
     expect(JSON.stringify(data)).not.toContain('a'.repeat(64));
+  });
+  it('identifies Meta redirect URI mismatch without returning raw Meta text', async () => {
+    oauthFailure = {
+      status: 400, code: 100, subcode: 36008,
+      message: 'redirect_uri does not match: sensitive-value-not-for-client',
+    };
+    try {
+      const response = await call(a, 'POST', '/signup/complete', { code: 'test-redirect-mismatch', wabaId: WABA });
+      expect(response.status).toBe(400);
+      const body = await response.json() as { message: string };
+      expect(body.message).toContain('redirect URI mismatch');
+      expect(body.message).not.toContain('sensitive-value-not-for-client');
+    } finally { oauthFailure = null; }
+  });
+  it('distinguishes wrong Meta app credentials from expired or reused codes', async () => {
+    const cases = [
+      { message: 'Invalid client_secret: private-value-123', expected: 'app credentials' },
+      { message: 'This authorization code has already been used', expected: 'already used' },
+      { message: 'The authorization code is expired', expected: 'expired' },
+    ];
+    for (const entry of cases) {
+      oauthFailure = { status: 400, code: 100, message: entry.message };
+      try {
+        const response = await call(a, 'POST', '/signup/complete', { code: 'test-failed-code-1234567', wabaId: WABA });
+        expect(response.status).toBe(400);
+        const body = await response.json() as { message: string };
+        expect(body.message).toContain(entry.expected);
+        expect(body.message).not.toContain('private-value-123');
+      } finally { oauthFailure = null; }
+    }
+  });
+  it('reports safe Meta numeric error codes for unclassified failures', async () => {
+    oauthFailure = { status: 400, code: 190, subcode: 493, message: 'private-value-456' };
+    try {
+      const response = await call(a, 'POST', '/signup/complete', { code: 'test-meta-error-code-123456', wabaId: WABA });
+      expect(response.status).toBe(400);
+      const body = await response.json() as { message: string };
+      expect(body.message).toContain('error 190, subcode 493');
+      expect(body.message).not.toContain('private-value-456');
+    } finally { oauthFailure = null; }
+  });
+  it('treats transient Meta code exchange errors as upstream failures', async () => {
+    oauthFailure = { status: 503, code: 2, message: 'Service temporarily unavailable', transient: true };
+    try {
+      const response = await call(a, 'POST', '/signup/complete', { code: 'test-meta-unavailable-123456', wabaId: WABA });
+      expect(response.status).toBe(502);
+      const body = await response.json() as { message: string };
+      expect(body.message).toContain('could not process signup');
+    } finally { oauthFailure = null; }
   });
   it('allows coexistence when Meta omits phone id but grants exactly one number', async () => {
     const response = await call(a, 'POST', '/signup/complete', { code: 'test-auth-code-12345', wabaId: WABA });
