@@ -55,7 +55,7 @@ export async function exchangeEmbeddedCode(code: string) {
     console.error('[WhatsApp Signup] Meta OAuth code exchange failed', {
       httpStatus: res.status, metaCode: code, metaSubcode: subcode,
       reason, transient: error?.is_transient === true,
-      traceId: typeof error?.fbtrace_id === 'string' && /^[\\w-]{5,100}$/.test(error.fbtrace_id)
+      traceId: typeof error?.fbtrace_id === 'string' && /^[A-Za-z0-9_-]{5,100}$/.test(error.fbtrace_id)
         ? error.fbtrace_id : undefined,
     });
     if (res.status >= 500 || error?.is_transient === true)
