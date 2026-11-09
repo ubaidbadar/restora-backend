@@ -1,6 +1,8 @@
 name: Deploy to production
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -86,6 +88,32 @@ jobs:
             echo "waiting for $URL ($i/12)"; sleep 5
           done
           echo "✗ public URL did not become healthy" >&2; exit 1
+
+      # Both WhatsApp routes require a session; unauthenticated callers must get 401,
+      # never 404 (missing route) or HTML (wrong upstream).
+      - name: Verify live WhatsApp routes
+        env:
+          API_ORIGIN: https://restora.live
+        run: |
+          set -euo pipefail
+          for endpoint in signup/config connections; do
+            url="${API_ORIGIN}/api/v1/whatsapp/${endpoint}"
+            ready=0
+            for attempt in $(seq 1 12); do
+              status=$(curl --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' "$url") || status="000"
+              if [ "$status" = "401" ]; then
+                echo "✓ ${url} responds 401 as expected for an unsigned-in request"
+                ready=1
+                break
+              fi
+              echo "Waiting for route ${endpoint}: HTTP ${status} (attempt ${attempt}/12)"
+              sleep 5
+            done
+            if [ "$ready" -ne 1 ]; then
+              echo "✗ WhatsApp API route ${endpoint} did not respond with the expected 401; check backend deployment" >&2
+              exit 1
+            fi
+          done
 
       # restora.live is rendered by the same server (site/). Checked once SITE_URL (https://restora.live) is set.
       - name: Site smoke test
