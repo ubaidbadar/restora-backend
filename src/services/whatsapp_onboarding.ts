@@ -36,13 +36,39 @@ export async function exchangeEmbeddedCode(code: string) {
   return data.access_token;
 }
 
+/** Resolve an unambiguous WABA through Meta's authenticated token inspection. */
+async function singleAuthorizedWaba(token: string): Promise<string> {
+  const { id, secret } = credentials();
+  const response = await fetch(`${GRAPH}/debug_token?input_token=${encodeURIComponent(token)}`, {
+    headers: { Authorization: `Bearer ${id}|${secret}` },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) {
+    console.error('[WhatsApp Signup] Meta token inspection failed', { status: response.status });
+    throw new OnboardingError(502, 'Unable to verify Meta authorization. Try connecting again.');
+  }
+  const result = await response.json().catch(() => ({})) as {
+    data?: { app_id?: string; is_valid?: boolean; granular_scopes?: { scope: string; target_ids?: string[] }[] };
+  };
+  if (result.data?.is_valid !== true || String(result.data.app_id) !== id)
+    throw new OnboardingError(400, 'Meta authorization is invalid for this app. Please connect again.');
+  const ids = [...new Set((result.data.granular_scopes || [])
+    .filter((scope) => scope.scope === 'whatsapp_business_management')
+    .flatMap((scope) => scope.target_ids || [])
+    .filter((value) => META_ID.test(value)))];
+  if (ids.length !== 1)
+    throw new OnboardingError(409, 'Meta did not identify exactly one WhatsApp Business Account. Select one account and retry.');
+  return ids[0]!;
+}
+
 export async function finishWhatsAppSignup(params: {
-  restaurantId: string; branchId: string; wabaId: string; phoneNumberId?: string; code: string;
+  restaurantId: string; branchId: string; wabaId?: string; phoneNumberId?: string; code: string;
 }) {
-  const { restaurantId, branchId, wabaId, phoneNumberId, code } = params;
-  if (!META_ID.test(wabaId) || (phoneNumberId && !META_ID.test(phoneNumberId)))
+  const { restaurantId, branchId, phoneNumberId, code } = params;
+  if ((params.wabaId && !META_ID.test(params.wabaId)) || (phoneNumberId && !META_ID.test(phoneNumberId)))
     throw new OnboardingError(400, 'Invalid Meta account or number ID');
   const token = await exchangeEmbeddedCode(code);
+  const wabaId = params.wabaId || await singleAuthorizedWaba(token);
   // Validates server-side that the token actually has access to the claimed WABA and number.
   const phoneList = await graph<{ data?: { id: string; display_phone_number?: string; status?: string }[] }>(
     `/${wabaId}/phone_numbers?fields=id,display_phone_number,status&limit=100`, token);
