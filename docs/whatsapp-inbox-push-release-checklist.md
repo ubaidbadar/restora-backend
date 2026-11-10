@@ -8,6 +8,17 @@
 - `notifyStaff` reuses the existing push-device membership, permission and branch filters. Web push opens `/whatsapp`; mobile Expo push carries `screen: whatsapp`. **Native mobile navigation to this screen requires a corresponding mobile UI handler; verify it before claiming end-to-end native navigation.**
 - Browsers that have Restora open refresh the inbox automatically and show a small in-app alert. The service worker covers background web push after explicit browser notification permission.
 
+## Recheck v3 reliability changes
+
+- API requests use a MongoDB-backed fixed-window limiter: 600 requests/minute per client address across the API, 30 POSTs/minute for public QR writes, and 600 requests/minute for the signed Meta webhook. The counters expire automatically and are shared across API workers.
+- The reverse proxy must overwrite `CF-Connecting-IP` or `X-Real-IP`; otherwise the limiter uses the last `X-Forwarded-For` hop. Do not forward a client-supplied value as a trusted address.
+- A cart left in `confirming` for more than two minutes is recovered on the customer's next message. Before reclaiming, the handler checks the idempotent order client ID; an already-created order is finalized rather than duplicated.
+- Unsupported inbound photos, voice notes, videos, locations and documents receive a clear customer reply directing them to MENU or typed text.
+- Hidden deal components now make the parent deal unavailable in shared order pricing, WhatsApp menu discovery and the public QR menu.
+- Duplicate AI selections for the same dish and size are combined; totals above 20 require clarification.
+- Staff replies accepted by Meta but not persisted are shown immediately as a temporary outgoing bubble. Invoice dates are formatted in Pakistan time and payment labels no longer say "Not selected" for unpaid orders.
+- The reserved Restora OTP number is rejected by tenant signup and ignored by the restaurant webhook. Set `WHATSAPP_PLATFORM_PHONE_NUMBER_ID` explicitly on production; the legacy `WHATSAPP_PHONE_NUMBER_ID` is also treated as reserved.
+
 ## Infrastructure prerequisites
 - Set `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, and `WEB_PUSH_SUBJECT` on the backend. Generate a stable VAPID key pair once with `bunx web-push generate-vapid-keys`. Changing the key pair invalidates existing browser subscriptions.
 - `app.restora.live` must serve the PWA/service worker over HTTPS. Staff must opt in to browser notifications. The current browser control is shared by Restora's order, table-call and WhatsApp push alerts, and disabling it turns off all three.
