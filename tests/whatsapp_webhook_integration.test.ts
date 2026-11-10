@@ -20,7 +20,7 @@ const NUMBER = 'test-number-99';
 const FROM = '923001234567';
 const oldFetch = globalThis.fetch;
 const keys = ['WHATSAPP_APP_SECRET', 'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_TOKEN_ENCRYPTION_KEY',
-  'WHATSAPP_LLM_API_KEY', 'WHATSAPP_LLM_API_URL', 'WHATSAPP_LLM_MODEL'] as const;
+  'WHATSAPP_LLM_API_KEY', 'WHATSAPP_LLM_API_URL', 'WHATSAPP_LLM_MODEL', 'WHATSAPP_PLATFORM_PHONE_NUMBER_ID'] as const;
 const env = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 let mongo: MongoMemoryServer;
 let restaurantId = '';
@@ -110,6 +110,19 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
       expect(incoming?.processedAt).toBeDefined();
     });
     expect(sent.some((payload) => payload.type === 'interactive')).toBe(true);
+  });
+  it('does not route the reserved Restora OTP number into a restaurant inbox', async () => {
+    process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = NUMBER;
+    const beforeSent = sent.length;
+    const beforeMessages = await runWithTenant(restaurantId, () => WhatsAppMessage.countDocuments({}));
+    try {
+      expect((await webhook(event('reserved-platform-number', 'MENU'))).status).toBe(200);
+      const afterMessages = await runWithTenant(restaurantId, () => WhatsAppMessage.countDocuments({}));
+      expect(afterMessages).toBe(beforeMessages);
+      expect(sent).toHaveLength(beforeSent);
+    } finally {
+      delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+    }
   });
   it('replies clearly to photos, voice notes and locations instead of silently ignoring them', async () => {
     for (const type of ['image', 'audio', 'location']) {
