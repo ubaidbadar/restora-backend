@@ -5,6 +5,7 @@ import WhatsAppConnection from '../models/whatsapp_connection';
 import WhatsAppMessage, { type IWhatsAppMessage } from '../models/whatsapp_message';
 import { verifyWhatsAppSignature } from '../utils/whatsapp_crypto';
 import { whatsappPhone } from '../utils/whatsapp_phone';
+import isPlatformWhatsAppNumber from '../utils/is_platform_whatsapp_number';
 import { processWhatsAppMessage } from '../services/whatsapp_flow';
 import notifyStaff from '../services/push';
 
@@ -54,6 +55,10 @@ export async function receiveWebhook(c: Context) {
       const value = change?.value;
       const phoneNumberId = value?.metadata?.phone_number_id;
       if (!phoneNumberId || (!Array.isArray(value?.messages) && !Array.isArray(value?.statuses))) continue;
+      if (isPlatformWhatsAppNumber(phoneNumberId)) {
+        console.warn('[WhatsApp] Ignoring the reserved platform OTP number on the restaurant webhook');
+        continue;
+      }
       const connection = await runWithoutTenant(() =>
         WhatsAppConnection.findOne({ phoneNumberId }));
       if (!connection?.restaurantId || connection.status !== 'connected') {
