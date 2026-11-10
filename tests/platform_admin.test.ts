@@ -26,7 +26,9 @@ const call = (actor: Actor | null, method: string, path: string, body?: unknown)
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 async function verify(id: string) {
-  await mongoose.connection.db!.collection('user').updateOne({ _id: toObjectId(id) },
+  const objectId = toObjectId(id);
+  if (!objectId) throw new Error('Platform admin test fixture returned an invalid user ID');
+  await mongoose.connection.db!.collection('user').updateOne({ _id: objectId },
     { $set: { emailVerified: true } });
 }
 

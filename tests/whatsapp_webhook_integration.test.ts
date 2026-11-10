@@ -150,7 +150,8 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
       });
       cartId = String(cart._id);
       await WhatsAppCart.collection.updateOne(
-        { _id: cart._id }, { $set: { updatedAt: new Date(Date.now() - 3 * 60_000) } },
+        { _id: new mongoose.Types.ObjectId(String(cart._id)) },
+        { $set: { updatedAt: new Date(Date.now() - 3 * 60_000) } },
       );
     });
     expect((await webhook(event('recover-stale-cart', 'MENU'))).status).toBe(200);
