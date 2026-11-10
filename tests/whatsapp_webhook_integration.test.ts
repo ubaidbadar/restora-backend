@@ -110,6 +110,21 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
     });
     expect(sent.some((payload) => payload.type === 'interactive')).toBe(true);
   });
+  it('replies clearly to photos, voice notes and locations instead of silently ignoring them', async () => {
+    for (const type of ['image', 'audio', 'location']) {
+      const before = sent.length;
+      const data = {
+        object: 'whatsapp_business_account',
+        entry: [{ changes: [{ value: { metadata: { phone_number_id: NUMBER },
+          messages: [{ id: 'unsupported-' + type, from: FROM,
+            timestamp: String(Math.floor(Date.now() / 1000)), type }] } }] }],
+      };
+      expect((await webhook(data)).status).toBe(200);
+      const reply = sent.slice(before).find(payload => payload.type === 'text');
+      expect(reply).toBeDefined();
+      expect(((reply?.text as { body?: string } | undefined)?.body || '').toLowerCase()).toContain('cannot process');
+    }
+  });
   it('never places an order before Confirm, even with a valid LLM interpretation', async () => {
     modelReply = { items: [{ itemId: dishId, sizeId, qty: 2, rawName: 'Chicken Karahi' }], unmatched: [] };
     expect((await webhook(event('inbound-typed-1', '2 Chicken Karahi'))).status).toBe(200);
