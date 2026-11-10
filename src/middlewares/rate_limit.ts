@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import RateLimitBucket from '../models/rate_limit_bucket';
 
 type Options = {
@@ -9,7 +9,7 @@ type Options = {
   methods?: string[];
 };
 
-function clientAddress(c: Parameters<MiddlewareHandler>[0]): string {
+function clientAddress(c: Context): string {
   // Cloudflare or the trusted reverse proxy must overwrite these headers.
   // For X-Forwarded-For, the last hop is the address added by the proxy.
   const forwarded = c.req.header('x-forwarded-for')?.split(',').map((value) => value.trim()).filter(Boolean).at(-1);
