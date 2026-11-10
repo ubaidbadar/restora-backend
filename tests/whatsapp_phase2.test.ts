@@ -49,7 +49,9 @@ describe('Stored-order invoice', () => {
     expect(message).toContain('Order #42');
     expect(message).toContain('2 x Chicken Karahi');
     expect(message).toContain('Rs 2800');
-    expect(message).toContain('unpaid');
+    expect(message).toContain('Payment: Not paid yet');
+    expect(message).toContain('Date: ');
+    expect(message).not.toContain('2026-11-09T10:00:00.000Z');
   });
   it('generates a structurally complete PDF from the same stored order', () => {
     const pdf = invoicePdf(order, 'Restaurant Test', 'Lahore');
@@ -57,6 +59,8 @@ describe('Stored-order invoice', () => {
     expect(source.startsWith('%PDF-1.4')).toBe(true);
     expect(source).toContain('Chicken Karahi');
     expect(source).toContain('TOTAL: Rs 2800');
+    expect(source).toContain('Payment: Not paid yet');
+    expect(source).not.toContain('2026-11-09T10:00:00.000Z');
     expect(source).toContain('%%EOF');
     expect(source).toContain('xref');
   });
