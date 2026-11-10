@@ -18,6 +18,13 @@ No restaurant uses the Restora OTP number. All Graph access tokens are stored en
 
 Meta webhook URL: `https://<api-host>/api/v1/webhooks/whatsapp` (must be HTTPS).
 
+## Reserved platform number — never use it for restaurant chats
+
+- Set `WHATSAPP_PLATFORM_PHONE_NUMBER_ID` to Restora's OTP sender phone-number ID. The signup service refuses to attach this ID to a restaurant, and the restaurant webhook ignores events for it.
+- For backward compatibility, the old `WHATSAPP_PHONE_NUMBER_ID` is also treated as reserved when the explicit variable is empty.
+- Never hardcode the Restora OTP WABA/phone IDs into the dashboard signup request. The backend must verify that the selected restaurant's Meta token can access the claimed WABA and phone number, and must reject the reserved platform number.
+- The current full-page OAuth redirect returns only a code and state. If Meta's old configuration omits granular-scope target IDs, code-only signup fails closed. Restore signup only after the flow captures the restaurant's own WABA and phone-number IDs from Meta's selected-account callback or another verified tenant-specific source. Do not substitute the Restora OTP number as a workaround.
+
 ## Meta setup still required by the Restora owner
 
 1. Create/verify a Meta Business Portfolio and Tech Provider/Solution Partner onboarding eligibility as applicable.
