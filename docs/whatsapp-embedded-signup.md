@@ -18,6 +18,13 @@ No restaurant uses the Restora OTP number. All Graph access tokens are stored en
 
 Meta webhook URL: `https://<api-host>/api/v1/webhooks/whatsapp` (must be HTTPS).
 
+## Reserved platform number — never use it for restaurant chats
+
+- Set `WHATSAPP_PLATFORM_PHONE_NUMBER_ID` to Restora's OTP sender phone-number ID. The signup service refuses to attach this ID to a restaurant, and the restaurant webhook ignores events for it.
+- For backward compatibility, the old `WHATSAPP_PHONE_NUMBER_ID` is also treated as reserved when the explicit variable is empty.
+- Never hardcode the Restora OTP WABA/phone IDs into the dashboard signup request. The backend must verify that the selected restaurant's Meta token can access the claimed WABA and phone number, and must reject the reserved platform number.
+- The current full-page OAuth redirect returns only a code and state. If Meta's old configuration omits granular-scope target IDs, code-only signup fails closed. Restore signup only after the flow captures the restaurant's own WABA and phone-number IDs from Meta's selected-account callback or another verified tenant-specific source. Do not substitute the Restora OTP number as a workaround.
+
 ## Meta setup still required by the Restora owner
 
 1. Create/verify a Meta Business Portfolio and Tech Provider/Solution Partner onboarding eligibility as applicable.
@@ -40,7 +47,9 @@ The error `Meta OAuth redirect URI mismatch` comes from **Meta's code-to-token e
 
 The full OAuth dialog URL and a Meta code exchange query contain sensitive values and must **not** be posted to support chats or logged.
 
-The frontend loads the SDK on demand, calls `FB.login` with the v4 `config_id`, and sends only a one-time code plus claimed WABA/number IDs to the backend.
+The frontend loads the Meta JavaScript SDK on the WhatsApp settings page and calls `FB.login` with the configured Embedded Signup ID. It captures the one-time code from the login callback and the selected `waba_id`/`phone_number_id` from the `WA_EMBEDDED_SIGNUP` `FINISH` message. These selected IDs are sent to the backend; they are never hardcoded in the client. The backend exchanges the code and verifies that the resulting token can access the claimed WABA and phone number.
+
+If the configured Meta login does not emit a valid `WA_EMBEDDED_SIGNUP` `FINISH` event, the UI fails closed and asks the owner to retry with a supported Embedded Signup configuration. Do not work around this by inserting a platform-wide phone ID.
 
 The backend exchanges the code, validates the WABA/phone using the resulting token, subscribes the Meta app, and encrypts the token in `WhatsAppConnection`. Where Meta omits phone ID for coexistence, it auto-discovers only if the WABA has exactly one number; otherwise it fails closed.
 

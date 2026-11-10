@@ -363,7 +363,7 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
   const ids = rawItems.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
   const sameRestaurant = { $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } };
   const menuItems = await MenuItem.aggregate<
-    IMenuItem & { _id: unknown; groups: (IAddonGroup & { _id: unknown })[]; parts: (Pick<IMenuItem, 'name' | 'sizes' | 'soldOutBranchIds'> & { _id: unknown })[] }
+    IMenuItem & { _id: unknown; groups: (IAddonGroup & { _id: unknown })[]; parts: (Pick<IMenuItem, 'name' | 'sizes' | 'soldOutBranchIds' | 'hidden'> & { _id: unknown })[] }
   >([
     { $match: { _id: { $in: ids } } },
     ...lookup({ from: AddonGroup, localField: 'addonGroupIds', as: 'groups', let: { rid: '$restaurantId' }, pipeline: [sameRestaurant] }),
@@ -372,7 +372,7 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       localField: 'includes.itemId',
       as: 'parts',
       let: { rid: '$restaurantId' },
-      pipeline: [sameRestaurant, { $project: { name: 1, sizes: 1, soldOutBranchIds: 1 } }],
+      pipeline: [sameRestaurant, { $project: { name: 1, sizes: 1, soldOutBranchIds: 1, hidden: 1 } }],
     }),
   ]);
   const menuById = new Map(menuItems.map((m) => [String(m._id), m]));
@@ -387,7 +387,7 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
     const includes: NonNullable<IOrderItem['includes']> = [];
     for (const part of menuItem.includes ?? []) {
       const dish = menuItem.parts.find((entry) => String(entry._id) === part.itemId);
-      if (!dish) return `A dish in "${menuItem.name}" is no longer on the menu`;
+      if (!dish || dish.hidden) return `A dish in "${menuItem.name}" is no longer on the menu`;
       if (dish.soldOutBranchIds.includes(branchId)) return `"${dish.name}" in "${menuItem.name}" is sold out in this branch`;
       const partSize = part.sizeId ? dish.sizes.find((s) => String(s._id) === part.sizeId) : dish.sizes[0];
       includes.push({ name: dish.name, sizeName: partSize?.name || undefined, qty: part.qty });

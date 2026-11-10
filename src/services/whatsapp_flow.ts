@@ -41,7 +41,7 @@ async function menu(connection: IWhatsAppConnection) {
   const available = items.filter((it) => !it.hidden && !it.soldOutBranchIds.includes(connection.branchId) &&
     onSale(it) && (it.includes || []).every((part) => {
       const dish = items.find((candidate) => String(candidate._id) === part.itemId);
-      return !!dish && !dish.soldOutBranchIds.includes(connection.branchId);
+      return !!dish && !dish.hidden && !dish.soldOutBranchIds.includes(connection.branchId);
     }));
   return {
     categories: categories.map((cat) => ({ id: String(cat._id), name: cat.name })),
@@ -220,8 +220,11 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
     }
     return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
   }
-  if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed.');
-  if (!cart.quoteFingerprint || quoteActionId(cart.quoteFingerprint, String(cart._id) + ':' + (cart.generation || 0)) !== actionId) return say(connection, phone, 'That Confirm button is outdated. Send CART and confirm the latest summary.');
+  if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed. Please wait a moment, then send CART if it does not update.');
+  if (!cart.quoteFingerprint || quoteActionId(cart.quoteFingerprint, String(cart._id) + ':' + (cart.generation || 0)) !== actionId) {
+    await say(connection, phone, 'That Confirm button is outdated. Please review the latest cart summary.');
+    return summary(connection, phone);
+  }
   const pricedBeforeClaim = await priceItems(cart.items.map((it) =>
     ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
   if (typeof pricedBeforeClaim === 'string') {
@@ -386,6 +389,32 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
   if (!branch || branch.isActive === false) {
     return say(connection, phone, 'This restaurant branch is not taking WhatsApp orders right now. Please contact the restaurant.');
   }
+  const cartFilterForMessage = cartFilter(connection, phone);
+  const pendingCart = await WhatsAppCart.findOne(cartFilterForMessage);
+  if (pendingCart?.state === 'confirming' && pendingCart.updatedAt &&
+      pendingCart.updatedAt.getTime() < Date.now() - 2 * 60_000) {
+    const clientId = 'wa:' + String(pendingCart._id) + ':' + pendingCart.generation;
+    const existing = await Order.findOne({
+      clientId, branchId: connection.branchId,
+      whatsappPhone: phone, whatsappPhoneNumberId: connection.phoneNumberId,
+    });
+    if (existing) {
+      await WhatsAppCart.updateOne(
+        { ...cartFilterForMessage, state: 'confirming', updatedAt: pendingCart.updatedAt },
+        { $set: { state: 'confirmed', orderId: String(existing._id), items: [] },
+          $unset: { pendingItemId: '', pendingSizeId: '' } },
+      );
+      await say(connection, phone, 'Order #' + existing.dailyToken + ' was already confirmed.');
+      try { await deliverInvoice(connection, phone, existing); }
+      catch (error) { console.error('[WhatsApp] Recovered order invoice failed:', error instanceof Error ? error.message : 'unknown error'); }
+      return;
+    }
+    await WhatsAppCart.updateOne(
+      { ...cartFilterForMessage, state: 'confirming', updatedAt: pendingCart.updatedAt },
+      { $set: { state: 'active' }, $unset: { quoteFingerprint: '' } },
+    );
+    await say(connection, phone, 'Your previous confirmation was interrupted. Your order was not confirmed. Please review your cart.');
+  }
   const action = message.interactive?.list_reply?.id || message.interactive?.button_reply?.id || '';
   const text = (message.text?.body || '').trim();
   const lower = text.toLowerCase();
@@ -443,6 +472,15 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
   }
   if (lower === 'cart') return summary(connection, phone);
   if (action) return say(connection, phone, 'That menu choice is no longer available. Send MENU to browse the latest menu, or CART to review your order.');
+  if (!text && !action) {
+    const kind = message.type === 'image' ? 'photos' :
+      message.type === 'audio' ? 'voice notes' :
+      message.type === 'video' ? 'videos' :
+      message.type === 'location' ? 'locations' :
+      message.type === 'document' ? 'documents' : 'this message type';
+    return say(connection, phone,
+      'Thanks for your message. I cannot process ' + kind + ' for orders yet. Please type MENU to browse dishes or send your order as text.');
+  }
   if (text) {
     const inProgress = await WhatsAppCart.findOne(cartFilter(connection, phone));
     if (inProgress?.state === 'confirming') return say(connection, phone, 'Please wait while your order is confirmed.');

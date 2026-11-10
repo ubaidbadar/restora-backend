@@ -51,7 +51,16 @@ export function validateWhatsAppLLM(
         continue;
       }
     }
-    selections.push({ itemId: entry.id, sizeId: size.id, qty: item.qty });
+    const existing = selections.find((selection) => selection.itemId === entry.id && selection.sizeId === size.id);
+    if (existing) {
+      if (existing.qty + item.qty > 20) {
+        unmatched.push(entry.name + ' (maximum 20 per size)');
+        continue;
+      }
+      existing.qty += item.qty;
+    } else {
+      selections.push({ itemId: entry.id, sizeId: size.id, qty: item.qty });
+    }
   }
   return { selections, unmatched: unmatched.slice(0, 20) };
 }

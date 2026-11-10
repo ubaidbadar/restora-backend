@@ -11,6 +11,7 @@ import MenuCategory from '../src/models/menu_category';
 import MenuItem from '../src/models/menu_item';
 import WhatsAppConnection from '../src/models/whatsapp_connection';
 import WhatsAppMessage from '../src/models/whatsapp_message';
+import WhatsAppCart from '../src/models/whatsapp_cart';
 import Order from '../src/models/order';
 import WhatsAppInvoiceDelivery from '../src/models/whatsapp_invoice_delivery';
 
@@ -19,7 +20,7 @@ const NUMBER = 'test-number-99';
 const FROM = '923001234567';
 const oldFetch = globalThis.fetch;
 const keys = ['WHATSAPP_APP_SECRET', 'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_TOKEN_ENCRYPTION_KEY',
-  'WHATSAPP_LLM_API_KEY', 'WHATSAPP_LLM_API_URL', 'WHATSAPP_LLM_MODEL'] as const;
+  'WHATSAPP_LLM_API_KEY', 'WHATSAPP_LLM_API_URL', 'WHATSAPP_LLM_MODEL', 'WHATSAPP_PLATFORM_PHONE_NUMBER_ID'] as const;
 const env = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 let mongo: MongoMemoryServer;
 let restaurantId = '';
@@ -109,6 +110,58 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
       expect(incoming?.processedAt).toBeDefined();
     });
     expect(sent.some((payload) => payload.type === 'interactive')).toBe(true);
+  });
+  it('does not route the reserved Restora OTP number into a restaurant inbox', async () => {
+    process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = NUMBER;
+    const beforeSent = sent.length;
+    const beforeMessages = await runWithTenant(restaurantId, () => WhatsAppMessage.countDocuments({}));
+    try {
+      expect((await webhook(event('reserved-platform-number', 'MENU'))).status).toBe(200);
+      const afterMessages = await runWithTenant(restaurantId, () => WhatsAppMessage.countDocuments({}));
+      expect(afterMessages).toBe(beforeMessages);
+      expect(sent).toHaveLength(beforeSent);
+    } finally {
+      delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+    }
+  });
+  it('replies clearly to photos, voice notes and locations instead of silently ignoring them', async () => {
+    for (const type of ['image', 'audio', 'location']) {
+      const before = sent.length;
+      const data = {
+        object: 'whatsapp_business_account',
+        entry: [{ changes: [{ value: { metadata: { phone_number_id: NUMBER },
+          messages: [{ id: 'unsupported-' + type, from: FROM,
+            timestamp: String(Math.floor(Date.now() / 1000)), type }] } }] }],
+      };
+      expect((await webhook(data)).status).toBe(200);
+      const reply = sent.slice(before).find(payload => payload.type === 'text');
+      expect(reply).toBeDefined();
+      expect(((reply?.text as { body?: string } | undefined)?.body || '').toLowerCase()).toContain('cannot process');
+    }
+  });
+  it('reclaims a stale confirming cart after a process crash', async () => {
+    let cartId = '';
+    await runWithTenant(restaurantId, async () => {
+      await WhatsAppCart.deleteMany({ phone: '03001234567' });
+      const cart = await WhatsAppCart.create({
+        branchId, phoneNumberId: NUMBER, phone: '03001234567',
+        items: [{ itemId: dishId, sizeId, qty: 1 }],
+        state: 'confirming', generation: 77, quoteFingerprint: 'old-quote',
+      });
+      cartId = String(cart._id);
+      await WhatsAppCart.collection.updateOne(
+        { _id: cart._id }, { $set: { updatedAt: new Date(Date.now() - 3 * 60_000) } },
+      );
+    });
+    expect((await webhook(event('recover-stale-cart', 'MENU'))).status).toBe(200);
+    await runWithTenant(restaurantId, async () => {
+      const recovered = await WhatsAppCart.findById(cartId);
+      expect(recovered?.state).toBe('active');
+      expect(recovered?.quoteFingerprint).toBeUndefined();
+      expect(recovered?.items).toHaveLength(1);
+    });
+    expect(sent.some(payload => payload.type === 'text' &&
+      String((payload.text as { body?: string } | undefined)?.body).includes('previous confirmation was interrupted'))).toBe(true);
   });
   it('never places an order before Confirm, even with a valid LLM interpretation', async () => {
     modelReply = { items: [{ itemId: dishId, sizeId, qty: 2, rawName: 'Chicken Karahi' }], unmatched: [] };
