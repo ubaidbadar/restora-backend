@@ -11,6 +11,7 @@ import MenuCategory from '../src/models/menu_category';
 import MenuItem from '../src/models/menu_item';
 import WhatsAppConnection from '../src/models/whatsapp_connection';
 import WhatsAppMessage from '../src/models/whatsapp_message';
+import WhatsAppCart from '../src/models/whatsapp_cart';
 import Order from '../src/models/order';
 import WhatsAppInvoiceDelivery from '../src/models/whatsapp_invoice_delivery';
 
@@ -124,6 +125,30 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
       expect(reply).toBeDefined();
       expect(((reply?.text as { body?: string } | undefined)?.body || '').toLowerCase()).toContain('cannot process');
     }
+  });
+  it('reclaims a stale confirming cart after a process crash', async () => {
+    let cartId = '';
+    await runWithTenant(restaurantId, async () => {
+      await WhatsAppCart.deleteMany({ phone: '03001234567' });
+      const cart = await WhatsAppCart.create({
+        branchId, phoneNumberId: NUMBER, phone: '03001234567',
+        items: [{ itemId: dishId, sizeId, qty: 1 }],
+        state: 'confirming', generation: 77, quoteFingerprint: 'old-quote',
+      });
+      cartId = String(cart._id);
+      await WhatsAppCart.collection.updateOne(
+        { _id: cart._id }, { $set: { updatedAt: new Date(Date.now() - 3 * 60_000) } },
+      );
+    });
+    expect((await webhook(event('recover-stale-cart', 'MENU'))).status).toBe(200);
+    await runWithTenant(restaurantId, async () => {
+      const recovered = await WhatsAppCart.findById(cartId);
+      expect(recovered?.state).toBe('active');
+      expect(recovered?.quoteFingerprint).toBeUndefined();
+      expect(recovered?.items).toHaveLength(1);
+    });
+    expect(sent.some(payload => payload.type === 'text' &&
+      String((payload.text as { body?: string } | undefined)?.body).includes('previous confirmation was interrupted'))).toBe(true);
   });
   it('never places an order before Confirm, even with a valid LLM interpretation', async () => {
     modelReply = { items: [{ itemId: dishId, sizeId, qty: 2, rawName: 'Chicken Karahi' }], unmatched: [] };
