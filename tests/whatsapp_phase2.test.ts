@@ -114,6 +114,23 @@ describe('Natural-language menu validation', () => {
       [{ itemId: 'd', sizeId: 'large', qty: 1, rawName: 'pizza', rawSize: 'large' }], []);
     expect(result.selections).toHaveLength(1);
   });
+  it('combines duplicate lines for the same dish and size', () => {
+    const result = validateWhatsAppLLM('2 chicken karahi and 3 chicken karahi', dishes, [
+      { itemId: 'a', sizeId: 'as', qty: 2, rawName: 'chicken karahi' },
+      { itemId: 'a', sizeId: 'as', qty: 3, rawName: 'chicken karahi' },
+    ], []);
+    expect(result.selections).toEqual([{ itemId: 'a', sizeId: 'as', qty: 5 }]);
+    expect(result.unmatched).toEqual([]);
+  });
+  it('asks for clarification when duplicate lines exceed the per-size cart limit', () => {
+    const result = validateWhatsAppLLM('10 chicken karahi and 10 chicken karahi and 1 chicken karahi', dishes, [
+      { itemId: 'a', sizeId: 'as', qty: 10, rawName: 'chicken karahi' },
+      { itemId: 'a', sizeId: 'as', qty: 10, rawName: 'chicken karahi' },
+      { itemId: 'a', sizeId: 'as', qty: 1, rawName: 'chicken karahi' },
+    ], []);
+    expect(result.selections).toEqual([{ itemId: 'a', sizeId: 'as', qty: 20 }]);
+    expect(result.unmatched).toContain('Chicken Karahi (maximum 20 per size)');
+  });
   it('rejects nonexistent items and invalid quantities', () => {
     const result = validateWhatsAppLLM('2 zinger', dishes,
       [{ itemId: 'other', sizeId: 'bs', qty: -1, rawName: 'zinger' }], ['Unmatched drink']);
