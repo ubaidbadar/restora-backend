@@ -1,10 +1,12 @@
 import type { Context } from 'hono';
+import { createHash } from 'node:crypto';
 import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import WhatsAppMessage, { type IWhatsAppMessage } from '../models/whatsapp_message';
 import { verifyWhatsAppSignature } from '../utils/whatsapp_crypto';
 import { whatsappPhone } from '../utils/whatsapp_phone';
 import { processWhatsAppMessage } from '../services/whatsapp_flow';
+import notifyStaff from '../services/push';
 
 type MetaMessage = {
   id?: string; from?: string; timestamp?: string; type?: string;
@@ -91,6 +93,7 @@ export async function receiveWebhook(c: Context) {
           const seconds = Number(message.timestamp);
           const receivedAt = seconds > 0 && Number.isFinite(seconds) ? new Date(seconds * 1000) : new Date();
           const existing = await WhatsAppMessage.findOne({ metaMessageId: message.id });
+          let inserted = false;
           if (!existing) {
             try {
               await WhatsAppMessage.create({
@@ -98,9 +101,22 @@ export async function receiveWebhook(c: Context) {
                 direction: 'inbound', metaMessageId: message.id, messageType: message.type || 'unknown',
                 text, interactiveId, mediaId: message.image?.id, mediaMimeType: message.image?.mime_type, receivedAt,
               });
+              inserted = true;
             } catch (error) {
               if ((error as { code?: number }).code !== 11000) { failures++; continue; }
             }
+          }
+          // A Meta retry must never send another alert for the same message.
+          // The push payload intentionally excludes the customer number and message content.
+          if (inserted) {
+            const tag = 'wa-' + createHash('sha256').update(phoneNumberId + ':' + phone).digest('hex').slice(0, 26);
+            void notifyStaff(String(connection.restaurantId), connection.branchId, 'orders:view', {
+              title: 'New WhatsApp message',
+              body: 'A customer sent your restaurant a WhatsApp message.',
+              screen: 'whatsapp',
+              tag,
+            }).catch(error => console.error('[WhatsApp] Push alert failed',
+              error instanceof Error ? error.message : 'unknown error'));
           }
           // Only one processor may act on a given Meta ID. Failed actions are retriable.
           const claimed = await WhatsAppMessage.findOneAndUpdate(
