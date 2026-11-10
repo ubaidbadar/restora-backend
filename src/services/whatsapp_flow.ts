@@ -41,7 +41,7 @@ async function menu(connection: IWhatsAppConnection) {
   const available = items.filter((it) => !it.hidden && !it.soldOutBranchIds.includes(connection.branchId) &&
     onSale(it) && (it.includes || []).every((part) => {
       const dish = items.find((candidate) => String(candidate._id) === part.itemId);
-      return !!dish && !dish.soldOutBranchIds.includes(connection.branchId);
+      return !!dish && !dish.hidden && !dish.soldOutBranchIds.includes(connection.branchId);
     }));
   return {
     categories: categories.map((cat) => ({ id: String(cat._id), name: cat.name })),
