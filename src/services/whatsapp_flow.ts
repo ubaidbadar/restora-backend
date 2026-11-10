@@ -220,7 +220,37 @@ async function confirm(connection: IWhatsAppConnection, phone: string, confirmMe
     }
     return say(connection, phone, 'This order was already confirmed. Send MENU to start a new order.');
   }
-  if (cart.state === 'confirming') return say(connection, phone, 'Your order is already being processed.');
+  if (cart.state === 'confirming') {
+    const staleBefore = Date.now() - 2 * 60_000;
+    if (cart.updatedAt && cart.updatedAt.getTime() < staleBefore) {
+      const clientId = 'wa:' + String(cart._id) + ':' + cart.generation;
+      const existing = await Order.findOne({
+        clientId, branchId: connection.branchId,
+        whatsappPhone: phone, whatsappPhoneNumberId: connection.phoneNumberId,
+      });
+      if (existing) {
+        await WhatsAppCart.updateOne(
+          { ...filter, state: 'confirming', updatedAt: cart.updatedAt },
+          { $set: { state: 'confirmed', orderId: String(existing._id), items: [] },
+            $unset: { pendingItemId: '', pendingSizeId: '' } },
+        );
+        await say(connection, phone, 'Order #' + existing.dailyToken + ' was already confirmed.');
+        try { await deliverInvoice(connection, phone, existing); }
+        catch (error) { console.error('[WhatsApp] Recovered order invoice failed:', error instanceof Error ? error.message : 'unknown error'); }
+        return;
+      }
+      const reclaimed = await WhatsAppCart.findOneAndUpdate(
+        { ...filter, state: 'confirming', updatedAt: cart.updatedAt },
+        { $set: { state: 'active' }, $unset: { quoteFingerprint: '' } },
+        { returnDocument: 'after' },
+      );
+      if (reclaimed) {
+        await say(connection, phone, 'Your previous confirmation was interrupted. Please review your cart and confirm again.');
+        return summary(connection, phone);
+      }
+    }
+    return say(connection, phone, 'Your order is already being processed. Please wait a moment, then send CART if it does not update.');
+  }
   if (!cart.quoteFingerprint || quoteActionId(cart.quoteFingerprint, String(cart._id) + ':' + (cart.generation || 0)) !== actionId) return say(connection, phone, 'That Confirm button is outdated. Send CART and confirm the latest summary.');
   const pricedBeforeClaim = await priceItems(cart.items.map((it) =>
     ({ itemId: it.itemId, sizeId: it.sizeId, qty: it.qty, addonIds: [] })), connection.branchId);
@@ -443,6 +473,15 @@ export async function processWhatsAppMessage(connection: IWhatsAppConnection, ph
   }
   if (lower === 'cart') return summary(connection, phone);
   if (action) return say(connection, phone, 'That menu choice is no longer available. Send MENU to browse the latest menu, or CART to review your order.');
+  if (!text && !action) {
+    const kind = message.type === 'image' ? 'photos' :
+      message.type === 'audio' ? 'voice notes' :
+      message.type === 'video' ? 'videos' :
+      message.type === 'location' ? 'locations' :
+      message.type === 'document' ? 'documents' : 'this message type';
+    return say(connection, phone,
+      'Thanks for your message. I cannot process ' + kind + ' for orders yet. Please type MENU to browse dishes or send your order as text.');
+  }
   if (text) {
     const inProgress = await WhatsAppCart.findOne(cartFilter(connection, phone));
     if (inProgress?.state === 'confirming') return say(connection, phone, 'Please wait while your order is confirmed.');
