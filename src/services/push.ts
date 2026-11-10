@@ -5,7 +5,7 @@ import StaffMember from '../models/staff_member';
 import Role from '../models/role';
 
 /** What a tap opens: the orders board, or the tables (a guest's call). */
-type Alert = { title: string; body: string; screen: 'orders' | 'tables'; tag: string };
+type Alert = { title: string; body: string; screen: 'orders' | 'tables' | 'whatsapp'; tag: string };
 
 const EXPO_SEND = 'https://exp.host/--/api/v2/push/send';
 /** A guest's order or call is stale after 10 minutes; a phone offline longer does not get it late. */
