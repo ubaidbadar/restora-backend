@@ -1,6 +1,7 @@
 import { encryptWhatsAppToken, decryptWhatsAppToken } from '../utils/whatsapp_crypto';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import { runWithoutTenant } from '../middlewares/tenant_context';
+import isPlatformWhatsAppNumber from '../utils/is_platform_whatsapp_number';
 import type { IWhatsAppConnection } from '../models/whatsapp_connection';
 
 const GRAPH = 'https://graph.facebook.com/v26.0';
@@ -129,6 +130,10 @@ export async function finishWhatsAppSignup(params: {
   if (!phone) throw new OnboardingError(409,
     'Meta did not identify one WhatsApp number. If multiple numbers belong to this account, select the number in Meta and retry.');
   const verifiedPhoneId = phone.id;
+  if (isPlatformWhatsAppNumber(verifiedPhoneId)) {
+    throw new OnboardingError(409,
+      'This is Restora’s platform OTP number and cannot be connected to a restaurant inbox. Connect the restaurant’s own WhatsApp Business number.');
+  }
   // Global routing identity is unique across all tenants and branches.
   const previous = await runWithoutTenant(() => WhatsAppConnection.findOne({ phoneNumberId: verifiedPhoneId }));
   if (previous && (String(previous.restaurantId) !== restaurantId || previous.branchId !== branchId)) {
