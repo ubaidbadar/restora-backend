@@ -10,6 +10,7 @@ No restaurant uses the Restora OTP number. All Graph access tokens are stored en
 - `WHATSAPP_META_APP_ID` — Meta app ID.
 - `WHATSAPP_META_APP_SECRET` — Meta app secret (NEVER put into frontend build).
 - `WHATSAPP_META_CONFIG_ID` — Facebook Login for Business **WhatsApp Embedded Signup v4** configuration ID.
+- `WHATSAPP_META_REDIRECT_URI` — optional exact HTTPS `redirect_uri` used in Meta's OAuth popup if code exchange returns Meta error 100/subcode 36008. Do not set it to a made-up callback route.
 - `WHATSAPP_TOKEN_ENCRYPTION_KEY` — 32-byte AES-GCM key, 64 hexadecimal characters.
 - `WHATSAPP_APP_SECRET` — application secret used to verify webhook signatures.
 - `WHATSAPP_VERIFY_TOKEN` — random webhook verification token.
@@ -26,6 +27,18 @@ Meta webhook URL: `https://<api-host>/api/v1/webhooks/whatsapp` (must be HTTPS).
 5. Configure webhooks, subscribe to the `messages` event, set the verify token, and check signed Meta callbacks.
 6. Set backend secrets securely and deploy frontend/backend changes to staging.
 7. Connect a real **test restaurant number**, register with a six-digit PIN where required, and complete an end-to-end menu/order/invoice/reply test.
+
+## Troubleshooting Meta OAuth redirect URI mismatch
+
+The error `Meta OAuth redirect URI mismatch` comes from **Meta's code-to-token exchange** at `/oauth/access_token`, not from the webhook and not from the WhatsApp connection list.
+
+1. Open **Meta for Developers → Restora app → App settings → Basic**. Verify the App ID is the same as `WHATSAPP_META_APP_ID`; its secret must match `WHATSAPP_META_APP_SECRET`. The `WHATSAPP_META_CONFIG_ID` must be an **Embedded Signup v4 configuration on that same app**.
+2. Open **Facebook Login for Business → Settings → Client OAuth Settings**. Enable Client OAuth Login, Web OAuth Login, Enforce HTTPS, Embedded Browser OAuth Login, Use Strict Mode, and Login with the JavaScript SDK. Allow the origin serving Restora's popup, `app.restora.live`, in **Allowed Domains for the JavaScript SDK**. App Settings → Basic → App Domains should also include the appropriate Restora domain.
+3. Under **Valid OAuth Redirect URIs**, allow the *exact redirect_uri supplied in the Meta OAuth dialog*. The Restora page is `https://app.restora.live/settings/whatsapp`, but the JavaScript SDK may generate a different redirect URI. Inspect the Meta popup's `redirect_uri` query parameter in DevTools, without sharing the login URL, authorization code, or tokens. Do not assume the webhook `https://restora.live/api/v1/webhooks/whatsapp` is an OAuth callback.
+4. Meta Embedded Signup v4 often permits code exchange without a `redirect_uri`. If Meta still reports a mismatch at the exchange and requires an exact value, configure `WHATSAPP_META_REDIRECT_URI` on the **backend server** with the same HTTPS redirect URI used in the login dialog, not with the browser's current page URL unless they are identical. The backend adds this parameter only when configured. Restart/redeploy the API after changing the environment.
+5. Start a completely fresh signup. Authorization codes are one-use; a prior code cannot be replayed.
+
+The full OAuth dialog URL and a Meta code exchange query contain sensitive values and must **not** be posted to support chats or logged.
 
 The frontend loads the SDK on demand, calls `FB.login` with the v4 `config_id`, and sends only a one-time code plus claimed WABA/number IDs to the backend.
 

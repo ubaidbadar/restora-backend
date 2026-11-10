@@ -30,6 +30,18 @@ async function graph<T>(endpoint: string, token: string, method: 'GET' | 'POST' 
 export async function exchangeEmbeddedCode(code: string) {
   const { id, secret } = credentials();
   const query = new URLSearchParams({ client_id: id, client_secret: secret, code });
+  // FB.login() manages its own OAuth redirect. If Meta requires redirect_uri
+  // during the code exchange, it must match the EXACT URI from the login
+  // dialog, not an invented Restora callback endpoint.
+  const redirectUri = process.env.WHATSAPP_META_REDIRECT_URI?.trim();
+  if (redirectUri) {
+    let parsed: URL;
+    try { parsed = new URL(redirectUri); }
+    catch { throw new OnboardingError(503, 'WHATSAPP_META_REDIRECT_URI must be an absolute HTTPS URL.'); }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash)
+      throw new OnboardingError(503, 'WHATSAPP_META_REDIRECT_URI must be an HTTPS URL without credentials or a fragment.');
+    query.set('redirect_uri', redirectUri);
+  }
   const res = await fetch(`${GRAPH}/oauth/access_token?${query}`, { signal: AbortSignal.timeout(12_000) });
   const data = await res.json().catch(() => ({})) as {
     access_token?: string;
