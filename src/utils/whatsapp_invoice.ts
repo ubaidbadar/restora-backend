@@ -5,7 +5,23 @@ function printable(value: unknown): string {
   return String(value ?? '').replace(/[^\x20-\x7e]/g, '?');
 }
 function pdfEscape(value: string): string {
+  return printable(value).replace(/[\\()]/g, '\\function pdfEscape(value: string): string {
   return printable(value).replace(/[\\()]/g, '\\$&');
+}');
+}
+function invoiceDate(value: Date | string | undefined): string {
+  const date = value ? new Date(value) : null;
+  if (!date || !Number.isFinite(date.getTime())) return 'Date unavailable';
+  return new Intl.DateTimeFormat('en-PK', {
+    timeZone: 'Asia/Karachi', day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  }).format(date);
+}
+function paymentLine(order: IOrder): string {
+  if (order.paymentStatus === 'unpaid') return 'Payment: Not paid yet';
+  if (order.paymentStatus === 'khata') return 'Payment: Added to customer account (Khata)';
+  if (order.paymentStatus === 'paid') return 'Payment: Paid' + (order.paymentMethod ? ' via ' + order.paymentMethod : '');
+  return 'Payment: ' + String(order.paymentStatus || 'Not recorded');
 }
 function wrap(value: string, columns = 75): string[] {
   const words = printable(value).split(/\s+/);
@@ -23,7 +39,7 @@ function wrap(value: string, columns = 75): string[] {
 export function invoiceLines(order: IOrder, restaurant: string, address?: string): string[] {
   const lines = [
     restaurant, ...(address ? [address] : []), '',
-    `Order #${order.dailyToken}`, `Date: ${String(order.createdAt || '')}`,
+    `Order #${order.dailyToken}`, `Date: ${invoiceDate(order.createdAt)}`,
     '----------------------------------------------',
     ...order.items.flatMap((item) => [
       `${item.qty} x ${item.name}${item.sizeName ? ` (${item.sizeName})` : ''}`,
@@ -35,7 +51,7 @@ export function invoiceLines(order: IOrder, restaurant: string, address?: string
     ...(order.tax ? [`Tax: Rs ${order.tax}`] : []),
     ...(order.deliveryFee ? [`Delivery: Rs ${order.deliveryFee}`] : []),
     `TOTAL: Rs ${order.total}`,
-    `Payment: ${order.paymentMethod || 'Not selected'} (${order.paymentStatus})`,
+    paymentLine(order),
   ];
   return lines.flatMap((line) => wrap(line));
 }
