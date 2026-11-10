@@ -6,6 +6,7 @@ import { app } from '../index';
 import { runWithTenant } from '../src/middlewares/tenant_context';
 import WhatsAppConnection from '../src/models/whatsapp_connection';
 import WhatsAppMessage from '../src/models/whatsapp_message';
+import WhatsAppRead from '../src/models/whatsapp_read';
 
 const keys = ['WHATSAPP_META_APP_ID','WHATSAPP_META_APP_SECRET','WHATSAPP_META_CONFIG_ID',
   'WHATSAPP_APP_SECRET','WHATSAPP_VERIFY_TOKEN','WHATSAPP_TOKEN_ENCRYPTION_KEY',
@@ -212,6 +213,42 @@ describe('WhatsApp self-service Embedded Signup', () => {
     expect(response.status).toBe(409);
     const list = await call(b, 'GET', '/connections');
     expect(await list.json()).toEqual([]);
+  });
+  it('shows inbound conversations unread until this staff member reads the verified message', async () => {
+    const messageId = 'wa-unread-one';
+    await runWithTenant(a.restaurantId, () => WhatsAppMessage.create({
+      branchId: a.branchId, phoneNumberId: PHONE_ID, phone: '03001234567',
+      from: '923001234567', direction: 'inbound',
+      metaMessageId: messageId, messageType: 'text', text: 'Hello', receivedAt: new Date(),
+    }));
+    const listed = await call(a, 'GET', '/conversations');
+    expect(listed.status).toBe(200);
+    const unread = await listed.json() as { phone: string; unread: boolean }[];
+    expect(unread.find(row => row.phone === '03001234567')?.unread).toBe(true);
+
+    const otherRestaurant = await call(b, 'POST', '/conversations/03001234567/read', {
+      phoneNumberId: PHONE_ID, messageId,
+    });
+    expect(otherRestaurant.status).toBe(404);
+    const unknownMessage = await call(a, 'POST', '/conversations/03001234567/read', {
+      phoneNumberId: PHONE_ID, messageId: 'not-in-this-thread',
+    });
+    expect(unknownMessage.status).toBe(404);
+    const read = await call(a, 'POST', '/conversations/03001234567/read', {
+      phoneNumberId: PHONE_ID, messageId,
+    });
+    expect(read.status).toBe(200);
+    const reread = await call(a, 'POST', '/conversations/03001234567/read', {
+      phoneNumberId: PHONE_ID, messageId,
+    });
+    expect(reread.status).toBe(200);
+    const refreshed = await call(a, 'GET', '/conversations');
+    const seen = await refreshed.json() as { phone: string; unread: boolean }[];
+    expect(seen.find(row => row.phone === '03001234567')?.unread).toBe(false);
+    const reads = await runWithTenant(a.restaurantId, () => WhatsAppRead.find({
+      phoneNumberId: PHONE_ID,
+    }));
+    expect(reads).toHaveLength(1);
   });
   it('registers a pending number with a six-digit PIN and never stores the PIN', async () => {
     expect((await call(a, 'POST', `/connections/${id}/register`, { pin: '123' })).status).toBe(400);
