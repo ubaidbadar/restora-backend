@@ -69,6 +69,7 @@ export async function listConversations(c: Context) {
     customerName: names.get(`+92${row.phone!.slice(1)}`) || null,
     unread: Boolean(row.lastInboundAt) && new Date(row.lastInboundAt).getTime() >
       (readThrough.get(`${row.phoneNumberId}:${row.phone}`) ?? 0),
+    replyWindowOpen: isWhatsAppWindowOpen(row.lastInboundAt),
   })));
 }
 
