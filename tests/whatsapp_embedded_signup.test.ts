@@ -8,7 +8,8 @@ import WhatsAppConnection from '../src/models/whatsapp_connection';
 import WhatsAppMessage from '../src/models/whatsapp_message';
 
 const keys = ['WHATSAPP_META_APP_ID','WHATSAPP_META_APP_SECRET','WHATSAPP_META_CONFIG_ID',
-  'WHATSAPP_APP_SECRET','WHATSAPP_VERIFY_TOKEN','WHATSAPP_TOKEN_ENCRYPTION_KEY'] as const;
+  'WHATSAPP_APP_SECRET','WHATSAPP_VERIFY_TOKEN','WHATSAPP_TOKEN_ENCRYPTION_KEY',
+  'WHATSAPP_META_REDIRECT_URI'] as const;
 const existing = Object.fromEntries(keys.map(k => [k, process.env[k]]));
 const oldFetch = globalThis.fetch;
 let mongo: MongoMemoryServer;
@@ -92,6 +93,36 @@ describe('WhatsApp self-service Embedded Signup', () => {
     expect(data.appId).toBe('111222333444');
     expect(JSON.stringify(data)).not.toContain('not-a-real-secret');
     expect(JSON.stringify(data)).not.toContain('a'.repeat(64));
+  });
+  it('sends an exact configured redirect_uri to Meta when exchanging the authorization code', async () => {
+    process.env.WHATSAPP_META_REDIRECT_URI = 'https://app.restora.live/settings/whatsapp';
+    const before = calls.length;
+    try {
+      const response = await call(a, 'POST', '/signup/complete', {
+        code: 'test-redirect-configured-1234', wabaId: WABA,
+      });
+      expect(response.status).toBe(201);
+      const exchange = calls.slice(before).find(url => url.includes('/oauth/access_token'));
+      expect(exchange).toBeDefined();
+      expect(new URL(exchange!).searchParams.get('redirect_uri'))
+        .toBe('https://app.restora.live/settings/whatsapp');
+    } finally {
+      delete process.env.WHATSAPP_META_REDIRECT_URI;
+    }
+  });
+  it('rejects unsafe redirect URI configuration before calling Meta', async () => {
+    process.env.WHATSAPP_META_REDIRECT_URI = 'http://app.restora.live/settings/whatsapp';
+    const before = calls.length;
+    try {
+      const response = await call(a, 'POST', '/signup/complete', {
+        code: 'test-redirect-http-12345678', wabaId: WABA,
+      });
+      expect(response.status).toBe(503);
+      expect((await response.json() as { message: string }).message).toContain('HTTPS');
+      expect(calls.slice(before).some(url => url.includes('/oauth/access_token'))).toBe(false);
+    } finally {
+      delete process.env.WHATSAPP_META_REDIRECT_URI;
+    }
   });
   it('identifies Meta redirect URI mismatch without returning raw Meta text', async () => {
     oauthFailure = {
