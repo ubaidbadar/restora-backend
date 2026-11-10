@@ -13,6 +13,11 @@ type MetaMessage = {
   id?: string; from?: string; timestamp?: string; type?: string;
   text?: { body?: string };
   image?: { id?: string; mime_type?: string; caption?: string };
+  audio?: { id?: string; mime_type?: string; voice?: boolean };
+  video?: { id?: string; mime_type?: string; caption?: string };
+  document?: { id?: string; mime_type?: string; caption?: string };
+  sticker?: { id?: string; mime_type?: string };
+  location?: { name?: string; address?: string };
   interactive?: { type?: string; list_reply?: { id?: string; title?: string }; button_reply?: { id?: string; title?: string } };
 };
 type MetaStatus = { id?: string; status?: string; timestamp?: string; recipient_id?: string };
@@ -91,9 +96,14 @@ export async function receiveWebhook(c: Context) {
           const phone = whatsappPhone(message.from);
           if (!phone) continue;
           const text = (
-            message.text?.body || message.image?.caption ||
+            message.text?.body || message.image?.caption || message.video?.caption ||
+            message.document?.caption || message.location?.name || message.location?.address ||
             message.interactive?.list_reply?.title || message.interactive?.button_reply?.title || ''
           ).slice(0, 4096);
+          const media = message.image || message.audio || message.video || message.document || message.sticker;
+          // Meta marks voice notes with audio.voice; retain that distinction for inbox previews.
+          const messageType = message.type === 'audio' && message.audio?.voice
+            ? 'voice' : message.type || 'unknown';
           const interactiveId = message.interactive?.list_reply?.id || message.interactive?.button_reply?.id;
           const seconds = Number(message.timestamp);
           const receivedAt = seconds > 0 && Number.isFinite(seconds) ? new Date(seconds * 1000) : new Date();
@@ -103,8 +113,8 @@ export async function receiveWebhook(c: Context) {
             try {
               await WhatsAppMessage.create({
                 branchId: connection.branchId, phoneNumberId, phone, from: message.from,
-                direction: 'inbound', metaMessageId: message.id, messageType: message.type || 'unknown',
-                text, interactiveId, mediaId: message.image?.id, mediaMimeType: message.image?.mime_type, receivedAt,
+                direction: 'inbound', metaMessageId: message.id, messageType,
+                text, interactiveId, mediaId: media?.id, mediaMimeType: media?.mime_type, receivedAt,
               });
               inserted = true;
             } catch (error) {
@@ -114,6 +124,9 @@ export async function receiveWebhook(c: Context) {
           // A Meta retry must never send another alert for the same message.
           // The push payload intentionally excludes the customer number and message content.
           if (inserted) {
+            console.info('[WhatsApp] Inbound message stored', {
+              phoneNumberId, messageId: message.id, messageType,
+            });
             const tag = 'wa-' + createHash('sha256').update(phoneNumberId + ':' + phone).digest('hex').slice(0, 26);
             void notifyStaff(String(connection.restaurantId), connection.branchId, 'orders:view', {
               title: 'New WhatsApp message',

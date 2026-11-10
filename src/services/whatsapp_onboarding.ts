@@ -115,6 +115,10 @@ export async function finishWhatsAppSignup(params: {
   restaurantId: string; branchId: string; wabaId?: string; phoneNumberId?: string; code: string;
 }) {
   const { restaurantId, branchId, phoneNumberId, code } = params;
+  if (phoneNumberId && isPlatformWhatsAppNumber(phoneNumberId)) {
+    throw new OnboardingError(409,
+      'This is Restora’s platform OTP number and cannot be connected to a restaurant inbox. Connect the restaurant’s own WhatsApp Business number.');
+  }
   if ((params.wabaId && !META_ID.test(params.wabaId)) || (phoneNumberId && !META_ID.test(phoneNumberId)))
     throw new OnboardingError(400, 'Invalid Meta account or number ID');
   const token = await exchangeEmbeddedCode(code);
@@ -160,6 +164,9 @@ export async function finishWhatsAppSignup(params: {
 }
 
 export async function registerWithPin(connection: IWhatsAppConnection, pin: string) {
+  if (isPlatformWhatsAppNumber(connection.phoneNumberId)) {
+    throw new OnboardingError(409, 'Restora’s platform OTP number cannot be registered for restaurant messaging.');
+  }
   if (!connection.accessTokenEncrypted) throw new OnboardingError(409, 'Reconnect the number before registration.');
   const token = decryptWhatsAppToken(connection.accessTokenEncrypted);
   const res = await fetch(`${GRAPH}/${connection.phoneNumberId}/register`, {

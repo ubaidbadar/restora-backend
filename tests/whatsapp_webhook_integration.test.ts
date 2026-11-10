@@ -14,13 +14,15 @@ import WhatsAppMessage from '../src/models/whatsapp_message';
 import WhatsAppCart from '../src/models/whatsapp_cart';
 import Order from '../src/models/order';
 import WhatsAppInvoiceDelivery from '../src/models/whatsapp_invoice_delivery';
+import { finishWhatsAppSignup } from '../src/services/whatsapp_onboarding';
 
 const SECRET = 'whatsapp-staging-hmac-test';
 const NUMBER = 'test-number-99';
 const FROM = '923001234567';
 const oldFetch = globalThis.fetch;
 const keys = ['WHATSAPP_APP_SECRET', 'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_TOKEN_ENCRYPTION_KEY',
-  'WHATSAPP_LLM_API_KEY', 'WHATSAPP_LLM_API_URL', 'WHATSAPP_LLM_MODEL', 'WHATSAPP_PLATFORM_PHONE_NUMBER_ID'] as const;
+  'WHATSAPP_LLM_API_KEY', 'WHATSAPP_LLM_API_URL', 'WHATSAPP_LLM_MODEL',
+  'WHATSAPP_PLATFORM_PHONE_NUMBER_ID', 'WHATSAPP_PHONE_NUMBER_ID'] as const;
 const env = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 let mongo: MongoMemoryServer;
 let restaurantId = '';
@@ -92,11 +94,72 @@ afterAll(async () => {
   await mongo.stop();
 });
 describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', () => {
+  it('refuses the Restora platform OTP number before exchanging the Meta code', async () => {
+    const previous = process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+    process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = '123456789012345';
+    try {
+      await expect(finishWhatsAppSignup({
+        restaurantId, branchId, code: 'unused-one-time-code', phoneNumberId: '123456789012345',
+      })).rejects.toThrow('platform OTP number');
+    } finally {
+      if (previous === undefined) delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+      else process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = previous;
+    }
+  });
   it('rejects bad signatures and unchanged incorrect verify token', async () => {
     expect((await webhook(event('bad-hmac', 'menu'), false)).status).toBe(401);
     const verification = await app.request('/api/v1/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=123');
     expect(verification.status).toBe(403);
     expect(await verification.json()).toEqual({ message: 'Verification token mismatch' });
+  });
+  it('stores image, voice, video, document, sticker and location metadata', async () => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ value: { metadata: { phone_number_id: NUMBER }, messages: [
+        { id: 'inbound-photo-1', from: FROM, timestamp, type: 'image',
+          image: { id: 'photo-media-1', mime_type: 'image/jpeg', caption: 'Menu photo' } },
+        { id: 'inbound-voice-1', from: FROM, timestamp, type: 'audio',
+          audio: { id: 'voice-media-1', mime_type: 'audio/ogg; codecs=opus', voice: true } },
+        { id: 'inbound-video-1', from: FROM, timestamp, type: 'video',
+          video: { id: 'video-media-1', mime_type: 'video/mp4', caption: 'Kitchen clip' } },
+        { id: 'inbound-document-1', from: FROM, timestamp, type: 'document',
+          document: { id: 'document-media-1', mime_type: 'application/pdf', caption: 'Menu PDF' } },
+        { id: 'inbound-sticker-1', from: FROM, timestamp, type: 'sticker',
+          sticker: { id: 'sticker-media-1', mime_type: 'image/webp' } },
+        { id: 'inbound-location-1', from: FROM, timestamp, type: 'location',
+          location: { name: 'Tandoor House', address: 'Lahore' } },
+      ] } }] }],
+    };
+    expect((await webhook(payload)).status).toBe(200);
+    await runWithTenant(restaurantId, async () => {
+      const photo = await WhatsAppMessage.findOne({ metaMessageId: 'inbound-photo-1' });
+      expect(photo?.messageType).toBe('image');
+      expect(photo?.text).toBe('Menu photo');
+      expect(photo?.mediaId).toBe('photo-media-1');
+      expect(photo?.mediaMimeType).toBe('image/jpeg');
+      const voice = await WhatsAppMessage.findOne({ metaMessageId: 'inbound-voice-1' });
+      expect(voice?.messageType).toBe('voice');
+      expect(voice?.mediaId).toBe('voice-media-1');
+      expect(voice?.mediaMimeType).toBe('audio/ogg; codecs=opus');
+      const video = await WhatsAppMessage.findOne({ metaMessageId: 'inbound-video-1' });
+      expect(video?.messageType).toBe('video');
+      expect(video?.text).toBe('Kitchen clip');
+      expect(video?.mediaId).toBe('video-media-1');
+      expect(video?.mediaMimeType).toBe('video/mp4');
+      const document = await WhatsAppMessage.findOne({ metaMessageId: 'inbound-document-1' });
+      expect(document?.messageType).toBe('document');
+      expect(document?.text).toBe('Menu PDF');
+      expect(document?.mediaId).toBe('document-media-1');
+      expect(document?.mediaMimeType).toBe('application/pdf');
+      const sticker = await WhatsAppMessage.findOne({ metaMessageId: 'inbound-sticker-1' });
+      expect(sticker?.messageType).toBe('sticker');
+      expect(sticker?.mediaId).toBe('sticker-media-1');
+      expect(sticker?.mediaMimeType).toBe('image/webp');
+      const location = await WhatsAppMessage.findOne({ metaMessageId: 'inbound-location-1' });
+      expect(location?.messageType).toBe('location');
+      expect(location?.text).toBe('Tandoor House');
+    });
   });
   it('stores each Meta ID once and sends a menu from the restaurant number', async () => {
     const data = event('inbound-menu-1', 'menu');
@@ -112,6 +175,7 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
     expect(sent.some((payload) => payload.type === 'interactive')).toBe(true);
   });
   it('does not route the reserved Restora OTP number into a restaurant inbox', async () => {
+    const previous = process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
     process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = NUMBER;
     const beforeSent = sent.length;
     const beforeMessages = await runWithTenant(restaurantId, () => WhatsAppMessage.countDocuments({}));
@@ -121,7 +185,8 @@ describe('WhatsApp signed webhook and order integration (mock Graph and LLM)', (
       expect(afterMessages).toBe(beforeMessages);
       expect(sent).toHaveLength(beforeSent);
     } finally {
-      delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+      if (previous === undefined) delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+      else process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = previous;
     }
   });
   it('replies clearly to photos, voice notes and locations instead of silently ignoring them', async () => {

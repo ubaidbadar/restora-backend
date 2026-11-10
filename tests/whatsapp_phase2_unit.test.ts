@@ -3,6 +3,8 @@ import { paginateWhatsApp, safeWhatsAppText } from '../src/utils/whatsapp_menu';
 import { whatsappPhone, graphPhone } from '../src/utils/whatsapp_phone';
 import { invoiceMessage, invoicePdf, invoiceLines } from '../src/utils/whatsapp_invoice';
 import type { IOrder } from '../src/models/order';
+import type { IWhatsAppConnection } from '../src/models/whatsapp_connection';
+import { sendWhatsApp, uploadWhatsAppPdf } from '../src/services/whatsapp_graph';
 
 describe('WhatsApp Phase 2 pure helpers', () => {
   it('normalizes valid Pakistani numbers and rejects invalid ones', () => {
@@ -12,6 +14,23 @@ describe('WhatsApp Phase 2 pure helpers', () => {
     expect(graphPhone('03001234567')).toBe('923001234567');
     expect(whatsappPhone('123')).toBeNull();
     expect(graphPhone('not a number')).toBeNull();
+  });
+  it('never sends restaurant messages or media from the Restora platform OTP number', async () => {
+    const previous = process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+    process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = '123456789012345';
+    try {
+      const platformConnection = {
+        phoneNumberId: '123456789012345',
+        status: 'connected',
+      } as IWhatsAppConnection;
+      await expect(sendWhatsApp(platformConnection, '03001234567', { type: 'text', text: { body: 'hello' } }))
+        .rejects.toThrow("Restora's platform OTP number");
+      await expect(uploadWhatsAppPdf(platformConnection, new Uint8Array(), 'invoice.pdf'))
+        .rejects.toThrow("Restora's platform OTP number");
+    } finally {
+      if (previous === undefined) delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+      else process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = previous;
+    }
   });
   it('paginates menus without dropping the tenth item', () => {
     const entries = Array.from({ length: 24 }, (_, i) => i);

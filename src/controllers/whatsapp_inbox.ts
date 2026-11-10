@@ -8,6 +8,7 @@ import WhatsAppInvoiceDelivery from '../models/whatsapp_invoice_delivery';
 import { whatsappPhone, graphPhone } from '../utils/whatsapp_phone';
 import { isWhatsAppWindowOpen } from '../utils/whatsapp_window';
 import { sendWhatsApp, WhatsAppSendError } from '../services/whatsapp_graph';
+import isPlatformWhatsAppNumber, { platformWhatsAppNumberIds } from '../utils/is_platform_whatsapp_number';
 
 export async function withinWhatsAppWindow(phoneNumberId: string, phone: string) {
   const latest = await WhatsAppMessage.findOne({ phoneNumberId, phone, direction: 'inbound' })
@@ -20,9 +21,17 @@ export async function listConversations(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
   // Historical Phase 1 records had no branchId/phone. Their receiving Meta
   // phone_number_id is unique and remains the safe branch routing key.
-  const connected = branchId ? await WhatsAppConnection.find({ branchId }).select({ phoneNumberId: 1 }) : [];
-  const filter: Record<string, unknown> = branchId
-    ? { phoneNumberId: { $in: connected.map((entry) => entry.phoneNumberId) } }
+  const reservedPhoneNumberIds = platformWhatsAppNumberIds();
+  const connected = branchId
+    ? (await WhatsAppConnection.find({ branchId }).select({ phoneNumberId: 1 }))
+      .filter((entry) => !isPlatformWhatsAppNumber(entry.phoneNumberId))
+    : [];
+  const phoneNumberFilter: Record<string, unknown> = {
+    ...(branchId ? { $in: connected.map((entry) => entry.phoneNumberId) } : {}),
+    ...(reservedPhoneNumberIds.length ? { $nin: reservedPhoneNumberIds } : {}),
+  };
+  const filter: Record<string, unknown> = branchId || reservedPhoneNumberIds.length
+    ? { phoneNumberId: phoneNumberFilter }
     : {};
   const conversations = await WhatsAppMessage.aggregate([
     { $match: filter },
@@ -81,7 +90,8 @@ export async function getConversation(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
   // Explicitly authorize this receiving number before reading any legacy rows.
   const connection = await WhatsAppConnection.findOne({ phoneNumberId, ...(branchId ? { branchId } : {}) });
-  if (!connection) return c.json({ message: 'Restaurant WhatsApp number not found' }, 404);
+  if (!connection || isPlatformWhatsAppNumber(connection.phoneNumberId))
+    return c.json({ message: 'Restaurant WhatsApp number not found' }, 404);
   const from = graphPhone(phone);
   const messages = await WhatsAppMessage.find({
     phoneNumberId, $or: [{ phone }, { from }, { from: '+' + from }, { from: phone }],
@@ -96,7 +106,8 @@ export async function readConversation(c: Context) {
   const { phoneNumberId, messageId } = c.get('validatedJson') as { phoneNumberId: string; messageId: string };
   const branchId = c.get('branchId') as string | undefined;
   const connection = await WhatsAppConnection.findOne({ phoneNumberId, ...(branchId ? { branchId } : {}) });
-  if (!connection) return c.json({ message: 'Restaurant WhatsApp number not found' }, 404);
+  if (!connection || isPlatformWhatsAppNumber(connection.phoneNumberId))
+    return c.json({ message: 'Restaurant WhatsApp number not found' }, 404);
   const from = graphPhone(phone);
   const message = await WhatsAppMessage.findOne({
     phoneNumberId, metaMessageId: messageId, direction: 'inbound',
@@ -146,7 +157,10 @@ export async function listWhatsAppConnections(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
   const connections = await WhatsAppConnection.find(branchId ? { branchId } : {})
     .select({ accessTokenEncrypted: 0 });
-  return c.json(connections);
+  return c.json(connections.map((connection) => ({
+    ...connection.toJSON(),
+    isPlatformNumber: isPlatformWhatsAppNumber(connection.phoneNumberId),
+  })));
 }
 export async function updateWhatsAppConnection(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
@@ -163,7 +177,8 @@ export async function updateWhatsAppConnection(c: Context) {
 /** Inspect deliveries that failed or need an approved template; no template is sent here. */
 export async function listWhatsAppInvoices(c: Context) {
   const branchId = c.get('branchId') as string | undefined;
-  const connections = await WhatsAppConnection.find(branchId ? { branchId } : {}).select({ phoneNumberId: 1 });
+  const connections = (await WhatsAppConnection.find(branchId ? { branchId } : {}).select({ phoneNumberId: 1 }))
+    .filter((connection) => !isPlatformWhatsAppNumber(connection.phoneNumberId));
   const ids = connections.map((connection) => connection.phoneNumberId);
   const status = c.req.query('status');
   const filter: Record<string, unknown> = { phoneNumberId: { $in: ids } };
