@@ -32,6 +32,25 @@ describe('WhatsApp Phase 2 pure helpers', () => {
       else process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = previous;
     }
   });
+  it('honors the legacy WhatsApp phone ID as a reserved-number fallback', async () => {
+    const previousPlatform = process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+    const previousLegacy = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+    process.env.WHATSAPP_PHONE_NUMBER_ID = '123456789012345';
+    try {
+      const platformConnection = {
+        phoneNumberId: '123456789012345',
+        status: 'connected',
+      } as IWhatsAppConnection;
+      await expect(sendWhatsApp(platformConnection, '03001234567', { type: 'text', text: { body: 'hello' } }))
+        .rejects.toThrow("Restora's platform OTP number");
+    } finally {
+      if (previousPlatform === undefined) delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+      else process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = previousPlatform;
+      if (previousLegacy === undefined) delete process.env.WHATSAPP_PHONE_NUMBER_ID;
+      else process.env.WHATSAPP_PHONE_NUMBER_ID = previousLegacy;
+    }
+  });
   it('paginates menus without dropping the tenth item', () => {
     const entries = Array.from({ length: 24 }, (_, i) => i);
     const page0 = paginateWhatsApp(entries, 0);
