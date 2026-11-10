@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import WhatsAppConnection from '../models/whatsapp_connection';
 import WhatsAppMessage from '../models/whatsapp_message';
+import WhatsAppRead from '../models/whatsapp_read';
 import Customer from '../models/customer';
 import Order from '../models/order';
 import WhatsAppInvoiceDelivery from '../models/whatsapp_invoice_delivery';
@@ -26,10 +27,15 @@ export async function listConversations(c: Context) {
   const conversations = await WhatsAppMessage.aggregate([
     { $match: filter },
     { $sort: { receivedAt: -1 } },
-    { $group: { _id: { phoneNumberId: '$phoneNumberId', phone: { $ifNull: ['$phone', '$from'] } }, last: { $first: '$ROOT' }, count: { $sum: 1 } } },
+    { $group: {
+      _id: { phoneNumberId: '$phoneNumberId', phone: { $ifNull: ['$phone', '$from'] } },
+      last: { $first: '$ROOT' },
+      count: { $sum: 1 },
+      lastInboundAt: { $max: { $cond: [{ $eq: ['$direction', 'inbound'] }, '$receivedAt', null] } },
+    } },
     { $sort: { 'last.receivedAt': -1 } },
     { $limit: 100 },
-    { $project: { _id: 0, phoneNumberId: '$_id.phoneNumberId', phone: '$_id.phone', last: 1, count: 1 } },
+    { $project: { _id: 0, phoneNumberId: '$_id.phoneNumberId', phone: '$_id.phone', last: 1, count: 1, lastInboundAt: 1 } },
   ]);
   // Phase 1 stored only `from`, not normalized `phone`/message content.
   // Avoid crashing the inbox on those pre-migration rows.
@@ -44,6 +50,8 @@ export async function listConversations(c: Context) {
     if (!earlier) merged.set(key, row);
     else {
       earlier.count += row.count;
+      if (row.lastInboundAt && (!earlier.lastInboundAt || new Date(row.lastInboundAt).getTime() > new Date(earlier.lastInboundAt).getTime()))
+        earlier.lastInboundAt = row.lastInboundAt;
       if (new Date(row.last?.receivedAt).getTime() > new Date(earlier.last?.receivedAt).getTime()) earlier.last = row.last;
     }
   }
@@ -52,8 +60,15 @@ export async function listConversations(c: Context) {
   const phones = threads.map((row) => `+92${row.phone!.slice(1)}`);
   const customers = await Customer.find({ phone: { $in: phones } }).select({ phone: 1, name: 1 });
   const names = new Map(customers.map((customer) => [customer.phone, customer.name]));
+  const reads = await WhatsAppRead.find({ userId: c.get('user').id }).select({
+    phoneNumberId: 1, phone: 1, readThrough: 1,
+  });
+  const readThrough = new Map(reads.map((row) => [`${row.phoneNumberId}:${row.phone}`, row.readThrough.getTime()]));
   return c.json(threads.map((row) => ({
-    ...row, customerName: names.get(`+92${row.phone!.slice(1)}`) || null,
+    ...row,
+    customerName: names.get(`+92${row.phone!.slice(1)}`) || null,
+    unread: Boolean(row.lastInboundAt) && new Date(row.lastInboundAt).getTime() >
+      (readThrough.get(`${row.phoneNumberId}:${row.phone}`) ?? 0),
   })));
 }
 
@@ -71,6 +86,29 @@ export async function getConversation(c: Context) {
     phoneNumberId, $or: [{ phone }, { from }, { from: '+' + from }, { from: phone }],
   }).sort({ receivedAt: -1 }).limit(100);
   return c.json({ messages: messages.reverse() });
+}
+
+/** Mark only messages already seen in the opened thread (no future-read timestamp). */
+export async function readConversation(c: Context) {
+  const phone = whatsappPhone(c.req.param('phone') ?? '');
+  if (!phone) return c.json({ message: 'Invalid Pakistani mobile number' }, 400);
+  const { phoneNumberId, messageId } = c.get('validatedJson') as { phoneNumberId: string; messageId: string };
+  const branchId = c.get('branchId') as string | undefined;
+  const connection = await WhatsAppConnection.findOne({ phoneNumberId, ...(branchId ? { branchId } : {}) });
+  if (!connection) return c.json({ message: 'Restaurant WhatsApp number not found' }, 404);
+  const from = graphPhone(phone);
+  const message = await WhatsAppMessage.findOne({
+    phoneNumberId, metaMessageId: messageId, direction: 'inbound',
+    $or: [{ phone }, { from }, { from: '+' + from }, { from: phone }],
+  }).select({ receivedAt: 1 });
+  if (!message) return c.json({ message: 'Message not found in this conversation' }, 404);
+  await WhatsAppRead.updateOne({
+    userId: c.get('user').id, phoneNumberId, phone,
+  }, {
+    $set: { branchId: connection.branchId },
+    $max: { readThrough: message.receivedAt },
+  }, { upsert: true });
+  return c.json({ phoneNumberId, phone, readThrough: message.receivedAt });
 }
 
 export async function replyToConversation(c: Context) {
