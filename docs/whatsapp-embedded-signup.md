@@ -47,7 +47,9 @@ The error `Meta OAuth redirect URI mismatch` comes from **Meta's code-to-token e
 
 The full OAuth dialog URL and a Meta code exchange query contain sensitive values and must **not** be posted to support chats or logged.
 
-The frontend loads the SDK on demand, calls `FB.login` with the v4 `config_id`, and sends only a one-time code plus claimed WABA/number IDs to the backend.
+The frontend loads the Meta JavaScript SDK on the WhatsApp settings page and calls `FB.login` with the configured Embedded Signup ID. It captures the one-time code from the login callback and the selected `waba_id`/`phone_number_id` from the `WA_EMBEDDED_SIGNUP` `FINISH` message. These selected IDs are sent to the backend; they are never hardcoded in the client. The backend exchanges the code and verifies that the resulting token can access the claimed WABA and phone number.
+
+If the configured Meta login does not emit a valid `WA_EMBEDDED_SIGNUP` `FINISH` event, the UI fails closed and asks the owner to retry with a supported Embedded Signup configuration. Do not work around this by inserting a platform-wide phone ID.
 
 The backend exchanges the code, validates the WABA/phone using the resulting token, subscribes the Meta app, and encrypts the token in `WhatsAppConnection`. Where Meta omits phone ID for coexistence, it auto-discovers only if the WABA has exactly one number; otherwise it fails closed.
 
