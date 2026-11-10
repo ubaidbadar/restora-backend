@@ -10,7 +10,7 @@ import WhatsAppRead from '../src/models/whatsapp_read';
 
 const keys = ['WHATSAPP_META_APP_ID','WHATSAPP_META_APP_SECRET','WHATSAPP_META_CONFIG_ID',
   'WHATSAPP_APP_SECRET','WHATSAPP_VERIFY_TOKEN','WHATSAPP_TOKEN_ENCRYPTION_KEY',
-  'WHATSAPP_META_REDIRECT_URI'] as const;
+  'WHATSAPP_META_REDIRECT_URI','WHATSAPP_PLATFORM_PHONE_NUMBER_ID'] as const;
 const existing = Object.fromEntries(keys.map(k => [k, process.env[k]]));
 const oldFetch = globalThis.fetch;
 let mongo: MongoMemoryServer;
@@ -94,6 +94,18 @@ describe('WhatsApp self-service Embedded Signup', () => {
     expect(data.appId).toBe('111222333444');
     expect(JSON.stringify(data)).not.toContain('not-a-real-secret');
     expect(JSON.stringify(data)).not.toContain('a'.repeat(64));
+  });
+  it('refuses to attach the reserved Restora OTP number to a restaurant', async () => {
+    process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID = PHONE_ID;
+    try {
+      const response = await call(a, 'POST', '/signup/complete', {
+        code: 'test-platform-number-block-1234', wabaId: WABA, phoneNumberId: PHONE_ID,
+      });
+      expect(response.status).toBe(409);
+      expect((await response.json() as { message: string }).message).toContain('platform OTP number');
+    } finally {
+      delete process.env.WHATSAPP_PLATFORM_PHONE_NUMBER_ID;
+    }
   });
   it('sends an exact configured redirect_uri to Meta when exchanging the authorization code', async () => {
     process.env.WHATSAPP_META_REDIRECT_URI = 'https://app.restora.live/settings/whatsapp';
