@@ -11,6 +11,7 @@ import path from 'path';
 import auth from './src/config/auth';
 import allowedOrigins from './src/constants/allowed_origins';
 import errorHandler from './src/middlewares/error_handler';
+import rateLimit from './src/middlewares/rate_limit';
 import authGuard from './src/middlewares/auth_guard';
 import tenantResolver from './src/middlewares/tenant_resolver';
 
@@ -107,6 +108,13 @@ app.all('/api/auth/*', (c) => {
 
 // Assemble /api/v1 router
 const api = new Hono();
+
+// Every API route has a shared per-client ceiling; write-heavy public QR routes
+// and Meta webhooks have their own scoped limits as well.
+api.use('*', rateLimit({ scope: 'api', limit: 600, windowMs: 60_000 }));
+api.use('/public/*', rateLimit({ scope: 'public-write', limit: 30, windowMs: 60_000, methods: ['POST'] }));
+api.use('/webhooks/whatsapp', rateLimit({ scope: 'whatsapp-webhook', limit: 600, windowMs: 60_000 }));
+
 
 // Public unauthenticated routes
 api.route('/public', publicRouter);
