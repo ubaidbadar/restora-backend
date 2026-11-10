@@ -90,7 +90,6 @@ export async function findPublicMenu(code: string | undefined) {
       if (!r || !b || b.isActive === false) return [null, null, [], [], [], []] as const;
       const cats = await MenuCategory.find({}).sort({ sortOrder: 1 });
       const groups = await AddonGroup.find({}).sort({ createdAt: 1 });
-      // Hidden dishes too: a deal can hold a dish that is not sold on its own.
       const rawItems = await MenuItem.find({}).sort({ createdAt: 1 });
       const today = dayKey();
       const tableId = String(table._id);
@@ -137,7 +136,10 @@ export async function findPublicMenu(code: string | undefined) {
       })),
     })),
     items: items
-      .filter((it) => !it.hidden)
+      .filter((it) => !it.hidden && it.includes.every((part) => {
+        const dish = items.find((candidate) => String(candidate._id) === part.itemId);
+        return Boolean(dish && !dish.hidden);
+      }))
       .map((it) => {
         const parts = it.includes.map((part) => ({ part, dish: items.find((dish) => String(dish._id) === part.itemId) }));
         return {
@@ -153,7 +155,7 @@ export async function findPublicMenu(code: string | undefined) {
             price: s.price,
           })),
           addonGroupIds: it.addonGroupIds,
-          // A deal: what is in it, by name. It is sold out when any of its dishes is.
+          // A deal: what is in it, by name. Hidden or sold-out component dishes make the deal unavailable.
           includes: parts.length
             ? parts.map(({ part, dish }) => ({ name: dish?.name ?? '', sizeName: dish?.sizes.find((s) => String(s._id) === part.sizeId)?.name || undefined, qty: part.qty }))
             : undefined,
