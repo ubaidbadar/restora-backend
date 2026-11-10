@@ -36,7 +36,7 @@ beforeAll(async () => {
   branchId = ((await (await app.request('/api/v1/branches', { headers })).json()) as Json[])[0]._id;
   categoryId = ((await post('/api/v1/menu/categories', { name: 'Deals' })).body as Json)._id;
   karahi = (await post('/api/v1/menu/items', { categoryId, name: 'Chicken Karahi', sizes: [{ name: 'Half', price: 1400 }, { name: 'Full', price: 2600 }] })).body;
-  naan = (await post('/api/v1/menu/items', { categoryId, name: 'Naan', sizes: [{ price: 40 }], hidden: true })).body;
+  naan = (await post('/api/v1/menu/items', { categoryId, name: 'Naan', sizes: [{ price: 40 }] })).body;
   drinks = (await post('/api/v1/menu/addon-groups', { name: 'Drink', min: 1, max: 1, options: [{ name: 'Coke', price: 0 }, { name: 'Sprite', price: 0 }] })).body;
 });
 
@@ -149,7 +149,27 @@ describe('Deals', () => {
     expect(((await res.json()) as Json).message).toBe('Take it out of "Deal 1" first');
   });
 
-  it('shows guests what is in a deal, even a hidden dish, and takes their order', async () => {
+  it('refuses deals with hidden component dishes in staff, WhatsApp and guest ordering', async () => {
+    await post(`/api/v1/menu/items/${naan._id}`, { hidden: true }, 'PATCH');
+    const staffOrder = await order([{ itemId: deal._id, qty: 1, addonIds: [drinks.options[0]._id] }]);
+    expect(staffOrder.status).toBe(400);
+    expect(staffOrder.body.message).toBe('A dish in "Deal 1" is no longer on the menu');
+
+    await post('/api/v1/tables', { branchId, name: 'Hidden deal table', section: 'Hall', seats: 2 });
+    const table = await Table.findOne({ name: 'Hidden deal table' });
+    const menu = (await (await app.request(`/api/v1/public/t/${table!.qrCode}`)).json()) as Json;
+    expect(menu.items.some((item: Json) => item._id === deal._id)).toBe(false);
+
+    const guestOrder = await app.request(`/api/v1/public/t/${table!.qrCode}/order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ itemId: deal._id, qty: 1, addonIds: [drinks.options[0]._id] }] }),
+    });
+    expect(guestOrder.status).toBe(400);
+    await post(`/api/v1/menu/items/${naan._id}`, { hidden: false }, 'PATCH');
+  });
+
+  it('shows guests what is in a deal and takes their order when every component is visible', async () => {
     await post('/api/v1/tables', { branchId, name: 'T1', section: 'Hall', seats: 4 });
     const table = await Table.findOne({ name: 'T1' });
     const menu = (await (await app.request(`/api/v1/public/t/${table!.qrCode}`)).json()) as Json;
