@@ -3,7 +3,7 @@ import { whatsappSignupConfig, connectWhatsApp, registerNumber, disconnectNumber
 import { z } from 'zod';
 import requirePermission from '../middlewares/permission_guard';
 import validateBody from '../validations/validator';
-import { getConversation, listConversations, replyToConversation, listWhatsAppConnections, updateWhatsAppConnection, listWhatsAppInvoices, retryWhatsAppInvoice } from '../controllers/whatsapp_inbox';
+import { getConversation, listConversations, readConversation, replyToConversation, listWhatsAppConnections, updateWhatsAppConnection, listWhatsAppInvoices, retryWhatsAppInvoice } from '../controllers/whatsapp_inbox';
 
 const router = new Hono();
 const replySchema = z.object({
@@ -27,5 +27,9 @@ router.post('/orders/:orderId/invoice/retry', requirePermission('orders:update')
   validateBody(z.object({ stage: z.enum(['confirmed', 'completed']).optional() })), retryWhatsAppInvoice);
 router.get('/conversations', requirePermission('orders:view'), listConversations);
 router.get('/conversations/:phone', requirePermission('orders:view'), getConversation);
+router.post('/conversations/:phone/read', requirePermission('orders:view'), validateBody(z.object({
+  phoneNumberId: z.string().min(1).max(100),
+  messageId: z.string().min(1).max(255),
+})), readConversation);
 router.post('/conversations/:phone/reply', requirePermission('orders:update'), validateBody(replySchema), replyToConversation);
 export default router;
