@@ -31,7 +31,7 @@
     "@hono/zod-validator": "^0.9.1",
     "@hookform/resolvers": "^6.0.0",
     "better-auth": "^1.7.10",
-    "hono": "^4.13.13",
+    "hono": "^4.13.17",
     "lucide-react": "^1.60.0",
     "mongoose": "^9.11.2",
     "nodemailer": "^10.2.1",
