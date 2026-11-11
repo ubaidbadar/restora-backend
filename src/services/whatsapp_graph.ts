@@ -1,5 +1,6 @@
 import { decryptWhatsAppToken } from '../utils/whatsapp_crypto';
 import { graphPhone } from '../utils/whatsapp_phone';
+import isPlatformWhatsAppNumber from '../utils/is_platform_whatsapp_number';
 import type { IWhatsAppConnection } from '../models/whatsapp_connection';
 
 const GRAPH = 'https://graph.facebook.com/v26.0';
@@ -7,6 +8,8 @@ export class WhatsAppSendError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 export async function sendWhatsApp(connection: IWhatsAppConnection, phone: string, payload: Record<string, unknown>): Promise<string> {
+  if (isPlatformWhatsAppNumber(connection.phoneNumberId))
+    throw new WhatsAppSendError("Restora's platform OTP number cannot send restaurant WhatsApp messages", 409);
   if (!connection.accessTokenEncrypted || connection.status !== 'connected') {
     throw new WhatsAppSendError('The restaurant WhatsApp number is not connected for sending', 409);
   }
@@ -26,6 +29,8 @@ export async function sendWhatsApp(connection: IWhatsAppConnection, phone: strin
   return body.messages[0].id;
 }
 export async function uploadWhatsAppPdf(connection: IWhatsAppConnection, data: Uint8Array, filename: string): Promise<string> {
+  if (isPlatformWhatsAppNumber(connection.phoneNumberId))
+    throw new WhatsAppSendError("Restora's platform OTP number cannot send restaurant WhatsApp media", 409);
   if (!connection.accessTokenEncrypted || connection.status !== 'connected') throw new WhatsAppSendError('WhatsApp number is not connected', 409);
   const token = decryptWhatsAppToken(connection.accessTokenEncrypted);
   const form = new FormData();
