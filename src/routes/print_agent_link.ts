@@ -11,6 +11,7 @@ linkRouter.post('/pair', validateBody(agentPairSchema), linkController.pair);
 
 linkRouter.use('*', printAgentGuard);
 linkRouter.put('/printers', validateBody(printersReportSchema), linkController.printers);
+linkRouter.get('/printers', linkController.currentPrinters);
 linkRouter.get('/jobs', linkController.jobs);
 linkRouter.post('/jobs/:id', validateBody(printJobResultSchema), linkController.result);
 
