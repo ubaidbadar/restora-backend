@@ -23,11 +23,11 @@ jobs:
       SMTP_PASS: fake-for-tests-only
       MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.cache/mongodb-binaries
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .cache/mongodb-binaries
           key: mongo-${{ runner.os }}-${{ hashFiles('bun.lock') }}
