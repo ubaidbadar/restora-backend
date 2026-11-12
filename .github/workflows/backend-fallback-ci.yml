@@ -1,0 +1,38 @@
+name: Backend alternative validation runner
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Validate backend on ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      SMTP_HOST: smtp.ci.invalid
+      SMTP_USER: ci@example.invalid
+      SMTP_PASS: ci-not-a-real-password
+      MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.cache/mongodb-binaries
+    steps:
+      - name: Checkout backend
+        uses: actions/checkout@v4
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: WhatsApp safety lint
+        run: bun run lint
+      - name: Printer synchronization regression tests
+        run: bun test tests/print_agent.test.ts
+      - name: Complete backend test suite
+        run: bun run test
