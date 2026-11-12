@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Context } from 'hono';
 import PrintAgent, { type IPrintAgent } from '../models/print_agent';
 import PrintJob from '../models/print_job';
@@ -36,6 +37,18 @@ export async function pairPrintAgent(c: Context) {
   return c.json({ token, agent: { _id: String(agent._id), name: agent.name, branchId: agent.branchId }, printers: agent.printers });
 }
 
+/** A compact change token; the agent only fetches settings when staff edit a printer. */
+function printerRevision(printers: IPrintAgent['printers']): string {
+  return createHash('sha256').update(JSON.stringify(printers)).digest('hex');
+}
+
+/** Agent-authorized read of the latest printer mapping, no write or browser session required. */
+export async function currentPrinterSettings(c: Context) {
+  const agent = c.get('printAgent') as IPrintAgent;
+  c.header('Cache-Control', 'no-store');
+  return c.json({ printers: agent.printers });
+}
+
 /** The printers Windows lists now, sent again when they change. Staff's names and settings are kept. */
 export async function reportPrinters(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent & { save: () => Promise<unknown> };
@@ -51,6 +64,8 @@ export async function reportPrinters(c: Context) {
 export async function pendingJobs(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent;
   const jobs = await PrintJob.find({ agentId: String(agent._id), status: 'pending' }).sort({ createdAt: 1 }).limit(20);
+  c.header('X-Restora-Printer-Revision', printerRevision(agent.printers));
+  c.header('Cache-Control', 'no-store');
   // The agent prints a slip once per orderKey, kind and printer. A reprint (no autoKey) gets a key of its own, so it prints every time it is asked for.
   return c.json(jobs.map((job) => ({ _id: String(job._id), printer: job.printer, kind: job.kind, orderKey: job.autoKey ? job.orderKey : `${job.orderKey}~${job._id}`, width: job.width, copies: job.copies, order: job.order, header: job.header })));
 }
@@ -68,4 +83,4 @@ export async function jobResult(c: Context) {
   return c.json({ success: true });
 }
 
-export default { pair: pairPrintAgent, printers: reportPrinters, jobs: pendingJobs, result: jobResult };
+export default { pair: pairPrintAgent, printers: reportPrinters, currentPrinters: currentPrinterSettings, jobs: pendingJobs, result: jobResult };
