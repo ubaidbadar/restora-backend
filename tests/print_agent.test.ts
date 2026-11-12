@@ -103,6 +103,34 @@ describe('Print agents', () => {
     expect(missing.status).toBe(404);
   });
 
+  it('exposes only authorized printer settings and changes revision after an edit', async () => {
+    const url = '/api/v1/print-agent';
+    const auth = { Authorization: `Bearer ${token}` };
+    const noToken = await app.request(`${url}/printers`);
+    expect(noToken.status).toBe(401);
+
+    const first = await app.request(`${url}/jobs`, { headers: auth });
+    expect(first.status).toBe(200);
+    const firstRevision = first.headers.get('X-Restora-Printer-Revision');
+    expect(firstRevision).toMatch(/^[0-9a-f]{64}$/);
+
+    const settings = await agentGet('/printers');
+    expect(settings.status).toBe(200);
+    expect(settings.body.printers.map((p: Json) => p.systemName)).toEqual(['EPSON TM-T20', 'Kitchen Star']);
+
+    const changed = await post(`/api/v1/print-agents/${agent._id}/printers/${encodeURIComponent('Kitchen Star')}`,
+      { label: 'Hot kitchen', prints: ['kitchen'], categoryIds: [food._id], width: 32, copies: 2 }, 'PATCH');
+    expect(changed.status).toBe(200);
+    const second = await app.request(`${url}/jobs`, { headers: auth });
+    expect(second.headers.get('X-Restora-Printer-Revision')).not.toBe(firstRevision);
+
+    const updated = await agentGet('/printers');
+    expect(updated.body.printers.find((p: Json) => p.systemName === 'Kitchen Star').label).toBe('Hot kitchen');
+
+    await post(`/api/v1/print-agents/${agent._id}/printers/${encodeURIComponent('Kitchen Star')}`,
+      { label: 'Kitchen', prints: ['kitchen'], categoryIds: [food._id], width: 32, copies: 2 }, 'PATCH');
+  });
+
   it('queues a kitchen slip with only the printer\'s dishes when an order is taken', async () => {
     const res = await placeOrder([{ itemId: karahi._id, qty: 1 }, { itemId: coke._id, qty: 2 }]);
     expect(res.status).toBe(201);
