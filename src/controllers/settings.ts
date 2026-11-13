@@ -28,6 +28,7 @@ export async function updateSettings(c: Context) {
     restaurantName?: string;
     logo?: string | null;
     taxByPaymentMethod?: Record<string, number>;
+    dineInServiceCharge?: { enabled: boolean; type: 'percentage' | 'fixed'; value: number; taxable: boolean };
     whatsappTemplates?: Record<string, string>;
     receipt?: Record<string, string>;
     appearance?: Record<string, string>;
@@ -43,6 +44,7 @@ export async function updateSettings(c: Context) {
     settings.set(`taxByPaymentMethod.${method}`, rate);
   }
   if (body.taxByPaymentMethod && Object.keys(body.taxByPaymentMethod).length > 0) settings.taxSet = true;
+  if (body.dineInServiceCharge) settings.set('dineInServiceCharge', body.dineInServiceCharge);
   for (const [key, text] of Object.entries(body.whatsappTemplates ?? {})) {
     settings.set(`whatsappTemplates.${key}`, text);
   }
