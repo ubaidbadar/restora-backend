@@ -15,6 +15,8 @@ export interface IOrderItem {
   /** For a deal: the dishes in it, per one deal, as they were when ordered (for the kitchen and the receipt). */
   includes?: { name: string; sizeName?: string; qty: number }[];
   note?: string;
+  /** Menu-derived unit price when this line was first ordered; `price` is what this order charged. */
+  menuPrice?: number;
   price: number;
   qty: number;
 }
@@ -48,6 +50,11 @@ export interface IOrder {
   items: IOrderItem[];
   subtotal: number;
   discount: number;
+  /** Service charge saved with this order; it never changes when restaurant settings change. */
+  serviceCharge?: number;
+  serviceChargeType?: 'percentage' | 'fixed';
+  serviceChargeValue?: number;
+  serviceChargeTaxable?: boolean;
   taxRate: number;
   tax: number;
   deliveryFee: number;
@@ -86,7 +93,8 @@ const OrderItemSchema = new Schema(
     addons: [{ name: { type: String }, price: { type: Number } }],
     includes: { type: [{ _id: false, name: { type: String }, sizeName: { type: String }, qty: { type: Number } }], default: undefined },
     note: { type: String },
-    price: { type: Number, required: true },
+    menuPrice: { type: Number, min: 0 },
+    price: { type: Number, required: true, min: 0 },
     qty: { type: Number, required: true, min: 1 },
   },
   { _id: false }
@@ -129,6 +137,10 @@ const OrderSchema = new Schema<IOrder>(
     items: { type: [OrderItemSchema], default: [] },
     subtotal: { type: Number, required: true, default: 0 },
     discount: { type: Number, required: true, default: 0 },
+    serviceCharge: { type: Number, min: 0, default: 0 },
+    serviceChargeType: { type: String, enum: ['percentage', 'fixed'] },
+    serviceChargeValue: { type: Number, min: 0 },
+    serviceChargeTaxable: { type: Boolean, default: true },
     taxRate: { type: Number, required: true, default: 0 },
     tax: { type: Number, required: true, default: 0 },
     deliveryFee: { type: Number, required: true, default: 0 },
