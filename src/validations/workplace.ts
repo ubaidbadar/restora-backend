@@ -9,7 +9,7 @@ export const workspacePreferencesSchema = z.object({
     sidebarHidden: z.boolean().optional(),
     detailsPanel: z.boolean().optional(),
     density: z.enum(['comfortable', 'compact']).optional(),
-  }).partial().optional(),
+  }).partial().strict().optional(),
 }).strict();
 
 export default workplaceSchema;
