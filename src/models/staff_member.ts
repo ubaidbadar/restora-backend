@@ -16,6 +16,13 @@ export interface IStaffMember {
   pinLocked?: boolean;
   isOwner?: boolean;
   isPrimaryOwner?: boolean;
+  preferences?: {
+    orders?: {
+      sidebarHidden?: boolean;
+      detailsPanel?: boolean;
+      density?: 'comfortable' | 'compact';
+    };
+  };
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -33,6 +40,13 @@ const StaffMemberSchema = new Schema<IStaffMember>(
     pinLocked: { type: Boolean, default: false },
     isOwner: { type: Boolean, default: false },
     isPrimaryOwner: { type: Boolean, default: false },
+    preferences: {
+      orders: {
+        sidebarHidden: { type: Boolean, default: false },
+        detailsPanel: { type: Boolean, default: false },
+        density: { type: String, enum: ['comfortable', 'compact'], default: 'comfortable' },
+      },
+    },
   },
   {
     timestamps: true,
