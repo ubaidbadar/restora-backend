@@ -224,6 +224,7 @@ export default function TablePage({ code, menu }: { code: string; menu: TableMen
       <CartBar
         code={code}
         tableName={menu.table.name}
+        dineInServiceCharge={menu.dineInServiceCharge}
         orders={orders}
         onOrderSent={(order) => {
           setOrders((current) => {
