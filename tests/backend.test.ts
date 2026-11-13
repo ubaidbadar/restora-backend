@@ -427,6 +427,53 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     expect(order.total).toBe(1600);
   });
 
+  it('keeps a takeaway walk-in name on the order without creating a customer record', async () => {
+    const customersBefore = await Customer.countDocuments({ restaurantId });
+    const res = await app.request('/api/v1/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId },
+      body: JSON.stringify({
+        branchId,
+        type: 'takeaway',
+        newName: 'Ayesha Siddiqui',
+        paymentStatus: 'unpaid',
+        items: [{ itemId: menuItemId, qty: 1, addonIds: [mildOptionId] }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const order = (await res.json()) as any;
+    expect(order.customerId).toBeUndefined();
+    expect(order.customer).toEqual({ name: 'Ayesha Siddiqui' });
+    expect(await Customer.countDocuments({ restaurantId })).toBe(customersBefore);
+  });
+
+  it('uses a selected customer as the takeaway name by default, while preserving the order snapshot', async () => {
+    const customerRes = await app.request('/api/v1/customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId },
+      body: JSON.stringify({ name: 'Ali Raza', phone: '03001234567' }),
+    });
+    const customer = (await customerRes.json()) as any;
+    const res = await app.request('/api/v1/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId },
+      body: JSON.stringify({
+        branchId,
+        customerId: customer._id,
+        newName: 'Ali Raza - Office',
+        type: 'takeaway',
+        paymentStatus: 'unpaid',
+        items: [{ itemId: menuItemId, qty: 1, addonIds: [mildOptionId] }],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const order = (await res.json()) as any;
+    expect(order.customerId).toBe(customer._id);
+    expect(order.customer).toMatchObject({ _id: customer._id, name: 'Ali Raza - Office', phone: customer.phone });
+  });
+
   it('toggles item soldOut status per branch dynamically', async () => {
     // Initially soldOut is false
     const menuRes1 = await app.request(`/api/v1/menu?branchId=${branchId}`, {
