@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import mongoose from 'mongoose';
 import auth from '../config/auth';
-import StaffMember from '../models/staff_member';
+import StaffMember, { type IStaffMember } from '../models/staff_member';
 import PushDevice from '../models/push_device';
 import Restaurant from '../models/restaurant';
 import { runWithoutTenant } from '../middlewares/tenant_context';
@@ -25,6 +25,33 @@ export async function switchWorkplace(c: Context) {
 }
 
 /** Switch this sign-in to another branch of the current restaurant. */
+/** Save personal workspace layout preferences for this restaurant membership. */
+export async function updatePreferences(c: Context) {
+  const membership = c.get('membership') as (IStaffMember & { save: () => Promise<unknown> }) | undefined;
+  if (c.get('via') !== 'web' || !membership) {
+    return c.json({ message: 'Open a restaurant from your own account to save workspace preferences' }, 403);
+  }
+
+  const body = c.get('validatedJson') as {
+    orders?: {
+      sidebarHidden?: boolean;
+      detailsPanel?: boolean;
+      density?: 'comfortable' | 'compact';
+    };
+  };
+  const current = membership.preferences?.orders ?? {};
+  membership.preferences = {
+    orders: {
+      sidebarHidden: body.orders?.sidebarHidden ?? current.sidebarHidden ?? false,
+      detailsPanel: body.orders?.detailsPanel ?? current.detailsPanel ?? false,
+      density: body.orders?.density ?? current.density ?? 'comfortable',
+    },
+  };
+  await membership.save();
+
+  return c.json({ preferences: membership.preferences });
+}
+
 export async function switchBranch(c: Context) {
   const { branchId } = c.get('validatedJson') as { branchId: string };
   const workplace = c.get('workplace') as Workplace | undefined;
@@ -174,6 +201,7 @@ export default {
   getMe,
   switchWorkplace,
   switchBranch,
+  updatePreferences,
   listSessions: listWebSessions,
   revokeSession: revokeWebSession,
   revokeOtherSessions,
