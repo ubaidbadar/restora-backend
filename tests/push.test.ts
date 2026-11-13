@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
-import webpush from 'web-push';
+import webpush from '../src/utils/web_push';
+import type { PushSubscription } from 'web-push';
 import { app } from '../index';
 import PushDevice from '../src/models/push_device';
 import Restaurant from '../src/models/restaurant';
@@ -54,7 +55,7 @@ beforeAll(async () => {
     }
     return realFetch(input, init);
   }) as typeof fetch;
-  webpush.sendNotification = (async (subscription: webpush.PushSubscription, payload?: string | Buffer | null) => {
+  webpush.sendNotification = (async (subscription: PushSubscription, payload?: string | Buffer | null) => {
     if (subscription.endpoint.endsWith('/gone')) throw Object.assign(new Error('Gone'), { statusCode: 410 });
     webSent.push({ endpoint: subscription.endpoint, payload: JSON.parse(String(payload)) });
     return { statusCode: 201, body: '', headers: {} };
