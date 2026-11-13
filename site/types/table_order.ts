@@ -13,5 +13,6 @@ export default interface TableOrder {
     note?: string;
   }[];
   total: number;
+  serviceCharge?: number;
   createdAt: string;
 }
