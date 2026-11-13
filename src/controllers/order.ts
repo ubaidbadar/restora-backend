@@ -1,5 +1,6 @@
 import { orderTransitionConditions } from '../utils/order_status_transition';
 import type { Context } from 'hono';
+import serviceChargeOf from '@shared/service_charge_of';
 import { streamSSE } from 'hono/streaming';
 import type { ClientSession, PipelineStage } from 'mongoose';
 import Order, { type IOrder, type IOrderItem, type IOrderCustomer } from '../models/order';
@@ -48,6 +49,21 @@ async function taxRateFor(method: PaymentMethod | undefined): Promise<number> {
   if (!method) return 0;
   const settings = await Settings.findOne({});
   return settings?.taxByPaymentMethod?.[method] ?? 0;
+}
+
+function savedServiceCharge(order: IOrder, subtotal: number, discount: number) {
+  if (order.serviceChargeType && order.serviceChargeValue !== undefined) {
+    return serviceChargeOf(order.type, subtotal, discount, {
+      enabled: true,
+      type: order.serviceChargeType,
+      value: order.serviceChargeValue,
+      taxable: order.serviceChargeTaxable ?? true,
+    });
+  }
+  return {
+    serviceCharge: order.serviceCharge ?? 0,
+    serviceChargeTaxable: order.serviceChargeTaxable ?? true,
+  };
 }
 
 /**
@@ -328,7 +344,7 @@ function placedTime(placedAt?: string): number {
   return at > now - 2 * 86_400_000 && at < now + 5 * 60_000 ? at : now;
 }
 
-type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number };
+type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number; priceOverride?: number };
 
 /**
  * The order's customer: an existing one by id, or a new record when a name and a real mobile number were given (a name
@@ -358,7 +374,14 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
  * hours must be on sale `at` (when the order was taken), except those already on the order being edited (`onOrder`).
  * Answers an error message when a dish is gone, sold out, not on sale or picked wrongly.
  */
-export async function priceItems(rawItems: RawItem[], branchId: string, at: number = Date.now(), onOrder: string[] = []): Promise<IOrderItem[] | string> {
+export async function priceItems(
+  rawItems: RawItem[],
+  branchId: string,
+  at: number = Date.now(),
+  onOrder: string[] = [],
+  existingItems: IOrderItem[] = [],
+  allowPriceOverride = false
+): Promise<IOrderItem[] | string> {
   // One aggregation: the dishes with their add-on groups and, for deals, the dishes in them (of the same restaurant).
   const ids = rawItems.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
   const sameRestaurant = { $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } };
@@ -376,6 +399,11 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
     }),
   ]);
   const menuById = new Map(menuItems.map((m) => [String(m._id), m]));
+  const existingByLine = new Map<string, IOrderItem[]>();
+  for (const item of existingItems) {
+    const key = [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(','), item.note ?? ''].join('|');
+    existingByLine.set(key, [...(existingByLine.get(key) ?? []), item]);
+  }
   const priced: IOrderItem[] = [];
 
   for (const rawItem of rawItems) {
@@ -414,6 +442,14 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       }
     }
 
+    const lineKey = [String(menuItem._id), String(size._id), [...addonIds].sort().join(','), rawItem.note || ''].join('|');
+    const existing = existingByLine.get(lineKey)?.shift();
+    const basePrice = size.price + addonsPrice;
+    const menuPrice = existing?.menuPrice ?? existing?.price ?? basePrice;
+    const price = allowPriceOverride && rawItem.priceOverride !== undefined
+      ? rawItem.priceOverride
+      : existing?.price ?? basePrice;
+
     priced.push({
       itemId: String(menuItem._id),
       name: menuItem.name,
@@ -423,7 +459,8 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addons: addons.length ? addons : undefined,
       includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
-      price: size.price + addonsPrice,
+      menuPrice,
+      price,
       qty: rawItem.qty,
     });
   }
@@ -444,6 +481,9 @@ export async function createOrder(c: Context) {
   // What the person may do beyond taking the order.
   if (body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot give discounts' }, 403);
+  }
+  if (body.items.some((item) => item.priceOverride !== undefined) && !(await hasPermission(c, 'orders:price_override'))) {
+    return c.json({ message: 'You cannot change item prices on orders' }, 403);
   }
   if (body.paymentStatus !== 'unpaid' && !(await hasPermission(c, 'orders:payment'))) {
     return c.json({ message: 'You cannot record payments. Save it as pay later.' }, 403);
@@ -468,14 +508,17 @@ export async function createOrder(c: Context) {
   }
 
   // 3. Prices come from the menu, never from the client. A deal taken offline counts at the time it was taken.
-  const orderItems = await priceItems(body.items, branchId, placedTime(body.placedAt));
+  const orderItems = await priceItems(body.items, branchId, placedTime(body.placedAt), [], [], true);
   if (typeof orderItems === 'string') return c.json({ message: orderItems }, 400);
 
-  // 4. Totals. Tax is added once a payment method is known.
+  // 4. Totals. The dine-in charge is captured now; tax is added once a payment method is known.
   const paymentMethod: PaymentMethod | undefined = body.paymentStatus === 'unpaid' ? undefined : body.paymentMethod;
-  const taxRate = await taxRateFor(paymentMethod);
+  const settings = await Settings.findOne({});
+  const taxRate = paymentMethod ? (settings?.taxByPaymentMethod?.[paymentMethod] ?? 0) : 0;
   const deliveryFee = body.type === 'delivery' ? body.deliveryFee || 0 : 0;
-  const totals = calcTotals(orderItems, body.discount || 0, taxRate, deliveryFee);
+  const baseTotals = calcTotals(orderItems, body.discount || 0, 0, deliveryFee);
+  const serviceCharge = serviceChargeOf(body.type, baseTotals.subtotal, baseTotals.discount, settings?.dineInServiceCharge);
+  const totals = calcTotals(orderItems, baseTotals.discount, taxRate, deliveryFee, serviceCharge.serviceCharge, serviceCharge.serviceChargeTaxable);
   // An order taken offline counts on the day it was taken.
   const placed = placedTime(body.placedAt);
   const todayKey = dayKey(placed);
@@ -500,6 +543,10 @@ export async function createOrder(c: Context) {
           items: orderItems,
           subtotal: totals.subtotal,
           discount: totals.discount,
+          serviceCharge: serviceCharge.serviceCharge,
+          serviceChargeType: serviceCharge.serviceChargeType,
+          serviceChargeValue: serviceCharge.serviceChargeValue,
+          serviceChargeTaxable: serviceCharge.serviceChargeTaxable,
           taxRate,
           tax: totals.tax,
           deliveryFee,
@@ -537,7 +584,7 @@ export async function createOrder(c: Context) {
     action: 'order.created',
     actor: auditActor(c),
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
-    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    changes: { after: { total: newOrder.total, serviceCharge: newOrder.serviceCharge ?? 0, status: newOrder.status, dailyToken: newOrder.dailyToken } },
   });
 
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
@@ -548,7 +595,7 @@ export async function createOrder(c: Context) {
     action: 'order.created',
     actor: auditActor(c),
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
-    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    changes: { after: { total: newOrder.total, serviceCharge: newOrder.serviceCharge ?? 0, status: newOrder.status, dailyToken: newOrder.dailyToken } },
     at: newOrder.createdAt || new Date().toISOString(),
   };
 
@@ -642,7 +689,9 @@ export async function recordPayment(c: Context) {
 
   const taxRate = await taxRateFor(paymentMethod);
   const appliedDelivery = order.type === 'delivery' ? (deliveryFee ?? order.deliveryFee) : 0;
-  const totals = calcTotals(order.items, discount ?? order.discount, taxRate, appliedDelivery);
+  const appliedDiscount = discount ?? order.discount;
+  const serviceCharge = savedServiceCharge(order, order.subtotal, appliedDiscount);
+  const totals = calcTotals(order.items, appliedDiscount, taxRate, appliedDelivery, serviceCharge.serviceCharge, serviceCharge.serviceChargeTaxable);
 
   const updated = await runInTransaction(async (session) => {
     // Only an unpaid order can be paid, checked in the same write, so a double tap cannot charge twice.
@@ -653,6 +702,8 @@ export async function recordPayment(c: Context) {
           paymentMethod,
           paymentStatus,
           discount: totals.discount,
+          serviceCharge: serviceCharge.serviceCharge,
+          serviceChargeTaxable: serviceCharge.serviceChargeTaxable,
           deliveryFee: appliedDelivery,
           taxRate,
           tax: totals.tax,
@@ -671,8 +722,8 @@ export async function recordPayment(c: Context) {
     actor: auditActor(c),
     target: { type: 'order', id, label: `#${order.dailyToken}` },
     changes: {
-      before: { discount: order.discount, deliveryFee: order.deliveryFee, total: order.total },
-      after: { paymentMethod, paymentStatus, discount: updated.discount, deliveryFee: updated.deliveryFee, tax: updated.tax, total: updated.total },
+      before: { discount: order.discount, serviceCharge: order.serviceCharge ?? 0, deliveryFee: order.deliveryFee, total: order.total },
+      after: { paymentMethod, paymentStatus, discount: updated.discount, serviceCharge: updated.serviceCharge ?? 0, deliveryFee: updated.deliveryFee, tax: updated.tax, total: updated.total },
     },
   });
 
@@ -705,8 +756,16 @@ export async function updateOrder(c: Context) {
     }
     const discount = (body.discount as number | undefined) ?? order.discount;
     const deliveryFee = order.type === 'delivery' ? ((body.deliveryFee as number | undefined) ?? order.deliveryFee) : 0;
-    const totals = calcTotals(order.items, discount, order.taxRate, deliveryFee);
-    Object.assign(body, { discount: totals.discount, deliveryFee, tax: totals.tax, total: totals.total });
+    const serviceCharge = savedServiceCharge(order, order.subtotal, discount);
+    const totals = calcTotals(order.items, discount, order.taxRate, deliveryFee, serviceCharge.serviceCharge, serviceCharge.serviceChargeTaxable);
+    Object.assign(body, {
+      discount: totals.discount,
+      serviceCharge: serviceCharge.serviceCharge,
+      serviceChargeTaxable: serviceCharge.serviceChargeTaxable,
+      deliveryFee,
+      tax: totals.tax,
+      total: totals.total,
+    });
   }
 
   if (body.tableId) {
@@ -755,6 +814,9 @@ export async function editOrder(c: Context) {
   if (body.discount !== order.discount && body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot give discounts' }, 403);
   }
+  if (body.items.some((item) => item.priceOverride !== undefined) && !(await hasPermission(c, 'orders:price_override'))) {
+    return c.json({ message: 'You cannot change item prices on orders' }, 403);
+  }
 
   const found = await resolveCustomer(body);
   if (typeof found === 'string') return c.json({ message: found }, 400);
@@ -769,12 +831,19 @@ export async function editOrder(c: Context) {
   }
 
   // Lines already on the order stay, even once their deal's hours are over.
-  const items = await priceItems(body.items, order.branchId, Date.now(), order.items.map((item) => item.itemId));
+  const items = await priceItems(body.items, order.branchId, Date.now(), order.items.map((item) => item.itemId), order.items, true);
   if (typeof items === 'string') return c.json({ message: items }, 400);
 
   // Unpaid, so no tax yet: it is added when the customer pays.
   const deliveryFee = body.type === 'delivery' ? body.deliveryFee || 0 : 0;
-  const totals = calcTotals(items, body.discount || 0, 0, deliveryFee);
+  const baseTotals = calcTotals(items, body.discount || 0, 0, deliveryFee);
+  const settings = body.type === 'dine_in' && order.type !== 'dine_in' ? await Settings.findOne({}) : null;
+  const savedConfig = order.type === 'dine_in' && order.serviceChargeType && order.serviceChargeValue !== undefined
+    ? { enabled: true, type: order.serviceChargeType, value: order.serviceChargeValue, taxable: order.serviceChargeTaxable ?? true }
+    : undefined;
+  const chargeConfig = body.type !== 'dine_in' ? undefined : order.type === 'dine_in' ? savedConfig : settings?.dineInServiceCharge;
+  const serviceCharge = serviceChargeOf(body.type, baseTotals.subtotal, baseTotals.discount, chargeConfig);
+  const totals = calcTotals(items, baseTotals.discount, 0, deliveryFee, serviceCharge.serviceCharge, serviceCharge.serviceChargeTaxable);
   const isDelivery = body.type === 'delivery';
 
   const updated = await Order.findOneAndUpdate(
@@ -787,6 +856,10 @@ export async function editOrder(c: Context) {
         items,
         subtotal: totals.subtotal,
         discount: totals.discount,
+        serviceCharge: serviceCharge.serviceCharge,
+        serviceChargeType: serviceCharge.serviceChargeType,
+        serviceChargeValue: serviceCharge.serviceChargeValue,
+        serviceChargeTaxable: serviceCharge.serviceChargeTaxable,
         taxRate: 0,
         tax: totals.tax,
         deliveryFee,
