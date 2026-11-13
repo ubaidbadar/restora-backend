@@ -9,6 +9,8 @@ import MenuItem from '../models/menu_item';
 import GuestRequest from '../models/guest_request';
 import Customer from '../models/customer';
 import Order from '../models/order';
+import Settings from '../models/settings';
+import serviceChargeOf from '@shared/service_charge_of';
 import DailyCounter from '../models/daily_counter';
 import { priceItems } from './order';
 import calcTotals from '../utils/calc_totals';
@@ -50,6 +52,7 @@ export interface PublicOrderLike {
   paymentStatus: TableOrder['paymentStatus'];
   items?: PublicOrderItemLike[];
   total: number;
+  serviceCharge?: number;
   createdAt?: Date | string | number;
 }
 
@@ -67,6 +70,7 @@ export function toPublicTableOrder(order: PublicOrderLike): TableOrder {
       addonNames: it.addonNames || (Array.isArray(it.addons) ? it.addons.map((a) => a.name) : []),
       note: it.note || undefined,
     })),
+    serviceCharge: order.serviceCharge ?? 0,
     total: order.total,
     createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : String(order.createdAt ?? ''),
   };
@@ -82,15 +86,16 @@ export async function findPublicMenu(code: string | undefined) {
 
   const { restaurantId, branchId } = table;
 
-  const [restaurant, branch, categories, addonGroups, items, orders] = await runWithTenant(
+  const [restaurant, branch, categories, addonGroups, items, orders, settings] = await runWithTenant(
     restaurantId,
     async () => {
       const r = await runWithoutTenant(() => Restaurant.findById(restaurantId));
       const b = await Branch.findById(branchId);
-      if (!r || !b || b.isActive === false) return [null, null, [], [], [], []] as const;
+      if (!r || !b || b.isActive === false) return [null, null, [], [], [], [], null] as const;
       const cats = await MenuCategory.find({}).sort({ sortOrder: 1 });
       const groups = await AddonGroup.find({}).sort({ createdAt: 1 });
       const rawItems = await MenuItem.find({}).sort({ createdAt: 1 });
+      const settings = await Settings.findOne({});
       const today = dayKey();
       const tableId = String(table._id);
       const activeOrders = await Order.find({
@@ -101,7 +106,7 @@ export async function findPublicMenu(code: string | undefined) {
         $or: [{ status: { $ne: 'completed' } }, { paymentStatus: { $ne: 'paid' } }],
       }).sort({ createdAt: 1 });
 
-      return [r, b, cats, groups, rawItems, activeOrders];
+      return [r, b, cats, groups, rawItems, activeOrders, settings];
     }
   );
 
@@ -118,6 +123,7 @@ export async function findPublicMenu(code: string | undefined) {
     table: {
       name: table.name,
     },
+    dineInServiceCharge: settings?.dineInServiceCharge ?? { enabled: false, type: 'percentage' as const, value: 0, taxable: true },
     orders: orders.map(toPublicTableOrder),
     categories: categories.map((cat) => ({
       _id: String(cat._id),
@@ -247,7 +253,10 @@ export async function placeGuestOrder(c: Context) {
 
     const priced = await priceItems(items, branchId);
     if (typeof priced === 'string') throw httpError(400, priced);
-    const totals = calcTotals(priced, 0, 0, 0);
+    const settings = await Settings.findOne({});
+    const baseTotals = calcTotals(priced, 0, 0, 0);
+    const serviceCharge = serviceChargeOf('dine_in', baseTotals.subtotal, 0, settings?.dineInServiceCharge);
+    const totals = calcTotals(priced, 0, 0, 0, serviceCharge.serviceCharge, serviceCharge.serviceChargeTaxable);
 
     const saved = await runInTransaction(async (session) => {
       const counter = await DailyCounter.findOneAndUpdate(
@@ -265,6 +274,10 @@ export async function placeGuestOrder(c: Context) {
             items: priced,
             subtotal: totals.subtotal,
             discount: 0,
+            serviceCharge: serviceCharge.serviceCharge,
+            serviceChargeType: serviceCharge.serviceChargeType,
+            serviceChargeValue: serviceCharge.serviceChargeValue,
+            serviceChargeTaxable: serviceCharge.serviceChargeTaxable,
             taxRate: 0,
             tax: 0,
             deliveryFee: 0,
