@@ -7,6 +7,7 @@ export default interface TableMenu {
   restaurant: { name: string; logo?: string };
   branch: { name: string };
   table: { name: string };
+  dineInServiceCharge: { enabled: boolean; type: 'percentage' | 'fixed'; value: number; taxable: boolean };
   orders: TableOrder[];
   categories: { _id: string; name: string }[];
   addonGroups: AddonGroup[];
