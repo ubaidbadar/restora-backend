@@ -133,6 +133,26 @@ describe('Auth, onboarding and team management', () => {
     expect((await call(owner, 'PATCH', '/settings', { appearance: { theme: 'pink' } })).status).toBe(400);
   });
 
+  it('saves personal workspace preferences per membership and returns defaults for older records', async () => {
+    const initial = (await json(await call(owner, 'GET', '/me'))).workplace.preferences;
+    expect(initial).toEqual({ orders: { sidebarHidden: false, detailsPanel: false, density: 'comfortable' } });
+
+    const first = await json(await call(owner, 'PATCH', '/me/preferences', {
+      orders: { sidebarHidden: true, density: 'compact' },
+    }));
+    expect(first.preferences).toEqual({ orders: { sidebarHidden: true, detailsPanel: false, density: 'compact' } });
+    expect((await json(await call(owner, 'GET', '/me'))).workplace.preferences).toEqual(first.preferences);
+
+    const second = await json(await call(owner, 'PATCH', '/me/preferences', {
+      orders: { detailsPanel: true },
+    }));
+    expect(second.preferences).toEqual({ orders: { sidebarHidden: true, detailsPanel: true, density: 'compact' } });
+    expect((await json(await call(owner, 'GET', '/me'))).workplace.preferences).toEqual(second.preferences);
+
+    expect((await call(owner, 'PATCH', '/me/preferences', { orders: { density: 'dense' } })).status).toBe(400);
+    expect((await call(owner, 'PATCH', '/me/preferences', { orders: { sidebarHidden: 'yes' } })).status).toBe(400);
+  });
+
   it('switches branch only to an open branch', async () => {
     const created = await json(await call(owner, 'POST', '/branches', { name: 'Second' }));
     secondBranchId = created._id;
