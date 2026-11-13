@@ -9,6 +9,7 @@ export const orderItemInputSchema = z.object({
   sizeId: z.string().optional().nullable(),
   addonIds: z.array(z.string()).default([]),
   note: z.string().optional().nullable(),
+  priceOverride: z.coerce.number().min(0, 'Price cannot be below 0').max(1_000_000, 'Price is too high').optional(),
   qty: z.coerce.number().int().min(1, 'Quantity must be at least 1'),
 });
 
