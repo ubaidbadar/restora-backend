@@ -193,6 +193,7 @@ export async function sessionWorkplace(userId: string, session: { token: string;
 
 const DEFAULT_SETTINGS = {
   taxByPaymentMethod: { cash: 16, card: 5, jazzcash: 5, easypaisa: 5, bank: 5 },
+  dineInServiceCharge: { enabled: false, type: 'percentage' as const, value: 0, taxable: true },
   whatsappTemplates: { winback: '', reservation: '' },
 };
 
@@ -228,6 +229,7 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
               onboarded: Boolean(saved?.onboarded),
               taxSet: Boolean(saved?.taxSet),
               taxByPaymentMethod: { ...DEFAULT_SETTINGS.taxByPaymentMethod, ...saved?.taxByPaymentMethod },
+              dineInServiceCharge: { ...DEFAULT_SETTINGS.dineInServiceCharge, ...saved?.dineInServiceCharge },
               whatsappTemplates: { ...DEFAULT_SETTINGS.whatsappTemplates, ...saved?.whatsappTemplates },
               receipt: receipt?.ntn || receipt?.strn || receipt?.footer ? { ntn: receipt.ntn || undefined, strn: receipt.strn || undefined, footer: receipt.footer || undefined } : undefined,
               appearance: { theme: 'indigo', mode: 'light', sidebar: 'plain', ...saved?.appearance },
