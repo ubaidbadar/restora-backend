@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import mongoose from 'mongoose';
 import auth from '../config/auth';
-import StaffMember from '../models/staff_member';
+import StaffMember, { type IStaffMember } from '../models/staff_member';
 import PushDevice from '../models/push_device';
 import Restaurant from '../models/restaurant';
 import { runWithoutTenant } from '../middlewares/tenant_context';
@@ -24,7 +24,46 @@ export async function switchWorkplace(c: Context) {
   return c.json(me);
 }
 
-/** Switch this sign-in to another branch of the current restaurant. */
+/** Save personal workspace layout preferences for this restaurant membership. */
+export async function updatePreferences(c: Context) {
+  const membership = c.get('membership') as IStaffMember | undefined;
+  if (c.get('via') !== 'web' || !membership?._id) {
+    return c.json({ message: 'Open a restaurant from your own account to save workspace preferences' }, 403);
+  }
+
+  const body = c.get('validatedJson') as {
+    orders?: {
+      sidebarHidden?: boolean;
+      detailsPanel?: boolean;
+      density?: 'comfortable' | 'compact';
+    };
+  };
+  const updates: Record<string, boolean | string> = {};
+  if (body.orders?.sidebarHidden !== undefined) updates['preferences.orders.sidebarHidden'] = body.orders.sidebarHidden;
+  if (body.orders?.detailsPanel !== undefined) updates['preferences.orders.detailsPanel'] = body.orders.detailsPanel;
+  if (body.orders?.density !== undefined) updates['preferences.orders.density'] = body.orders.density;
+
+  const saved = Object.keys(updates).length
+    ? await StaffMember.findOneAndUpdate(
+        { _id: membership._id, userId: membership.userId, restaurantId: membership.restaurantId },
+        { $set: updates },
+        { new: true, runValidators: true },
+      )
+    : membership;
+  if (!saved) return c.json({ message: 'Your restaurant membership could not be found' }, 404);
+
+  const orders = saved.preferences?.orders ?? {};
+  return c.json({
+    preferences: {
+      orders: {
+        sidebarHidden: orders.sidebarHidden ?? false,
+        detailsPanel: orders.detailsPanel ?? false,
+        density: orders.density === 'compact' ? 'compact' : 'comfortable',
+      },
+    },
+  });
+}
+
 export async function switchBranch(c: Context) {
   const { branchId } = c.get('validatedJson') as { branchId: string };
   const workplace = c.get('workplace') as Workplace | undefined;
@@ -174,6 +213,7 @@ export default {
   getMe,
   switchWorkplace,
   switchBranch,
+  updatePreferences,
   listSessions: listWebSessions,
   revokeSession: revokeWebSession,
   revokeOtherSessions,
