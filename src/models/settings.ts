@@ -11,6 +11,7 @@ export interface ISettings {
   onboarded?: boolean;
   taxSet?: boolean;
   taxByPaymentMethod?: Record<PaymentMethod, number>;
+  dineInServiceCharge?: { enabled: boolean; type: 'percentage' | 'fixed'; value: number; taxable: boolean };
   whatsappTemplates?: Record<TemplateKey, string>;
   /** Printed on customer receipts; each line is left off while empty. */
   receipt?: { ntn?: string; strn?: string; footer?: string };
@@ -19,6 +20,16 @@ export interface ISettings {
   updatedAt?: string;
   createdAt?: string;
 }
+
+const DineInServiceChargeSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    type: { type: String, enum: ['percentage', 'fixed'], default: 'percentage' },
+    value: { type: Number, min: 0, default: 0 },
+    taxable: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
 
 const SettingsSchema = new Schema<ISettings>(
   {
@@ -34,6 +45,7 @@ const SettingsSchema = new Schema<ISettings>(
       easypaisa: { type: Number, default: 5 },
       bank: { type: Number, default: 5 },
     },
+    dineInServiceCharge: { type: DineInServiceChargeSchema, default: () => ({}) },
     receipt: {
       ntn: { type: String, trim: true },
       strn: { type: String, trim: true },
