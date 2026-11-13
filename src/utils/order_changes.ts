@@ -7,10 +7,12 @@ export interface LineChange {
   detail?: string;
   was: number;
   now: number;
+  wasPrice?: number;
+  nowPrice?: number;
 }
 
 /** The order's facts its history shows, as they read to a person. */
-const FIELDS = ['type', 'tableName', 'customer', 'area', 'address', 'rider', 'discount', 'deliveryFee', 'total'] as const;
+const FIELDS = ['type', 'tableName', 'customer', 'area', 'address', 'rider', 'discount', 'serviceCharge', 'deliveryFee', 'total'] as const;
 type Field = (typeof FIELDS)[number];
 type Snapshot = Pick<IOrder, Exclude<Field, 'customer'>> & { customer?: { name?: string } | null };
 
@@ -35,8 +37,11 @@ export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChan
   const now = count(after);
   const changes: LineChange[] = [];
   for (const [key, { item, qty }] of was) {
-    const left = now.get(key)?.qty ?? 0;
-    if (left !== qty) changes.push({ name: item.name, detail: lineDetail(item), was: qty, now: left });
+    const current = now.get(key);
+    const left = current?.qty ?? 0;
+    if (left !== qty || (current && current.item.price !== item.price)) {
+      changes.push({ name: item.name, detail: lineDetail(item), was: qty, now: left, wasPrice: item.price, nowPrice: current?.item.price });
+    }
   }
   for (const [key, { item, qty }] of now) {
     if (!was.has(key)) changes.push({ name: item.name, detail: lineDetail(item), was: 0, now: qty });
@@ -44,7 +49,7 @@ export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChan
   return changes.sort((a, b) => Number(a.now > 0) - Number(b.now > 0));
 }
 
-const AMOUNTS: Field[] = ['discount', 'deliveryFee', 'total'];
+const AMOUNTS: Field[] = ['discount', 'serviceCharge', 'deliveryFee', 'total'];
 const value = (order: Snapshot, field: Field) => {
   if (field === 'customer') return order.customer?.name || undefined;
   return AMOUNTS.includes(field) ? (order[field] ?? 0) : order[field] || undefined;
