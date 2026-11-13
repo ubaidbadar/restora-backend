@@ -187,6 +187,10 @@ describe('Auth, onboarding and team management', () => {
     const joined = await json(await call(waiter, 'POST', `/invitations/accept/${token}`));
     expect(joined.me.workplace.restaurant._id).toBe(restaurantId);
     expect(joined.me.workplace.permissions).toContain('orders:create');
+    expect(joined.me.workplace.preferences).toEqual({ orders: { sidebarHidden: false, detailsPanel: false, density: 'comfortable' } });
+    expect((await json(await call(owner, 'GET', '/me'))).workplace.preferences).toEqual({
+      orders: { sidebarHidden: true, detailsPanel: true, density: 'compact' },
+    });
     expect(joined.me.workplace.permissions).not.toContain('staff:manage');
     expect(joined.me.workplace.branches.map((b: Json) => b._id)).toEqual([mainBranchId]);
     // The link works once.
