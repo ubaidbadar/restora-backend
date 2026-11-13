@@ -4,4 +4,12 @@ export const workplaceSchema = z.object({ restaurantId: z.string().min(1, 'Pick 
 
 export const branchPickSchema = z.object({ branchId: z.string().min(1, 'Pick a branch') });
 
+export const workspacePreferencesSchema = z.object({
+  orders: z.object({
+    sidebarHidden: z.boolean().optional(),
+    detailsPanel: z.boolean().optional(),
+    density: z.enum(['comfortable', 'compact']).optional(),
+  }).partial().optional(),
+}).strict();
+
 export default workplaceSchema;
