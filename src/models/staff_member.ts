@@ -56,6 +56,7 @@ const StaffMemberSchema = new Schema<IStaffMember>(
         if (ret._id) ret._id = String(ret._id);
         ret.hasPin = !!ret.pinHash;
         delete ret.pinHash;
+        delete ret.preferences;
         delete ret.__v;
         return ret;
       },
