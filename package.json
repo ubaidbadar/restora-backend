@@ -12,7 +12,7 @@
     "lint": "bun scripts/lint_whatsapp.ts"
   },
   "devDependencies": {
-    "@tailwindcss/node": "4.3.3",
+    "@tailwindcss/node": "4.3.5",
     "@tailwindcss/oxide": "4.3.3",
     "@types/bun": "latest",
     "@types/node": "^26.6.5",
