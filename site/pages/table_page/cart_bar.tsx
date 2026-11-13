@@ -2,12 +2,15 @@ import { ShoppingBag } from 'lucide-react';
 import useCartStore from '../../store/cart_store';
 import type TableOrder from '../../types/table_order';
 import formatRs from '../../utils/format_rs';
+import serviceChargeOf from '@shared/service_charge_of';
+import type TableMenu from '../../types/table_menu';
 import CallButtons from './call_buttons';
 import CartSheet from './cart_sheet';
 
 interface CartBarProps {
   code: string;
   tableName: string;
+  dineInServiceCharge: TableMenu['dineInServiceCharge'];
   orders?: TableOrder[];
   onOrderSent?: (order: TableOrder) => void;
 }
@@ -16,10 +19,12 @@ interface CartBarProps {
  * Always in reach at the bottom: the order so far (opens the cart), and calling a waiter or asking for the bill. Kept
  * clear of the screen's rounded corners and the home indicator (safe-area insets, see the viewport's viewport-fit=cover).
  */
-export default function CartBar({ code, tableName, orders = [], onOrderSent }: CartBarProps) {
+export default function CartBar({ code, tableName, dineInServiceCharge, orders = [], onOrderSent }: CartBarProps) {
   const cart = useCartStore();
   const count = cart.lines.reduce((sum, line) => sum + line.qty, 0);
-  const total = cart.lines.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+  const subtotal = cart.lines.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+  const serviceCharge = serviceChargeOf('dine_in', subtotal, 0, dineInServiceCharge).serviceCharge;
+  const total = subtotal + serviceCharge;
 
   const sentNote =
     orders.length > 0
@@ -34,6 +39,7 @@ export default function CartBar({ code, tableName, orders = [], onOrderSent }: C
         {/* Always mounted, so the sheet stays open to show the order's number once the cart is empty. */}
         <CartSheet
           onOrderSent={onOrderSent}
+          dineInServiceCharge={dineInServiceCharge}
           component={({ open }) =>
             count > 0 && (
               <button type="button" onClick={open} className="flex min-h-14 items-center gap-3 rounded-full bg-indigo ps-5 pe-6 text-white hover:bg-indigo-deep">
