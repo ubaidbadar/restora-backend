@@ -4,14 +4,18 @@ import useCartStore from '../../store/cart_store';
 import type CartLine from '../../types/cart_line';
 import type TableOrder from '../../types/table_order';
 import formatRs from '../../utils/format_rs';
+import serviceChargeOf from '@shared/service_charge_of';
+import type TableMenu from '../../types/table_menu';
 
 /**
  * Sends the guest's cart to the kitchen's queue; staff accept it before it is cooked. `clientId` is made once per cart,
  * so a retry after a dropped connection gives the same order, not a second one. Prices are the API's, never the page's.
  */
-export default function SendOrder({ code, lines, clientId, onOrderSent }: { code: string; lines: CartLine[]; clientId: string; onOrderSent?: (order: TableOrder) => void }) {
+export default function SendOrder({ code, lines, clientId, dineInServiceCharge, onOrderSent }: { code: string; lines: CartLine[]; clientId: string; dineInServiceCharge: TableMenu['dineInServiceCharge']; onOrderSent?: (order: TableOrder) => void }) {
   const [send, setSend] = useState({ sending: false, error: '' });
-  const total = lines.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+  const subtotal = lines.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+  const serviceCharge = serviceChargeOf('dine_in', subtotal, 0, dineInServiceCharge).serviceCharge;
+  const total = subtotal + serviceCharge;
 
   const submit = () => {
     setSend({ sending: true, error: '' });
@@ -39,7 +43,8 @@ export default function SendOrder({ code, lines, clientId, onOrderSent }: { code
         <span>{send.sending ? 'Sending…' : 'Send to the kitchen'}</span>
         <span className="tabular-nums">{formatRs(total)}</span>
       </button>
-      <p className="text-center text-sm text-ink-3">You pay at the end. Tax, if any, is added on the bill.</p>
+      {serviceCharge > 0 && <p className="text-center text-sm text-ink-2">Includes {formatRs(serviceCharge)} dine-in service charge. Tax, if any, is added on the bill.</p>}
+      {serviceCharge === 0 && <p className="text-center text-sm text-ink-3">You pay at the end. Tax, if any, is added on the bill.</p>}
     </div>
   );
 }
