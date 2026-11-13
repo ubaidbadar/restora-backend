@@ -1,4 +1,4 @@
-import webpush from 'web-push';
+import webpush from '../utils/web_push';
 import type Permission from '@shared/permission';
 import PushDevice from '../models/push_device';
 import StaffMember from '../models/staff_member';
