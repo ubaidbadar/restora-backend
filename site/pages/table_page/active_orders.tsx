@@ -154,6 +154,7 @@ export default function ActiveOrders({ orders, tableName }: ActiveOrdersProps) {
                 })}
               </ul>
 
+              {order.serviceCharge ? <div className="flex items-center justify-between text-sm text-ink-2"><span>Service charge</span><span className="tabular-nums">{formatRs(order.serviceCharge)}</span></div> : null}
               <div className="flex items-center justify-between pt-0.5 text-sm">
                 <span className="font-semibold text-ink">Total</span>
                 <div className="flex items-center gap-2">
