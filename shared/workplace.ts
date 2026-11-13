@@ -8,14 +8,6 @@ export default interface Workplace {
   isOwner: boolean;
   isPrimaryOwner: boolean;
   hasPin: boolean;
-  /** Personal layout preferences for this restaurant membership; desktop-only controls are still synced to mobile. */
-  preferences?: {
-    orders: {
-      sidebarHidden: boolean;
-      detailsPanel: boolean;
-      density: 'comfortable' | 'compact';
-    };
-  };
   /** Every permission they have here; owners get the whole catalog. */
   permissions: Permission[];
   /** The branch they work at now; null when none of their branches is open. */

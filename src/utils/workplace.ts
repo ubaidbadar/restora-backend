@@ -218,13 +218,6 @@ export function toMe({ user, via, device, workplace, restaurants }: { user: Omit
             isOwner: workplace.isOwner,
             isPrimaryOwner: Boolean(member.isPrimaryOwner),
             hasPin: Boolean(member.pinHash),
-            preferences: {
-              orders: {
-                sidebarHidden: member.preferences?.orders?.sidebarHidden ?? false,
-                detailsPanel: member.preferences?.orders?.detailsPanel ?? false,
-                density: member.preferences?.orders?.density === 'compact' ? 'compact' : 'comfortable',
-              },
-            },
             permissions: workplace.permissions,
             // Its contact details are printed on receipts.
             branch: branch ? { _id: branch._id, name: branch.name, address: branch.address, area: branch.area, city: branch.city, phone: branch.phone } : null,
