@@ -16,13 +16,6 @@ export interface IStaffMember {
   pinLocked?: boolean;
   isOwner?: boolean;
   isPrimaryOwner?: boolean;
-  preferences?: {
-    orders?: {
-      sidebarHidden?: boolean;
-      detailsPanel?: boolean;
-      density?: 'comfortable' | 'compact';
-    };
-  };
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -40,13 +33,6 @@ const StaffMemberSchema = new Schema<IStaffMember>(
     pinLocked: { type: Boolean, default: false },
     isOwner: { type: Boolean, default: false },
     isPrimaryOwner: { type: Boolean, default: false },
-    preferences: {
-      orders: {
-        sidebarHidden: { type: Boolean, default: false },
-        detailsPanel: { type: Boolean, default: false },
-        density: { type: String, enum: ['comfortable', 'compact'], default: 'comfortable' },
-      },
-    },
   },
   {
     timestamps: true,
@@ -56,7 +42,6 @@ const StaffMemberSchema = new Schema<IStaffMember>(
         if (ret._id) ret._id = String(ret._id);
         ret.hasPin = !!ret.pinHash;
         delete ret.pinHash;
-        delete ret.preferences;
         delete ret.__v;
         return ret;
       },
@@ -67,7 +52,6 @@ const StaffMemberSchema = new Schema<IStaffMember>(
         if (ret._id) ret._id = String(ret._id);
         ret.hasPin = !!ret.pinHash;
         delete ret.pinHash;
-        delete ret.preferences;
         delete ret.__v;
         return ret;
       },
