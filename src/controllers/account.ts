@@ -24,7 +24,6 @@ export async function switchWorkplace(c: Context) {
   return c.json(me);
 }
 
-/** Switch this sign-in to another branch of the current restaurant. */
 /** Save personal workspace layout preferences for this restaurant membership. */
 export async function updatePreferences(c: Context) {
   const membership = c.get('membership') as (IStaffMember & { save: () => Promise<unknown> }) | undefined;
@@ -52,6 +51,7 @@ export async function updatePreferences(c: Context) {
   return c.json({ preferences: membership.preferences });
 }
 
+/** Switch this sign-in to another branch of the current restaurant. */
 export async function switchBranch(c: Context) {
   const { branchId } = c.get('validatedJson') as { branchId: string };
   const workplace = c.get('workplace') as Workplace | undefined;
