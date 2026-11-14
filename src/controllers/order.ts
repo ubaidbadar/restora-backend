@@ -478,7 +478,9 @@ export async function createOrder(c: Context) {
   const paymentMethod: PaymentMethod | undefined = body.paymentStatus === 'unpaid' ? undefined : body.paymentMethod;
   const taxRate = await taxRateFor(paymentMethod);
   const deliveryFee = body.type === 'delivery' ? body.deliveryFee || 0 : 0;
-  const totals = calcTotals(orderItems, body.discount || 0, taxRate, deliveryFee);
+  const serviceChargeType = body.type === 'dine_in' ? body.serviceChargeType || undefined : undefined;
+  const serviceChargeValue = serviceChargeType ? (body.serviceChargeValue ?? 0) : 0;
+  const totals = calcTotals(orderItems, body.discount || 0, taxRate, deliveryFee, serviceChargeType, serviceChargeValue);
   // An order taken offline counts on the day it was taken.
   const placed = placedTime(body.placedAt);
   const todayKey = dayKey(placed);
@@ -506,6 +508,9 @@ export async function createOrder(c: Context) {
           taxRate,
           tax: totals.tax,
           deliveryFee,
+          serviceChargeType,
+          serviceChargeValue,
+          serviceCharge: totals.serviceCharge,
           total: totals.total,
           paymentMethod,
           paymentStatus: body.paymentStatus,
@@ -645,7 +650,7 @@ export async function recordPayment(c: Context) {
 
   const taxRate = await taxRateFor(paymentMethod);
   const appliedDelivery = order.type === 'delivery' ? (deliveryFee ?? order.deliveryFee) : 0;
-  const totals = calcTotals(order.items, discount ?? order.discount, taxRate, appliedDelivery);
+  const totals = calcTotals(order.items, discount ?? order.discount, taxRate, appliedDelivery, order.type === 'dine_in' ? order.serviceChargeType : undefined, order.serviceChargeValue ?? 0);
 
   const updated = await runInTransaction(async (session) => {
     // Only an unpaid order can be paid, checked in the same write, so a double tap cannot charge twice.
@@ -659,6 +664,7 @@ export async function recordPayment(c: Context) {
           deliveryFee: appliedDelivery,
           taxRate,
           tax: totals.tax,
+          serviceCharge: totals.serviceCharge,
           total: totals.total,
         },
       },
@@ -708,8 +714,8 @@ export async function updateOrder(c: Context) {
     }
     const discount = (body.discount as number | undefined) ?? order.discount;
     const deliveryFee = order.type === 'delivery' ? ((body.deliveryFee as number | undefined) ?? order.deliveryFee) : 0;
-    const totals = calcTotals(order.items, discount, order.taxRate, deliveryFee);
-    Object.assign(body, { discount: totals.discount, deliveryFee, tax: totals.tax, total: totals.total });
+    const totals = calcTotals(order.items, discount, order.taxRate, deliveryFee, order.type === 'dine_in' ? order.serviceChargeType : undefined, order.serviceChargeValue ?? 0);
+    Object.assign(body, { discount: totals.discount, deliveryFee, tax: totals.tax, serviceCharge: totals.serviceCharge, total: totals.total });
   }
 
   if (body.tableId) {
@@ -777,7 +783,10 @@ export async function editOrder(c: Context) {
 
   // Unpaid, so no tax yet: it is added when the customer pays.
   const deliveryFee = body.type === 'delivery' ? body.deliveryFee || 0 : 0;
-  const totals = calcTotals(items, body.discount || 0, 0, deliveryFee);
+  const serviceChargeType = body.type === 'dine_in' ? (body.serviceChargeType === undefined ? order.serviceChargeType : body.serviceChargeType || undefined) : undefined;
+  const serviceChargeValue = serviceChargeType ? (body.serviceChargeValue ?? order.serviceChargeValue ?? 0) : 0;
+  if (serviceChargeType === 'percentage' && serviceChargeValue > 100) return c.json({ message: 'Percentage cannot exceed 100' }, 400);
+  const totals = calcTotals(items, body.discount || 0, 0, deliveryFee, serviceChargeType, serviceChargeValue);
   const isDelivery = body.type === 'delivery';
 
   const updated = await Order.findOneAndUpdate(
@@ -793,6 +802,9 @@ export async function editOrder(c: Context) {
         taxRate: 0,
         tax: totals.tax,
         deliveryFee,
+        serviceChargeType,
+        serviceChargeValue,
+        serviceCharge: totals.serviceCharge,
         total: totals.total,
         tableId,
         tableName,
