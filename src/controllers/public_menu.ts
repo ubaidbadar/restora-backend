@@ -107,6 +107,30 @@ export async function findPublicMenu(code: string | undefined) {
 
   if (!restaurant || !branch) return 'closed';
 
+  const publicItems = items.filter((item) => !item.hidden && item.includes.every((part) => {
+    const dish = items.find((candidate) => String(candidate._id) === part.itemId);
+    return Boolean(dish && !dish.hidden);
+  }));
+
+  // A component stays in the guest menu if it has a size of its own; hide it only when every size is already
+  // bundled in a deal that guests can order now. E.g. keep the full karahi when a deal contains only half.
+  const bundledSizes = new Set<string>();
+  for (const deal of publicItems) {
+    if (!deal.includes.length || !onSale(deal) || deal.soldOutBranchIds.includes(branchId)) continue;
+    const parts = deal.includes.flatMap((part) => {
+      const dish = publicItems.find((item) => String(item._id) === part.itemId);
+      const size = part.sizeId
+        ? dish?.sizes.find((candidate) => String(candidate._id) === part.sizeId)
+        : dish?.sizes[0];
+      return dish && !dish.soldOutBranchIds.includes(branchId) && size ? [{ dish, size }] : [];
+    });
+    if (parts.length !== deal.includes.length) continue;
+    for (const { dish, size } of parts) bundledSizes.add(`${String(dish._id)}:${String(size._id)}`);
+  }
+  const visibleItems = publicItems.filter((item) =>
+    item.includes.length > 0 || !item.sizes.length || !item.sizes.every((size) => bundledSizes.has(`${String(item._id)}:${String(size._id)}`))
+  );
+
   return {
     restaurant: {
       name: restaurant.name || 'Restaurant',
@@ -135,12 +159,7 @@ export async function findPublicMenu(code: string | undefined) {
         price: o.price,
       })),
     })),
-    items: items
-      .filter((it) => !it.hidden && it.includes.every((part) => {
-        const dish = items.find((candidate) => String(candidate._id) === part.itemId);
-        return Boolean(dish && !dish.hidden);
-      }))
-      .map((it) => {
+    items: visibleItems.map((it) => {
         const parts = it.includes.map((part) => ({ part, dish: items.find((dish) => String(dish._id) === part.itemId) }));
         return {
           _id: String(it._id),
