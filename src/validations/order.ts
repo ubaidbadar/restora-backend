@@ -87,6 +87,8 @@ export const orderEditSchema = z
     address: z.string().optional().nullable(),
     rider: z.string().optional().nullable(),
     deliveryFee: z.coerce.number().min(0).default(0),
+    serviceChargeType: z.enum(['percentage', 'fixed']).nullish(),
+    serviceChargeValue: z.coerce.number().finite().min(0).optional(),
     discount: z.coerce.number().min(0).default(0),
   })
   .superRefine((order, ctx) => {
