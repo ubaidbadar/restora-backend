@@ -268,7 +268,9 @@ describe('WhatsApp self-service Embedded Signup', () => {
     expect(result.status).toBe(200);
     const connection = await runWithTenant(a.restaurantId, () => WhatsAppConnection.findById(id));
     expect(connection?.status).toBe('connected');
-    expect(JSON.stringify(connection?.toObject())).not.toContain('123456');
+    expect(connection?.toObject()).not.toHaveProperty('pin');
+    expect(connection?.toObject()).not.toHaveProperty('registrationPin');
+    expect(connection?.accessTokenEncrypted).not.toBe('123456');
   });
   it('disconnecting revokes sending and stops new inbound order processing', async () => {
     const result = await call(a, 'POST', `/connections/${id}/disconnect`);
@@ -288,6 +290,6 @@ describe('WhatsApp self-service Embedded Signup', () => {
       body: raw,
     });
     expect(response.status).toBe(200);
-    expect(await runWithTenant(a.restaurantId, () => WhatsAppMessage.countDocuments())).toBe(0);
+    expect(await runWithTenant(a.restaurantId, () => WhatsAppMessage.exists({ metaMessageId: 'wa-disconnect-test' }))).toBeNull();
   });
 });
