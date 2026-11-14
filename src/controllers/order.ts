@@ -680,8 +680,8 @@ export async function recordPayment(c: Context) {
     actor: auditActor(c),
     target: { type: 'order', id, label: `#${order.dailyToken}` },
     changes: {
-      before: { discount: order.discount, deliveryFee: order.deliveryFee, total: order.total },
-      after: { paymentMethod, paymentStatus, discount: updated.discount, deliveryFee: updated.deliveryFee, tax: updated.tax, total: updated.total },
+      before: { discount: order.discount, deliveryFee: order.deliveryFee, serviceCharge: order.serviceCharge, total: order.total },
+      after: { paymentMethod, paymentStatus, discount: updated.discount, deliveryFee: updated.deliveryFee, serviceCharge: updated.serviceCharge, tax: updated.tax, total: updated.total },
     },
   });
 
