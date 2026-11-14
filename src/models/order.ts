@@ -20,9 +20,9 @@ export interface IOrderItem {
 }
 
 export interface IOrderCustomer {
-  _id: string;
+  _id?: string;
   name: string;
-  phone: string;
+  phone?: string;
 }
 
 /** Who cancelled the order, when and why. Older cancellations have no reason. */
@@ -94,9 +94,9 @@ const OrderItemSchema = new Schema(
 
 const OrderCustomerSchema = new Schema(
   {
-    _id: { type: String, required: true },
+    _id: { type: String },
     name: { type: String, required: true },
-    phone: { type: String, required: true },
+    phone: { type: String },
   },
   { _id: false }
 );

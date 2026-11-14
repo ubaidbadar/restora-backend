@@ -339,11 +339,14 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
     const cust = await Customer.findById(body.customerId).catch(() => null);
     if (!cust) return 'That customer was not found';
     const customerId = String(cust._id);
-    return { customerId, customerSnapshot: { _id: customerId, name: cust.name, phone: cust.phone } as IOrderCustomer };
+    return { customerId, customerSnapshot: { _id: customerId, name: body.newName?.trim() || cust.name, phone: cust.phone } as IOrderCustomer };
   }
   const phone = body.newName ? normalizePhone(body.newPhone || '') : null;
-  // A name without a number is just a walk-in: no customer record (one fake number would merge every walk-in).
-  if (!phone) return { customerId: undefined, customerSnapshot: undefined };
+  // A name without a number is a named walk-in: keep its name on this order without creating a fake customer.
+  if (!phone) {
+    const name = body.newName?.trim();
+    return { customerId: undefined, customerSnapshot: name ? { name } as IOrderCustomer : undefined };
+  }
   const cust =
     (await Customer.findOne({ phone })) ??
     (await Customer.create({ name: body.newName ?? '', phone, area: body.area || undefined, addresses: body.address ? [body.address] : [], source: 'staff' }));
