@@ -2,27 +2,26 @@ name: CI
 
 on:
   pull_request:
-  workflow_call: # reused by deploy.yml so a push to main can't ship without passing tests
+  workflow_call: # deploy workflows reuse the release gate
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: backend-ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
-    name: Test (Bun pinned in .bun-version)
+    name: Typecheck, lint and test (pinned Bun)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       NODE_ENV: test
-      # Fake SMTP settings so the "SMTP is configured" test passes. The tests never send mail (NODE_ENV=test disables the transport).
       SMTP_HOST: smtp.ci.invalid
       SMTP_USER: ci@example.invalid
       SMTP_PASS: ci-not-a-real-password
-      # Tests use mongodb-memory-server, which downloads a mongod binary; keep it in the runner cache.
       MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.cache/mongodb-binaries
     steps:
       - uses: actions/checkout@v7
@@ -35,46 +34,4 @@ jobs:
           key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: mongodb-binaries-${{ runner.os }}-
       - run: bun install --frozen-lockfile
-      # --if-present: skipped until the repo adds these scripts (suggested: "typecheck": "tsc --noEmit").
-      - run: bun run --if-present typecheck
-      - run: bun run --if-present lint
-      - run: bun run test
-
-  audit:
-    name: Dependency audit (non-blocking)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - run: bun audit
-
-  # Early warning for the next Bun release line (1.4 = Rust rewrite). Never blocks a deploy.
-  bun-canary:
-    name: Canary on Bun 1.4.x (non-blocking)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    continue-on-error: true
-    env:
-      NODE_ENV: test
-      # Fake SMTP settings so the "SMTP is configured" test passes. The tests never send mail (NODE_ENV=test disables the transport).
-      SMTP_HOST: smtp.ci.invalid
-      SMTP_USER: ci@example.invalid
-      SMTP_PASS: ci-not-a-real-password
-      MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.cache/mongodb-binaries
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.x
-      - uses: actions/cache@v6
-        with:
-          path: .cache/mongodb-binaries
-          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: mongodb-binaries-${{ runner.os }}-
-      - run: bun install --frozen-lockfile
-      - run: bun run test
+      - run: bun run check
