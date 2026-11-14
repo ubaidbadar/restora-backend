@@ -19,6 +19,7 @@ import Device from '../src/models/device';
 import Settings from '../src/models/settings';
 
 import normalizePhone from '../src/utils/normalize_phone';
+import calcTotals from '../src/utils/calc_totals';
 import validatePin from '../src/utils/validate_pin';
 import maskContact from '../src/utils/mask_contact';
 import dayKey from '../src/utils/day_key';
@@ -74,6 +75,15 @@ async function onboardRestaurant(cookie: string, name: string, branchName: strin
 }
 
 describe('1. Phone Normalization, PIN Validation & Public Masking', () => {
+  it('calculates a percentage service charge after the discount without taxing the charge', () => {
+    expect(calcTotals([{ price: 1000, qty: 1 }], 100, 16, 0, 'percentage', 10)).toEqual({
+      subtotal: 1000, discount: 100, tax: 144, serviceCharge: 90, total: 1134,
+    });
+    expect(calcTotals([{ price: 1000, qty: 1 }], 100, 16, 0, 'fixed', 125)).toEqual({
+      subtotal: 1000, discount: 100, tax: 144, serviceCharge: 125, total: 1169,
+    });
+  });
+
   it('normalizes Pakistani phone numbers to +923XXXXXXXXX', () => {
     expect(normalizePhone('03001234567')).toBe('+923001234567');
     expect(normalizePhone('0321-9876543')).toBe('+923219876543');
@@ -472,6 +482,79 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     const order = (await res.json()) as any;
     expect(order.customerId).toBe(customer._id);
     expect(order.customer).toMatchObject({ _id: customer._id, name: 'Ali Raza - Office', phone: customer.phone });
+  });
+
+  it('applies a percentage dine-in service charge and preserves it through payment', async () => {
+    const res = await app.request('/api/v1/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId },
+      body: JSON.stringify({
+        branchId, type: 'dine_in', tableName: '6', paymentStatus: 'unpaid',
+        serviceChargeType: 'percentage', serviceChargeValue: 10,
+        items: [{ itemId: menuItemId, qty: 1, addonIds: [mildOptionId] }],
+      }),
+    });
+    expect(res.status).toBe(201);
+    const order = (await res.json()) as any;
+    expect(order.subtotal).toBe(750);
+    expect(order.serviceChargeType).toBe('percentage');
+    expect(order.serviceChargeValue).toBe(10);
+    expect(order.serviceCharge).toBe(75);
+    expect(order.total).toBe(825);
+
+    const paidRes = await app.request(`/api/v1/orders/${order._id}/payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId },
+      body: JSON.stringify({ paymentMethod: 'cash' }),
+    });
+    expect(paidRes.status).toBe(200);
+    const paid = (await paidRes.json()) as any;
+    expect(paid.serviceCharge).toBe(75);
+    expect(paid.total).toBe(paid.subtotal - paid.discount + paid.tax + paid.deliveryFee + paid.serviceCharge);
+  });
+
+  it('updates a dine-in service charge from percentage to fixed during an unpaid edit', async () => {
+    const res = await app.request('/api/v1/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId },
+      body: JSON.stringify({
+        branchId, type: 'dine_in', tableName: '7', paymentStatus: 'unpaid',
+        serviceChargeType: 'percentage', serviceChargeValue: 5,
+        items: [{ itemId: menuItemId, qty: 1, addonIds: [mildOptionId] }],
+      }),
+    });
+    expect(res.status).toBe(201);
+    const order = (await res.json()) as any;
+    const editRes = await app.request(`/api/v1/orders/${order._id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId },
+      body: JSON.stringify({
+        type: 'dine_in', tableName: '7',
+        serviceChargeType: 'fixed', serviceChargeValue: 125,
+        items: [{ itemId: menuItemId, qty: 1, addonIds: [mildOptionId] }],
+      }),
+    });
+    expect(editRes.status).toBe(200);
+    const edited = (await editRes.json()) as any;
+    expect(edited.serviceChargeType).toBe('fixed');
+    expect(edited.serviceChargeValue).toBe(125);
+    expect(edited.serviceCharge).toBe(125);
+    expect(edited.total).toBe(875);
+  });
+
+  it('refuses a service charge on takeaway and percentages above 100', async () => {
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
+    const items = [{ itemId: menuItemId, qty: 1, addonIds: [mildOptionId] }];
+    const takeaway = await app.request('/api/v1/orders', {
+      method: 'POST', headers,
+      body: JSON.stringify({ branchId, type: 'takeaway', paymentStatus: 'unpaid', serviceChargeType: 'fixed', serviceChargeValue: 80, items }),
+    });
+    expect(takeaway.status).toBe(400);
+    const excessive = await app.request('/api/v1/orders', {
+      method: 'POST', headers,
+      body: JSON.stringify({ branchId, type: 'dine_in', tableName: '8', paymentStatus: 'unpaid', serviceChargeType: 'percentage', serviceChargeValue: 101, items }),
+    });
+    expect(excessive.status).toBe(400);
   });
 
   it('toggles item soldOut status per branch dynamically', async () => {

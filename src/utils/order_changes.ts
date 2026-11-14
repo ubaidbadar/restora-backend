@@ -10,7 +10,7 @@ export interface LineChange {
 }
 
 /** The order's facts its history shows, as they read to a person. */
-const FIELDS = ['type', 'tableName', 'customer', 'area', 'address', 'rider', 'discount', 'deliveryFee', 'total'] as const;
+const FIELDS = ['type', 'tableName', 'customer', 'area', 'address', 'rider', 'discount', 'deliveryFee', 'serviceChargeType', 'serviceChargeValue', 'serviceCharge', 'total'] as const;
 type Field = (typeof FIELDS)[number];
 type Snapshot = Pick<IOrder, Exclude<Field, 'customer'>> & { customer?: { name?: string } | null };
 
@@ -44,7 +44,7 @@ export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChan
   return changes.sort((a, b) => Number(a.now > 0) - Number(b.now > 0));
 }
 
-const AMOUNTS: Field[] = ['discount', 'deliveryFee', 'total'];
+const AMOUNTS: Field[] = ['discount', 'deliveryFee', 'serviceChargeValue', 'serviceCharge', 'total'];
 const value = (order: Snapshot, field: Field) => {
   if (field === 'customer') return order.customer?.name || undefined;
   return AMOUNTS.includes(field) ? (order[field] ?? 0) : order[field] || undefined;
