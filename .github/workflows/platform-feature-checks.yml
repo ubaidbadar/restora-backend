@@ -1,20 +1,15 @@
 name: Platform admin and WhatsApp feature checks
+
+# Normal PR CI already includes these tests. Run this focused check only on demand.
 on:
-  push:
-    branches: ['feature/platform-admin-whatsapp-onboarding']
-  pull_request:
-    paths:
-      - 'src/controllers/platform_admin.ts'
-      - 'src/controllers/whatsapp_onboarding.ts'
-      - 'src/services/whatsapp_onboarding.ts'
-      - 'tests/platform_admin.test.ts'
-      - 'tests/whatsapp_embedded_signup.test.ts'
-      - '.github/workflows/platform-feature-checks.yml'
+  workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       NODE_ENV: test

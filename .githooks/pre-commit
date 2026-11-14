@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+# Test exactly the staged tree, never a mixture of staged and unstaged edits.
+if ! git diff --quiet; then
+  echo 'Commit blocked: stage or stash all unstaged tracked changes before testing.' >&2
+  exit 1
+fi
+
+untracked="$(git ls-files --others --exclude-standard)"
+if [ -n "$untracked" ]; then
+  echo 'Commit blocked: stage or move these untracked files:' >&2
+  printf '%s\n' "$untracked" >&2
+  exit 1
+fi
+
+staged="$(git diff --cached --name-only --diff-filter=ACMRD)"
+if ! printf '%s\n' "$staged" | grep -Eq '^(src/|shared/|site/|tests/|scripts/|index\.ts$|package\.json$|bun\.lock$|tsconfig\.json$|\.bun-version$|\.github/workflows/|\.githooks/)'; then
+  echo 'Documentation-only commit: code checks not needed.'
+  exit 0
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo 'Commit blocked: Bun is unavailable; install the pinned Bun version.' >&2
+  exit 1
+fi
+
+printf '\nRunning backend tests and site build before committing...\n'
+bun run qa:verify

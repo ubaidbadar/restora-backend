@@ -30,6 +30,21 @@ jobs:
       DEPLOY_URL: ${{ vars.DEV_DEPLOY_URL || 'https://dev.restora.live' }}
       SITE_URL: ${{ vars.DEV_SITE_URL || 'https://dev.restora.live' }}
     steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY || secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV_DEPLOY_KNOWN_HOSTS || secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_HOST" || { echo "Repository variable DEPLOY_HOST is not set"; exit 1; }
+          test -n "$SSH_KEY" || { echo "::error::Deployment SSH key is not configured"; exit 1; }
+          test -n "$KNOWN_HOSTS" || { echo "::error::DEPLOY_KNOWN_HOSTS is not configured"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
@@ -48,18 +63,6 @@ jobs:
           RELEASE="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
           echo "RELEASE=${RELEASE}" >> "$GITHUB_ENV"
           tar --exclude=.git --exclude=.github --exclude='*.tgz' -czf /tmp/release.tgz .
-
-      - name: Configure SSH
-        env:
-          SSH_KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY || secrets.DEPLOY_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.DEV_DEPLOY_KNOWN_HOSTS || secrets.DEPLOY_KNOWN_HOSTS }}
-        run: |
-          test -n "$DEPLOY_HOST" || { echo "Repository variable DEPLOY_HOST is not set"; exit 1; }
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
 
       - name: Upload release
         run: |
