@@ -51,6 +51,10 @@ export interface IOrder {
   taxRate: number;
   tax: number;
   deliveryFee: number;
+  /** Dine-in service charge configuration and applied amount. */
+  serviceChargeType?: 'percentage' | 'fixed';
+  serviceChargeValue?: number;
+  serviceCharge: number;
   total: number;
   paymentMethod?: 'cash' | 'card' | 'jazzcash' | 'easypaisa' | 'bank';
   paymentStatus: 'paid' | 'unpaid' | 'khata';
@@ -132,6 +136,9 @@ const OrderSchema = new Schema<IOrder>(
     taxRate: { type: Number, required: true, default: 0 },
     tax: { type: Number, required: true, default: 0 },
     deliveryFee: { type: Number, required: true, default: 0 },
+    serviceChargeType: { type: String, enum: ['percentage', 'fixed'] },
+    serviceChargeValue: { type: Number, min: 0 },
+    serviceCharge: { type: Number, required: true, default: 0 },
     total: { type: Number, required: true, default: 0 },
     paymentMethod: { type: String, enum: ['cash', 'card', 'jazzcash', 'easypaisa', 'bank'] },
     paymentStatus: { type: String, enum: ['paid', 'unpaid', 'khata'], default: 'unpaid', index: true },
