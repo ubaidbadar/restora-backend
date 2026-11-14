@@ -19,6 +19,7 @@ import Device from '../src/models/device';
 import Settings from '../src/models/settings';
 
 import normalizePhone from '../src/utils/normalize_phone';
+import calcTotals from '../src/utils/calc_totals';
 import validatePin from '../src/utils/validate_pin';
 import maskContact from '../src/utils/mask_contact';
 import dayKey from '../src/utils/day_key';
@@ -74,6 +75,15 @@ async function onboardRestaurant(cookie: string, name: string, branchName: strin
 }
 
 describe('1. Phone Normalization, PIN Validation & Public Masking', () => {
+  it('calculates a percentage service charge after the discount without taxing the charge', () => {
+    expect(calcTotals([{ price: 1000, qty: 1 }], 100, 16, 0, 'percentage', 10)).toEqual({
+      subtotal: 1000, discount: 100, tax: 144, serviceCharge: 90, total: 1134,
+    });
+    expect(calcTotals([{ price: 1000, qty: 1 }], 100, 16, 0, 'fixed', 125)).toEqual({
+      subtotal: 1000, discount: 100, tax: 144, serviceCharge: 125, total: 1169,
+    });
+  });
+
   it('normalizes Pakistani phone numbers to +923XXXXXXXXX', () => {
     expect(normalizePhone('03001234567')).toBe('+923001234567');
     expect(normalizePhone('0321-9876543')).toBe('+923219876543');
