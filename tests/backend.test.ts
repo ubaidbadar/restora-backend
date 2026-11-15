@@ -493,6 +493,22 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     expect(updatedTimeline[1].changes.after.lines[0]).toMatchObject({
       name: 'Mutton Seekh Kabab', was: 2, now: 2, wasPrice: 650, nowPrice: 600,
     });
+
+    const resetRes = await app.request(`/api/v1/orders/${order._id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        type: 'takeaway',
+        items: [{ itemId: menuItemId, sizeId: order.items[0].sizeId, qty: 2, addonIds: [spicyOptionId], price: 800 }],
+      }),
+    });
+    expect(resetRes.status).toBe(200);
+    const reset = (await resetRes.json()) as any;
+    expect(reset.items[0]).toMatchObject({ price: 800, menuPrice: 800, priceOverridden: false, qty: 2 });
+    const resetTimeline = (await (await app.request(`/api/v1/orders/${order._id}/timeline`, { headers })).json()) as any[];
+    expect(resetTimeline[2].changes.after.lines[0]).toMatchObject({
+      name: 'Mutton Seekh Kabab', was: 2, now: 2, wasPrice: 600, nowPrice: 800,
+    });
     const menuAfterEdit = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
     expect(menuAfterEdit.items.find((item: any) => item._id === menuItemId).sizes[0].price).toBe(750);
   });
