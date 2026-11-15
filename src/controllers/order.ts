@@ -563,7 +563,7 @@ export async function createOrder(c: Context) {
   return c.json({ ...newOrder.toObject(), entries: [createdEntry] }, 201);
 }
 
-/** Moves an order along the board. Cancelling has its own route and permission. */
+/** Moves an order along the board, including an explicit completion action. Cancelling has its own route and permission. */
 async function setStatus(c: Context, id: string, status: IOrder['status']) {
   if (status === 'cancelled') throw httpError(400, 'Use Cancel order for that');
   if (status === 'pending') throw httpError(400, 'An order cannot go back to waiting for acceptance');
