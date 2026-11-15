@@ -87,6 +87,7 @@ describe('Hardening', () => {
       items: [{ itemId: 'dish-id', qty: 1, addonIds: [], price: 1 }],
     });
     expect(parsed.items[0]).not.toHaveProperty('price');
+    expect(parsed.items[0]).not.toHaveProperty('priceOverridden');
   });
 
   it('the /api/auth alias still reaches Better Auth', async () => {
