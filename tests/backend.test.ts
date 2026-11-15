@@ -460,7 +460,7 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     });
     expect(res.status).toBe(201);
     const order = (await res.json()) as any;
-    expect(order.items[0]).toMatchObject({ price: 650, menuPrice: 800, qty: 2 });
+    expect(order.items[0]).toMatchObject({ price: 650, menuPrice: 800, priceOverridden: true, qty: 2 });
     expect(order.subtotal).toBe(1300);
     expect(order.total).toBe(1300);
 
@@ -485,7 +485,7 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     });
     expect(editRes.status).toBe(200);
     const edited = (await editRes.json()) as any;
-    expect(edited.items[0]).toMatchObject({ price: 600, menuPrice: 800, qty: 2 });
+    expect(edited.items[0]).toMatchObject({ price: 600, menuPrice: 800, priceOverridden: true, qty: 2 });
     expect(edited.subtotal).toBe(1200);
 
     const updatedTimeline = (await (await app.request(`/api/v1/orders/${order._id}/timeline`, { headers })).json()) as any[];
