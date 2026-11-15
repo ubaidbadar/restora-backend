@@ -8,6 +8,8 @@ import httpError from '../utils/http_error';
 import resolveBranchId from '../utils/resolve_branch';
 import { toObjectId } from '../utils/auth_users';
 import { getTenantId } from '../middlewares/tenant_context';
+import runInTransaction from '../utils/transaction';
+import sortMenuItems from '../utils/sort_menu_items';
 
 /** The dish as the client shows it: `soldOut` for the given branch instead of the raw branch list. */
 function dishJson(item: InstanceType<typeof MenuItem>, branchId?: string) {
@@ -15,6 +17,7 @@ function dishJson(item: InstanceType<typeof MenuItem>, branchId?: string) {
   return {
     _id: obj._id,
     categoryId: item.categoryId,
+    sortOrder: item.sortOrder ?? 0,
     name: item.name,
     description: item.description,
     photo: item.photo,
@@ -68,11 +71,11 @@ async function checkDishLinks(body: { categoryId?: string; addonGroupIds?: strin
 /** The whole menu as the client shows it, with `soldOut` for the given branch. */
 async function menuJson(branchId?: string) {
   const [categories, addonGroups, rawItems] = await Promise.all([
-    MenuCategory.find({}).sort({ sortOrder: 1 }),
+    MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 }),
     AddonGroup.find({}).sort({ createdAt: 1 }),
-    MenuItem.find({}).sort({ createdAt: 1 }),
+    MenuItem.find({}),
   ]);
-  return { categories, addonGroups, items: rawItems.map((item) => dishJson(item, branchId)) };
+  return { categories, addonGroups, items: sortMenuItems(rawItems, categories).map((item) => dishJson(item, branchId)) };
 }
 
 export async function getMenu(c: Context) {
@@ -81,7 +84,11 @@ export async function getMenu(c: Context) {
 
 export async function createCategory(c: Context) {
   const body = c.get('validatedJson') || (await c.req.json());
-  const category = await MenuCategory.create(body);
+  const [count, last] = await Promise.all([
+    MenuCategory.countDocuments({}),
+    MenuCategory.findOne({}).sort({ sortOrder: -1, createdAt: -1, _id: -1 }),
+  ]);
+  const category = await MenuCategory.create({ ...body, sortOrder: Math.max(count, (last?.sortOrder ?? -1) + 1) });
 
   const user = c.get('user');
   await logAudit({
@@ -99,6 +106,37 @@ export async function updateCategory(c: Context) {
   const category = await MenuCategory.findByIdAndUpdate(id, { $set: body }, { returnDocument: 'after' });
   if (!category) return c.json({ message: 'Category not found' }, 404);
   return c.json(category);
+}
+
+export async function updateCategoryPriority(c: Context) {
+  const id = c.req.param('id') ?? '';
+  const { priority } = c.get('validatedJson') as { priority: number };
+  const restaurantId = getTenantId();
+  if (!restaurantId) throw httpError(400, 'Pick a restaurant first');
+
+  const categories = await MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 });
+  const currentIndex = categories.findIndex((category) => String(category._id) === id);
+  if (currentIndex < 0) return c.json({ message: 'Category not found' }, 404);
+
+  const [moved] = categories.splice(currentIndex, 1);
+  categories.splice(Math.min(priority - 1, categories.length), 0, moved!);
+
+  await runInTransaction(async (session) => {
+    await MenuCategory.bulkWrite(
+      categories.map((category, sortOrder) => ({
+        updateOne: {
+          filter: { _id: category._id, restaurantId },
+          update: { $set: { sortOrder } },
+        },
+      })),
+      session ? { session } : {}
+    );
+  });
+
+  categories.forEach((category, sortOrder) => {
+    category.sortOrder = sortOrder;
+  });
+  return c.json(categories);
 }
 
 export async function deleteCategory(c: Context) {
@@ -158,7 +196,11 @@ export async function createMenuItem(c: Context) {
     Object.assign(body, { photo: stored.photo, ...(stored.photoSizes && { photoSizes: stored.photoSizes }) });
   }
 
-  const item = await MenuItem.create(body);
+  const [count, last] = await Promise.all([
+    MenuItem.countDocuments({ categoryId: body.categoryId }),
+    MenuItem.findOne({ categoryId: body.categoryId }).sort({ sortOrder: -1, createdAt: -1, _id: -1 }),
+  ]);
+  const item = await MenuItem.create({ ...body, sortOrder: Math.max(count, (last?.sortOrder ?? -1) + 1) });
 
   const user = c.get('user');
   await logAudit({
@@ -173,17 +215,65 @@ export async function createMenuItem(c: Context) {
 export async function updateMenuItem(c: Context) {
   const id = c.req.param('id') ?? '';
   const body = c.get('validatedJson');
+  const current = await MenuItem.findById(id);
+  if (!current) return c.json({ message: 'Menu item not found' }, 404);
   await checkDishLinks(body, id);
+
+  const categoryId = body.categoryId ?? current.categoryId;
+  let nextSortOrder: number | undefined;
+  if (categoryId !== current.categoryId) {
+    const [count, last] = await Promise.all([
+      MenuItem.countDocuments({ categoryId }),
+      MenuItem.findOne({ categoryId }).sort({ sortOrder: -1, createdAt: -1, _id: -1 }),
+    ]);
+    nextSortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
+  }
+
   const stored = await storePhoto(c, body.photo, 'dishes');
   delete body.photo;
+  const updateBody = { ...body, ...(nextSortOrder !== undefined ? { sortOrder: nextSortOrder } : {}) };
   // A new photo sets both fields; clearing removes both. A URL sent back as it is (the apps never do) keeps its sizes.
   const update =
     stored === null
-      ? { $set: body, $unset: { photo: 1, photoSizes: 1 } }
-      : { $set: { ...body, ...(stored && { photo: stored.photo }), ...(stored?.photoSizes && { photoSizes: stored.photoSizes }) } };
+      ? { $set: updateBody, $unset: { photo: 1, photoSizes: 1 } }
+      : { $set: { ...updateBody, ...(stored && { photo: stored.photo }), ...(stored?.photoSizes && { photoSizes: stored.photoSizes }) } };
   const item = await MenuItem.findByIdAndUpdate(id, update, { returnDocument: 'after' });
   if (!item) return c.json({ message: 'Menu item not found' }, 404);
   return c.json(dishJson(item, c.get('branchId')));
+}
+
+export async function updateMenuItemPriority(c: Context) {
+  const id = c.req.param('id') ?? '';
+  const { priority } = c.get('validatedJson') as { priority: number };
+  const restaurantId = getTenantId();
+  if (!restaurantId) throw httpError(400, 'Pick a restaurant first');
+
+  const item = await MenuItem.findById(id);
+  if (!item) return c.json({ message: 'Menu item not found' }, 404);
+
+  const items = await MenuItem.find({ categoryId: item.categoryId }).sort({ sortOrder: 1, name: 1, _id: 1 });
+  const currentIndex = items.findIndex((entry) => String(entry._id) === id);
+  if (currentIndex < 0) return c.json({ message: 'Menu item not found' }, 404);
+
+  const [moved] = items.splice(currentIndex, 1);
+  items.splice(Math.min(priority - 1, items.length), 0, moved!);
+
+  await runInTransaction(async (session) => {
+    await MenuItem.bulkWrite(
+      items.map((entry, sortOrder) => ({
+        updateOne: {
+          filter: { _id: entry._id, restaurantId },
+          update: { $set: { sortOrder } },
+        },
+      })),
+      session ? { session } : {}
+    );
+  });
+
+  items.forEach((entry, sortOrder) => {
+    entry.sortOrder = sortOrder;
+  });
+  return c.json(items.map((entry) => dishJson(entry, c.get('branchId'))));
 }
 
 export async function deleteMenuItem(c: Context) {
@@ -256,13 +346,24 @@ export async function bulkMenuImport(c: Context) {
   // 2. Extract categories from items
   const categoryNames = Array.from(new Set(items.map((it) => it.category)));
   const categoryMap = new Map<string, string>();
-  for (let i = 0; i < categoryNames.length; i++) {
-    const catName = categoryNames[i]!;
+  const existingCategories = await MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 });
+  const lastCategory = existingCategories[existingCategories.length - 1];
+  let nextCategoryOrder = Math.max(existingCategories.length, (lastCategory?.sortOrder ?? -1) + 1);
+  for (const catName of categoryNames) {
     let cat = await MenuCategory.findOne({ name: catName });
     if (!cat) {
-      cat = await MenuCategory.create({ name: catName, sortOrder: i });
+      cat = await MenuCategory.create({ name: catName, sortOrder: nextCategoryOrder++ });
     }
     categoryMap.set(catName, String(cat._id));
+  }
+
+  const nextItemOrder = new Map<string, number>();
+  for (const categoryId of new Set(categoryMap.values())) {
+    const [count, last] = await Promise.all([
+      MenuItem.countDocuments({ categoryId }),
+      MenuItem.findOne({ categoryId }).sort({ sortOrder: -1, createdAt: -1, _id: -1 }),
+    ]);
+    nextItemOrder.set(categoryId, Math.max(count, (last?.sortOrder ?? -1) + 1));
   }
 
   // 3. Create items
@@ -274,9 +375,12 @@ export async function bulkMenuImport(c: Context) {
       .map((name) => addonGroupMap.get(name))
       .filter((id): id is string => !!id);
 
+    const sortOrder = nextItemOrder.get(categoryId) ?? 0;
+    nextItemOrder.set(categoryId, sortOrder + 1);
     await MenuItem.create({
       categoryId,
       name: item.name,
+      sortOrder,
       sizes: item.sizes,
       addonGroupIds,
       soldOutBranchIds: [],
@@ -299,12 +403,14 @@ export default {
   getMenu,
   createCategory,
   updateCategory,
+  updateCategoryPriority,
   deleteCategory,
   createAddonGroup,
   updateAddonGroup,
   deleteAddonGroup,
   createMenuItem,
   updateMenuItem,
+  updateMenuItemPriority,
   deleteMenuItem,
   toggleStock,
   bulkMenuImport,

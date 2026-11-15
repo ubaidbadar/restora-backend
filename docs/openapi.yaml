@@ -447,6 +447,26 @@ paths:
       responses:
         '201': { $ref: '#/components/responses/Created' }
         '400': { $ref: '#/components/responses/BadRequest' }
+  /api/v1/menu/categories/{id}/priority:
+    patch:
+      tags: [Menu]
+      summary: Set a category's numeric position
+      description: Moves the category to the requested 1-based position and returns every category in its new order.
+      x-permission: menu:update
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priority]
+              properties:
+                priority: { type: integer, minimum: 1 }
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/menu/categories/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -547,6 +567,26 @@ paths:
       tags: [Menu]
       summary: Delete a dish
       x-permission: menu:update
+      responses:
+        '200': { $ref: '#/components/responses/Json' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/menu/items/{id}/priority:
+    patch:
+      tags: [Menu]
+      summary: Set a dish's numeric position in its category
+      description: Moves the dish to the requested 1-based position and returns every item in that category in its new order.
+      x-permission: menu:update
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priority]
+              properties:
+                priority: { type: integer, minimum: 1 }
       responses:
         '200': { $ref: '#/components/responses/Json' }
         '404': { $ref: '#/components/responses/NotFound' }

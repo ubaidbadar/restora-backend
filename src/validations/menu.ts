@@ -65,6 +65,10 @@ export const menuItemUpdateSchema = z.object({
   hidden: z.boolean().optional(),
 }).refine(bothHours, hoursIssue);
 
+export const menuPrioritySchema = z.object({
+  priority: z.coerce.number().int().min(1, 'Priority must be at least 1').max(10000),
+});
+
 export const menuCategorySchema = z.object({
   name: z.string().trim().min(1, 'Enter the category name').max(40),
   sortOrder: z.coerce.number().int().default(0),

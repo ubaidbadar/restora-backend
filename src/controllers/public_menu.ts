@@ -20,6 +20,7 @@ import { runWithTenant, runWithoutTenant } from '../middlewares/tenant_context';
 import onOrderEvent from '../services/order_events';
 import notifyStaff from '../services/push';
 import type TableOrder from '../../site/types/table_order';
+import sortMenuItems from '../utils/sort_menu_items';
 
 export async function getPublicMenu(c: Context) {
   const menu = await findPublicMenu(codeOf(c));
@@ -88,9 +89,9 @@ export async function findPublicMenu(code: string | undefined) {
       const r = await runWithoutTenant(() => Restaurant.findById(restaurantId));
       const b = await Branch.findById(branchId);
       if (!r || !b || b.isActive === false) return [null, null, [], [], [], []] as const;
-      const cats = await MenuCategory.find({}).sort({ sortOrder: 1 });
+      const cats = await MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 });
       const groups = await AddonGroup.find({}).sort({ createdAt: 1 });
-      const rawItems = await MenuItem.find({}).sort({ createdAt: 1 });
+      const rawItems = sortMenuItems(await MenuItem.find({}), cats);
       const today = dayKey();
       const tableId = String(table._id);
       const activeOrders = await Order.find({

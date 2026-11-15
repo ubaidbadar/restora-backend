@@ -143,6 +143,57 @@ describe('Deals', () => {
     await post(`/api/v1/menu/items/${deal._id}`, { from: '', to: '' }, 'PATCH');
   });
 
+  it('orders categories and dishes by numeric priority everywhere', async () => {
+    const drinksCategory = (await post('/api/v1/menu/categories', { name: 'Drinks' })).body;
+    expect(drinksCategory.sortOrder).toBe(1);
+
+    const tea = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Tea',
+      sizes: [{ price: 100 }],
+    })).body;
+    const coffee = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Coffee',
+      sizes: [{ price: 120 }],
+    })).body;
+    const lassi = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Lassi',
+      sizes: [{ price: 150 }],
+    })).body;
+
+    expect([tea.sortOrder, coffee.sortOrder, lassi.sortOrder]).toEqual([0, 1, 2]);
+
+    const movedDish = await post(`/api/v1/menu/items/${coffee._id}/priority`, { priority: 1 }, 'PATCH');
+    expect(movedDish.status).toBe(200);
+    expect(movedDish.body.map((item: Json) => item.name)).toEqual(['Coffee', 'Tea', 'Lassi']);
+    expect(movedDish.body.map((item: Json) => item.sortOrder)).toEqual([0, 1, 2]);
+
+    const juice = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Juice',
+      sizes: [{ price: 180 }],
+    })).body;
+    expect(juice.sortOrder).toBe(3);
+
+    const movedCategory = await post(`/api/v1/menu/categories/${drinksCategory._id}/priority`, { priority: 1 }, 'PATCH');
+    expect(movedCategory.status).toBe(200);
+    expect(movedCategory.body.map((category: Json) => category.name)).toEqual(['Drinks', 'Deals']);
+    expect(movedCategory.body.map((category: Json) => category.sortOrder)).toEqual([0, 1]);
+
+    const staffMenu = await app.request('/api/v1/menu', { headers });
+    const staffData = (await staffMenu.json()) as Json;
+    expect(staffData.categories.map((category: Json) => category.name)).toEqual(['Drinks', 'Deals']);
+    expect(staffData.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Coffee', 'Tea', 'Lassi', 'Juice']);
+
+    await post('/api/v1/tables', { branchId, name: 'Priority Table', section: 'Hall', seats: 2 });
+    const table = await Table.findOne({ name: 'Priority Table' });
+    const publicMenu = (await (await app.request(`/api/v1/public/t/${table!.qrCode}`)).json()) as Json;
+    expect(publicMenu.categories.map((category: Json) => category.name)).toEqual(['Drinks', 'Deals']);
+    expect(publicMenu.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Coffee', 'Tea', 'Lassi', 'Juice']);
+  });
+
   it('keeps a dish that is in a deal from being deleted', async () => {
     const res = await app.request(`/api/v1/menu/items/${naan._id}`, { method: 'DELETE', headers });
     expect(res.status).toBe(400);
