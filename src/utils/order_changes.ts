@@ -18,6 +18,8 @@ type Snapshot = Pick<IOrder, Exclude<Field, 'customer'>> & { customer?: { name?:
 
 /** The same dish when it is the same item, size, add-ons and note. */
 const lineKey = (item: IOrderItem) => [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(','), item.note ?? ''].join('|');
+/** The priced selection, excluding a kitchen note which does not affect its unit price. */
+const lineSelectionKey = (item: IOrderItem) => [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(',')].join('|');
 
 const lineDetail = (item: IOrderItem) =>
   [item.sizeName, item.addons?.map((addon) => addon.name).join(', '), item.note && `“${item.note}”`].filter(Boolean).join(' · ') || undefined;
