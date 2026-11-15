@@ -1,6 +1,6 @@
 import type { IOrder, IOrderItem } from '../models/order';
 
-/** One dish whose count changed: 0 → 2 was added, 2 → 0 was removed. */
+/** One dish whose count or unit price changed: 0 → 2 was added, 2 → 0 was removed. */
 export interface LineChange {
   name: string;
   /** Size, add-ons and note, as on the receipt. */
@@ -22,7 +22,7 @@ const lineKey = (item: IOrderItem) => [item.itemId, item.sizeId ?? '', [...(item
 const lineDetail = (item: IOrderItem) =>
   [item.sizeName, item.addons?.map((addon) => addon.name).join(', '), item.note && `“${item.note}”`].filter(Boolean).join(' · ') || undefined;
 
-/** Each dish whose count went up or down, removed ones first, in the order they appear on the order. */
+/** Each dish whose count or unit price changed, removed ones first, in the order they appear on the order. */
 export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChange[] {
   const count = (items: IOrderItem[]) => {
     const lines = new Map<string, { item: IOrderItem; qty: number }>();
