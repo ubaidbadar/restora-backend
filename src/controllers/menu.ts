@@ -110,15 +110,17 @@ async function reorderMenuItems(categoryId: string, movedItemId?: string, priori
     items.splice(Math.min((priority ?? items.length) - 1, items.length), 0, moved!);
   }
 
-  await MenuItem.bulkWrite(
-    items.map((item, sortOrder) => ({
-      updateOne: {
-        filter: { _id: item._id, restaurantId: getTenantId() },
-        update: { $set: { sortOrder } },
-      },
-    })),
-    session ? { session } : {}
-  );
+  if (items.length) {
+    await MenuItem.bulkWrite(
+      items.map((item, sortOrder) => ({
+        updateOne: {
+          filter: { _id: item._id, restaurantId: getTenantId() },
+          update: { $set: { sortOrder } },
+        },
+      })),
+      session ? { session } : {}
+    );
+  }
 
   items.forEach((item, sortOrder) => {
     item.sortOrder = sortOrder;
