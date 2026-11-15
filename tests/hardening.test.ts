@@ -144,6 +144,12 @@ describe('Hardening', () => {
       items: [{ itemId: dishId, sizeId: ownerOrder.items[0].sizeId, qty: 2, addonIds: [], price: 850 }],
     });
     expect(changeExisting.status).toBe(403);
+
+    const resetExisting = await cashierCall('PUT', `/orders/${ownerOrder._id}`, {
+      type: 'takeaway',
+      items: [{ itemId: dishId, sizeId: ownerOrder.items[0].sizeId, qty: 2, addonIds: [], price: 1000 }],
+    });
+    expect(resetExisting.status).toBe(403);
   });
 
   it('the /api/auth alias still reaches Better Auth', async () => {
