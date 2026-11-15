@@ -417,6 +417,7 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       }
     }
 
+    const menuPrice = size.price + addonsPrice;
     priced.push({
       itemId: String(menuItem._id),
       name: menuItem.name,
@@ -426,8 +427,9 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addons: addons.length ? addons : undefined,
       includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
-      menuPrice: size.price + addonsPrice,
-      price: rawItem.price ?? (size.price + addonsPrice),
+      menuPrice,
+      priceOverridden: rawItem.price !== undefined,
+      price: rawItem.price ?? menuPrice,
       qty: rawItem.qty,
     });
   }
@@ -543,7 +545,7 @@ export async function createOrder(c: Context) {
   }
 
   const priceOverrides = newOrder.items
-    .filter((item) => item.menuPrice !== undefined && item.price !== item.menuPrice)
+    .filter((item) => item.priceOverridden === true)
     .map((item) => ({
       name: item.name,
       detail: [item.sizeName, item.addons?.map((addon) => addon.name).join(', '), item.note && `“${item.note}”`].filter(Boolean).join(' · ') || undefined,
