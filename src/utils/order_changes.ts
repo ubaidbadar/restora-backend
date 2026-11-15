@@ -39,14 +39,14 @@ export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChan
   for (const [key, { item, qty }] of was) {
     const current = now.get(key);
     const left = current?.qty ?? 0;
-    const priceChanged = current && item.price !== current.item.price;
+    const priceChanged = current !== undefined && item.price !== current.item.price;
     if (left !== qty || priceChanged) {
       changes.push({
         name: item.name,
         detail: lineDetail(item),
         was: qty,
         now: left,
-        ...(priceChanged ? { wasPrice: item.price, nowPrice: current.item.price } : {}),
+        ...(current && item.price !== current.item.price ? { wasPrice: item.price, nowPrice: current.item.price } : {}),
       });
     }
   }
@@ -57,7 +57,7 @@ export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChan
         detail: lineDetail(item),
         was: 0,
         now: qty,
-        ...(item.menuPrice !== undefined && item.price !== item.menuPrice ? { wasPrice: item.menuPrice, nowPrice: item.price } : {}),
+        ...(item.priceOverridden ? { wasPrice: item.menuPrice ?? item.price, nowPrice: item.price } : {}),
       });
     }
   }
