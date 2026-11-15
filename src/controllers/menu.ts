@@ -159,7 +159,8 @@ export async function createCategory(c: Context) {
       countQuery.session(session);
       lastQuery.session(session);
     }
-    const [count, last] = await Promise.all([countQuery, lastQuery]);
+    const count = await countQuery;
+    const last = await lastQuery;
     const sortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
     const [created] = await MenuCategory.create([{ ...body, sortOrder }], session ? { session } : {});
     const categories = await reorderCategories(String(created!._id), priority ?? count + 1, session);
@@ -265,7 +266,8 @@ export async function createMenuItem(c: Context) {
       countQuery.session(session);
       lastQuery.session(session);
     }
-    const [count, last] = await Promise.all([countQuery, lastQuery]);
+    const count = await countQuery;
+    const last = await lastQuery;
     const sortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
     const [created] = await MenuItem.create([{ ...body, sortOrder }], session ? { session } : {});
     const items = await reorderMenuItems(body.categoryId, String(created!._id), priority ?? count + 1, session);
@@ -314,7 +316,8 @@ export async function updateMenuItem(c: Context) {
         countQuery.session(session);
         lastQuery.session(session);
       }
-      const [count, last] = await Promise.all([countQuery, lastQuery]);
+      const count = await countQuery;
+    const last = await lastQuery;
       targetCount = count;
       nextSortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
     }
