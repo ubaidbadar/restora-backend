@@ -18,7 +18,7 @@ export function orderTransitionConditions(target: OrderStatus): TransitionCondit
       { status: 'new' },
       { status: 'preparing' },
       { status: 'ready' },
-      { status: 'out_for_delivery' },
+      { status: 'out_for_delivery', type: 'delivery' },
     ];
     // Cancelling has its own audited permissioned endpoint. A guest order cannot
     // be reverted to pending, and completed/cancelled orders never advance.
