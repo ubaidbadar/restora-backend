@@ -12,15 +12,18 @@ describe('server-authoritative order transitions', () => {
       expect(canAdvanceOrder('ready', 'out_for_delivery', type)).toBe(false);
     }
   });
-  it('requires dispatch for delivery orders', () => {
+  it('keeps the normal delivery dispatch step while allowing an explicit completion override', () => {
     expect(canAdvanceOrder('ready', 'out_for_delivery', 'delivery')).toBe(true);
     expect(canAdvanceOrder('out_for_delivery', 'completed', 'delivery')).toBe(true);
-    expect(canAdvanceOrder('ready', 'completed', 'delivery')).toBe(false);
+    expect(canAdvanceOrder('ready', 'completed', 'delivery')).toBe(true);
   });
-  it('rejects reversing and skipping stages', () => {
+  it('allows direct completion from every active stage, but not from pending or terminal states', () => {
     for (const type of ['dine_in', 'takeaway', 'delivery'] as const) {
+      for (const status of ['new', 'preparing', 'ready', 'out_for_delivery'] as const) {
+        expect(canAdvanceOrder(status, 'completed', type)).toBe(true);
+      }
+      expect(canAdvanceOrder('pending', 'completed', type)).toBe(false);
       expect(canAdvanceOrder('ready', 'preparing', type)).toBe(false);
-      expect(canAdvanceOrder('new', 'completed', type)).toBe(false);
       expect(canAdvanceOrder('pending', 'ready', type)).toBe(false);
       expect(canAdvanceOrder('completed', 'new', type)).toBe(false);
       expect(canAdvanceOrder('cancelled', 'preparing', type)).toBe(false);
