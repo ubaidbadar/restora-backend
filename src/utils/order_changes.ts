@@ -1,6 +1,6 @@
 import type { IOrder, IOrderItem } from '../models/order';
 
-/** One dish whose count or unit price changed: 0 → 2 was added, 2 → 0 was removed. */
+/** One dish whose count, unit price or kitchen note changed: 0 → 2 was added, 2 → 0 was removed. */
 export interface LineChange {
   name: string;
   /** Size, add-ons and note, as on the receipt. */
@@ -81,11 +81,10 @@ export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChan
 
     const samePrice = candidates.filter((candidate) => candidate.item.price === current.item.price);
     const sameQty = candidates.filter((candidate) => candidate.qty === current.qty);
-    const previous = samePrice.length === 1
-      ? samePrice[0]
-      : candidates.length === 1
-        ? candidates[0]
-        : sameQty.length === 1 ? sameQty[0] : undefined;
+    let previous: (typeof candidates)[number] | undefined;
+    if (samePrice.length === 1) previous = samePrice[0];
+    else if (candidates.length === 1) previous = candidates[0];
+    else if (sameQty.length === 1) previous = sameQty[0];
     if (!previous) continue;
 
     matchedWas.add(previous.key);
