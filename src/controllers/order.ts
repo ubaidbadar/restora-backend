@@ -434,8 +434,12 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addonIds,
       note: rawItem.note || undefined,
     }));
+    const unchangedOverrideIndex = rawItem.price === undefined
+      ? -1
+      : (matches?.findIndex((item) => item.priceOverridden === true && item.price === rawItem.price) ?? -1);
+    const ordinaryLineIndex = matches?.findIndex((item) => item.priceOverridden !== true) ?? -1;
     const previousIndex = matches?.length
-      ? Math.max(0, matches.findIndex((item) => rawItem.price !== undefined ? item.priceOverridden === true : item.priceOverridden !== true))
+      ? unchangedOverrideIndex >= 0 ? unchangedOverrideIndex : ordinaryLineIndex >= 0 ? ordinaryLineIndex : 0
       : -1;
     const previous = previousIndex >= 0 ? matches?.splice(previousIndex, 1)[0] : undefined;
     const priceOverridden = rawItem.price !== undefined || previous?.priceOverridden === true;
@@ -810,13 +814,22 @@ export async function editOrder(c: Context) {
   if (body.discount !== order.discount && body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot give discounts' }, 403);
   }
-  const changesDishPrice = body.items.some((item: RawItem) =>
-    item.price !== undefined && !order.items.some((saved) =>
-      saved.priceOverridden === true &&
-      saved.price === item.price &&
-      orderItemSelectionKey(saved) === orderItemSelectionKey(item)
-    )
-  );
+  const unchangedOverrideCounts = new Map<string, number>();
+  for (const saved of order.items) {
+    if (!saved.priceOverridden) continue;
+    const key = `${orderItemSelectionKey(saved)}|${saved.price}`;
+    unchangedOverrideCounts.set(key, (unchangedOverrideCounts.get(key) ?? 0) + 1);
+  }
+  const changesDishPrice = body.items.some((item: RawItem) => {
+    if (item.price === undefined) return false;
+    const key = `${orderItemSelectionKey(item)}|${item.price}`;
+    const count = unchangedOverrideCounts.get(key) ?? 0;
+    if (count > 0) {
+      unchangedOverrideCounts.set(key, count - 1);
+      return false;
+    }
+    return true;
+  });
   if (changesDishPrice && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot change dish prices' }, 403);
   }
