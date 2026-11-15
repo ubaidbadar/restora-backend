@@ -7,6 +7,8 @@ export interface LineChange {
   detail?: string;
   was: number;
   now: number;
+  wasPrice?: number;
+  nowPrice?: number;
 }
 
 /** The order's facts its history shows, as they read to a person. */
@@ -35,11 +37,29 @@ export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChan
   const now = count(after);
   const changes: LineChange[] = [];
   for (const [key, { item, qty }] of was) {
-    const left = now.get(key)?.qty ?? 0;
-    if (left !== qty) changes.push({ name: item.name, detail: lineDetail(item), was: qty, now: left });
+    const current = now.get(key);
+    const left = current?.qty ?? 0;
+    const priceChanged = current && item.price !== current.item.price;
+    if (left !== qty || priceChanged) {
+      changes.push({
+        name: item.name,
+        detail: lineDetail(item),
+        was: qty,
+        now: left,
+        ...(priceChanged ? { wasPrice: item.price, nowPrice: current.item.price } : {}),
+      });
+    }
   }
   for (const [key, { item, qty }] of now) {
-    if (!was.has(key)) changes.push({ name: item.name, detail: lineDetail(item), was: 0, now: qty });
+    if (!was.has(key)) {
+      changes.push({
+        name: item.name,
+        detail: lineDetail(item),
+        was: 0,
+        now: qty,
+        ...(item.menuPrice !== undefined && item.price !== item.menuPrice ? { wasPrice: item.menuPrice, nowPrice: item.price } : {}),
+      });
+    }
   }
   return changes.sort((a, b) => Number(a.now > 0) - Number(b.now > 0));
 }
