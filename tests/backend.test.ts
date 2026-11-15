@@ -568,7 +568,7 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     }
   });
 
-  it('keeps the saved price when only the kitchen note changes after a menu update', async () => {
+  it('records a price adjustment when the kitchen note changes on the same priced dish', async () => {
     const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
     const dishRes = await app.request('/api/v1/menu/items', {
       method: 'POST',
@@ -584,11 +584,12 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
         headers,
         body: JSON.stringify({
           branchId, type: 'takeaway', paymentStatus: 'unpaid',
-          items: [{ itemId: dish._id, qty: 1, addonIds: [], note: 'No onions' }],
+          items: [{ itemId: dish._id, qty: 1, addonIds: [], note: 'No onions', price: 250 }],
         }),
       });
       expect(createdRes.status).toBe(201);
       const created = (await createdRes.json()) as any;
+      expect(created.items[0]).toMatchObject({ price: 250, menuPrice: 300, priceOverridden: true });
 
       const menuUpdate = await app.request(`/api/v1/menu/items/${dish._id}`, {
         method: 'PATCH',
@@ -602,12 +603,17 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
         headers,
         body: JSON.stringify({
           type: 'takeaway',
-          items: [{ itemId: dish._id, sizeId: created.items[0].sizeId, qty: 1, addonIds: [], note: 'Extra spicy' }],
+          items: [{ itemId: dish._id, sizeId: created.items[0].sizeId, qty: 1, addonIds: [], note: 'Extra spicy', price: 200 }],
         }),
       });
       expect(editRes.status).toBe(200);
       const edited = (await editRes.json()) as any;
-      expect(edited.items[0]).toMatchObject({ price: 300, menuPrice: 300, priceOverridden: false, note: 'Extra spicy' });
+      expect(edited.items[0]).toMatchObject({ price: 200, menuPrice: 300, priceOverridden: true, note: 'Extra spicy' });
+
+      const timeline = (await (await app.request(`/api/v1/orders/${created._id}/timeline`, { headers })).json()) as any[];
+      expect(timeline[1].changes.after.lines[0]).toMatchObject({
+        was: 1, now: 1, wasPrice: 250, nowPrice: 200, detail: 'Extra spicy',
+      });
       const menuAfter = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
       expect(menuAfter.items.find((item: any) => item._id === dish._id).sizes[0].price).toBe(900);
     } finally {
