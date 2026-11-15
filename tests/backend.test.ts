@@ -497,6 +497,63 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     expect(menuAfterEdit.items.find((item: any) => item._id === menuItemId).sizes[0].price).toBe(750);
   });
 
+  it('preserves the saved unit price when the menu price changes before an order edit', async () => {
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
+    const menuBefore = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
+    const dishBefore = menuBefore.items.find((item: any) => item._id === menuItemId);
+    const originalSizes = dishBefore.sizes.map((size: any) => ({ _id: size._id, name: size.name, price: size.price }));
+
+    try {
+      const createdRes = await app.request('/api/v1/orders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          branchId, type: 'takeaway', paymentStatus: 'unpaid',
+          items: [{ itemId: menuItemId, qty: 1, addonIds: [spicyOptionId] }],
+        }),
+      });
+      expect(createdRes.status).toBe(201);
+      const created = (await createdRes.json()) as any;
+      expect(created.items[0]).toMatchObject({ price: 800, menuPrice: 800, priceOverridden: false });
+
+      const menuUpdate = await app.request(`/api/v1/menu/items/${menuItemId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          sizes: originalSizes.map((size: any, index: number) => ({ ...size, price: index === 0 ? 900 : size.price })),
+        }),
+      });
+      expect(menuUpdate.status).toBe(200);
+
+      const editRes = await app.request(`/api/v1/orders/${created._id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          type: 'takeaway',
+          items: [{ itemId: menuItemId, sizeId: created.items[0].sizeId, qty: 2, addonIds: [spicyOptionId] }],
+        }),
+      });
+      expect(editRes.status).toBe(200);
+      const edited = (await editRes.json()) as any;
+      expect(edited.items[0]).toMatchObject({ price: 800, menuPrice: 800, priceOverridden: false, qty: 2 });
+      expect(edited.subtotal).toBe(1600);
+
+      const menuAfter = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
+      expect(menuAfter.items.find((item: any) => item._id === menuItemId).sizes[0].price).toBe(900);
+      const timeline = (await (await app.request(`/api/v1/orders/${created._id}/timeline`, { headers })).json()) as any[];
+      expect(timeline[1].changes.after.lines[0]).toMatchObject({ was: 1, now: 2 });
+      expect(timeline[1].changes.after.lines[0]).not.toHaveProperty('wasPrice');
+      expect(timeline[1].changes.after.lines[0]).not.toHaveProperty('nowPrice');
+    } finally {
+      const restored = await app.request(`/api/v1/menu/items/${menuItemId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ sizes: originalSizes }),
+      });
+      expect(restored.status).toBe(200);
+    }
+  });
+
   it('keeps a takeaway walk-in name on the order without creating a customer record', async () => {
     const customersBefore = await Customer.countDocuments({ restaurantId });
     const res = await app.request('/api/v1/orders', {
