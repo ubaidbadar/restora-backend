@@ -438,9 +438,12 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       ? -1
       : (matches?.findIndex((item) => item.priceOverridden === true && item.price === rawItem.price) ?? -1);
     const ordinaryLineIndex = matches?.findIndex((item) => item.priceOverridden !== true) ?? -1;
-    const previousIndex = matches?.length
-      ? unchangedOverrideIndex >= 0 ? unchangedOverrideIndex : ordinaryLineIndex >= 0 ? ordinaryLineIndex : 0
-      : -1;
+    let previousIndex = -1;
+    if (matches?.length) {
+      previousIndex = unchangedOverrideIndex;
+      if (previousIndex < 0) previousIndex = ordinaryLineIndex;
+      if (previousIndex < 0) previousIndex = 0;
+    }
     const previous = previousIndex >= 0 ? matches?.splice(previousIndex, 1)[0] : undefined;
     const priceOverridden = rawItem.price !== undefined || previous?.priceOverridden === true;
     priced.push({
