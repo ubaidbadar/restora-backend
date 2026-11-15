@@ -445,7 +445,9 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       if (previousIndex < 0) previousIndex = 0;
     }
     const previous = previousIndex >= 0 ? matches?.splice(previousIndex, 1)[0] : undefined;
-    const priceOverridden = rawItem.price !== undefined || previous?.priceOverridden === true;
+    const savedMenuPrice = previous ? (previous.menuPrice ?? previous.price) : menuPrice;
+    const price = rawItem.price ?? previous?.price ?? menuPrice;
+    const priceOverridden = rawItem.price !== undefined ? rawItem.price !== savedMenuPrice : previous?.priceOverridden === true;
     priced.push({
       itemId: String(menuItem._id),
       name: menuItem.name,
@@ -455,9 +457,9 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addons: addons.length ? addons : undefined,
       includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
-      menuPrice: previous ? (previous.menuPrice ?? previous.price) : menuPrice,
+      menuPrice: savedMenuPrice,
       priceOverridden,
-      price: rawItem.price ?? previous?.price ?? menuPrice,
+      price,
       qty: rawItem.qty,
     });
   }
