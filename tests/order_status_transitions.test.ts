@@ -17,9 +17,9 @@ describe('server-authoritative order transitions', () => {
     expect(canAdvanceOrder('out_for_delivery', 'completed', 'delivery')).toBe(true);
     expect(canAdvanceOrder('ready', 'completed', 'delivery')).toBe(true);
   });
-  it('allows direct completion from every active stage, but not from pending or terminal states', () => {
+  it('allows direct completion from active stages, but not pending or terminal states', () => {
     for (const type of ['dine_in', 'takeaway', 'delivery'] as const) {
-      for (const status of ['new', 'preparing', 'ready', 'out_for_delivery'] as const) {
+      for (const status of ['new', 'preparing', 'ready'] as const) {
         expect(canAdvanceOrder(status, 'completed', type)).toBe(true);
       }
       expect(canAdvanceOrder('pending', 'completed', type)).toBe(false);
@@ -29,6 +29,8 @@ describe('server-authoritative order transitions', () => {
       expect(canAdvanceOrder('cancelled', 'preparing', type)).toBe(false);
       expect(canAdvanceOrder('new', 'pending', type)).toBe(false);
     }
+    expect(canAdvanceOrder('out_for_delivery', 'completed', 'delivery')).toBe(true);
+    expect(canAdvanceOrder('out_for_delivery', 'completed', 'dine_in')).toBe(false);
     expect(orderTransitionConditions('cancelled')).toEqual([]);
     expect(orderTransitionConditions('pending')).toEqual([]);
   });
