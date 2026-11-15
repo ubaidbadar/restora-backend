@@ -5,6 +5,7 @@ import { app } from '../index';
 import StaffMember from '../src/models/staff_member';
 import Customer from '../src/models/customer';
 import Order from '../src/models/order';
+import publicOrderSchema from '../src/validations/public_order';
 import { runWithTenant } from '../src/middlewares/tenant_context';
 
 // Regression tests for the review fixes: tenancy, money, permissions and the client's API contract.
@@ -79,6 +80,13 @@ describe('Hardening', () => {
 
     const cust = (await (await api(a, 'POST', '/customers', { name: 'Kamran', phone: '03005550001' })).json()) as Json;
     customerId = cust._id;
+  });
+
+  it('does not allow public QR orders to override menu prices', () => {
+    const parsed = publicOrderSchema.parse({
+      items: [{ itemId: 'dish-id', qty: 1, addonIds: [], price: 1 }],
+    });
+    expect(parsed.items[0]).not.toHaveProperty('price');
   });
 
   it('the /api/auth alias still reaches Better Auth', async () => {
