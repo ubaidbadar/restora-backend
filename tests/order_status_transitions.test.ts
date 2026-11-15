@@ -4,7 +4,7 @@ import type { OrderStatus } from '../src/constants/order_status';
 
 describe('server-authoritative order transitions', () => {
   const path: OrderStatus[] = ['pending', 'new', 'preparing', 'ready', 'completed'];
-  it('advances dine-in and takeaway orders one stage only', () => {
+  it('keeps the standard dine-in and takeaway progression available', () => {
     for (const type of ['dine_in', 'takeaway'] as const) {
       for (let i = 1; i < path.length; i++) {
         expect(canAdvanceOrder(path[i - 1]!, path[i]!, type)).toBe(true);
