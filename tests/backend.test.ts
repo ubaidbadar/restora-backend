@@ -612,7 +612,7 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
 
       const timeline = (await (await app.request(`/api/v1/orders/${created._id}/timeline`, { headers })).json()) as any[];
       expect(timeline[1].changes.after.lines[0]).toMatchObject({
-        was: 1, now: 1, wasPrice: 250, nowPrice: 200, detail: 'Extra spicy',
+        was: 1, now: 1, wasPrice: 250, nowPrice: 200, detail: '“Extra spicy”',
       });
       const menuAfter = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
       expect(menuAfter.items.find((item: any) => item._id === dish._id).sizes[0].price).toBe(900);
