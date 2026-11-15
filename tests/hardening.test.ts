@@ -343,6 +343,7 @@ describe('Hardening', () => {
     expect(saved.type).toBe('dine_in');
     // Not paid, and not counted, before it is accepted.
     expect((await api(a, 'POST', `/orders/${order._id}/payment`, { paymentMethod: 'cash' })).status).toBe(400);
+    expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'completed' })).status).toBe(409);
     expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'new' })).status).toBe(200);
     expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'pending' })).status).toBe(400);
 
