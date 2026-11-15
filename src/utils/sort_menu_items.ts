@@ -9,7 +9,7 @@ interface MenuItemOrder {
   sortOrder?: number;
 }
 
-/** Keeps the menu in category order, then numeric item priority, with a stable name tie-breaker. */
+/** Keeps the menu in category order, then numeric item priority, preserving creation order for legacy records with equal positions. */
 export default function sortMenuItems<T extends MenuItemOrder>(items: T[], categories: CategoryOrder[]): T[] {
   const categoryOrder = new Map(categories.map((category, index) => [String(category._id), index] as const));
 

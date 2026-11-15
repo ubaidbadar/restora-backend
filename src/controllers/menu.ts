@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import type { ClientSession } from 'mongoose';
 import MenuCategory from '../models/menu_category';
 import AddonGroup from '../models/addon_group';
 import MenuItem, { type IDealPart } from '../models/menu_item';
@@ -69,6 +70,71 @@ async function checkDishLinks(body: { categoryId?: string; addonGroupIds?: strin
 }
 
 /** The whole menu as the client shows it, with `soldOut` for the given branch. */
+/** Renumber categories after inserting or moving one. Priority is 1-based. */
+async function reorderCategories(categoryId: string, priority: number, session?: ClientSession) {
+  const query = MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 });
+  if (session) query.session(session);
+  const categories = await query;
+  const currentIndex = categories.findIndex((category) => String(category._id) === categoryId);
+  if (currentIndex < 0) throw httpError(404, 'Category not found');
+
+  const [moved] = categories.splice(currentIndex, 1);
+  categories.splice(Math.min(priority - 1, categories.length), 0, moved!);
+
+  await MenuCategory.bulkWrite(
+    categories.map((category, sortOrder) => ({
+      updateOne: {
+        filter: { _id: category._id, restaurantId: getTenantId() },
+        update: { $set: { sortOrder } },
+      },
+    })),
+    session ? { session } : {}
+  );
+
+  categories.forEach((category, sortOrder) => {
+    category.sortOrder = sortOrder;
+  });
+  return categories;
+}
+
+/** Renumber a category's dishes/deals; if an id is supplied, move it to the requested 1-based priority. */
+async function reorderMenuItems(categoryId: string, movedItemId?: string, priority?: number, session?: ClientSession) {
+  const query = MenuItem.find({ categoryId }).sort({ sortOrder: 1, createdAt: 1, _id: 1 });
+  if (session) query.session(session);
+  const items = await query;
+
+  if (movedItemId) {
+    const currentIndex = items.findIndex((item) => String(item._id) === movedItemId);
+    if (currentIndex < 0) throw httpError(404, 'Menu item not found');
+    const [moved] = items.splice(currentIndex, 1);
+    items.splice(Math.min((priority ?? items.length) - 1, items.length), 0, moved!);
+  }
+
+  await MenuItem.bulkWrite(
+    items.map((item, sortOrder) => ({
+      updateOne: {
+        filter: { _id: item._id, restaurantId: getTenantId() },
+        update: { $set: { sortOrder } },
+      },
+    })),
+    session ? { session } : {}
+  );
+
+  items.forEach((item, sortOrder) => {
+    item.sortOrder = sortOrder;
+  });
+  return items;
+}
+
+/** All menu items in display order, with soldOut for the given branch. */
+async function menuItemsJson(branchId?: string) {
+  const [categories, rawItems] = await Promise.all([
+    MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 }),
+    MenuItem.find({}),
+  ]);
+  return sortMenuItems(rawItems, categories).map((item) => dishJson(item, branchId));
+}
+
 async function menuJson(branchId?: string) {
   const [categories, addonGroups, rawItems] = await Promise.all([
     MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 }),
@@ -83,59 +149,53 @@ export async function getMenu(c: Context) {
 }
 
 export async function createCategory(c: Context) {
-  const body = c.get('validatedJson') || (await c.req.json());
-  const [count, last] = await Promise.all([
-    MenuCategory.countDocuments({}),
-    MenuCategory.findOne({}).sort({ sortOrder: -1, createdAt: -1, _id: -1 }),
-  ]);
-  const category = await MenuCategory.create({ ...body, sortOrder: Math.max(count, (last?.sortOrder ?? -1) + 1) });
+  const { priority, ...body } = c.get('validatedJson') || (await c.req.json());
+  const result = await runInTransaction(async (session) => {
+    const countQuery = MenuCategory.countDocuments({});
+    const lastQuery = MenuCategory.findOne({}).sort({ sortOrder: -1, createdAt: -1, _id: -1 });
+    if (session) {
+      countQuery.session(session);
+      lastQuery.session(session);
+    }
+    const [count, last] = await Promise.all([countQuery, lastQuery]);
+    const sortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
+    const [created] = await MenuCategory.create([{ ...body, sortOrder }], session ? { session } : {});
+    const categories = await reorderCategories(String(created!._id), priority ?? count + 1, session);
+    return { category: categories.find((entry) => String(entry._id) === String(created!._id))!, categories };
+  });
 
   const user = c.get('user');
   await logAudit({
     action: 'menu_category.created',
     actor: { userId: user?.id, name: user?.name, via: 'web' },
-    target: { type: 'menu_category', id: String(category._id), label: category.name },
+    target: { type: 'menu_category', id: String(result.category._id), label: result.category.name },
   });
 
-  return c.json(category, 201);
+  return c.json({
+    ...result.category.toJSON(),
+    categories: result.categories.map((category) => category.toJSON()),
+  }, 201);
 }
 
 export async function updateCategory(c: Context) {
   const id = c.req.param('id') ?? '';
-  const body = c.get('validatedJson') || (await c.req.json());
+  const { priority, ...body } = c.get('validatedJson') || (await c.req.json());
   const category = await MenuCategory.findByIdAndUpdate(id, { $set: body }, { returnDocument: 'after' });
   if (!category) return c.json({ message: 'Category not found' }, 404);
-  return c.json(category);
+  if (priority === undefined) return c.json(category);
+
+  const categories = await runInTransaction((session) => reorderCategories(id, priority, session));
+  const updated = categories.find((entry) => String(entry._id) === id)!;
+  return c.json({
+    ...updated.toJSON(),
+    categories: categories.map((entry) => entry.toJSON()),
+  });
 }
 
 export async function updateCategoryPriority(c: Context) {
   const id = c.req.param('id') ?? '';
   const { priority } = c.get('validatedJson') as { priority: number };
-  const restaurantId = getTenantId();
-  if (!restaurantId) throw httpError(400, 'Pick a restaurant first');
-
-  const categories = await MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 });
-  const currentIndex = categories.findIndex((category) => String(category._id) === id);
-  if (currentIndex < 0) return c.json({ message: 'Category not found' }, 404);
-
-  const [moved] = categories.splice(currentIndex, 1);
-  categories.splice(Math.min(priority - 1, categories.length), 0, moved!);
-
-  await runInTransaction(async (session) => {
-    await MenuCategory.bulkWrite(
-      categories.map((category, sortOrder) => ({
-        updateOne: {
-          filter: { _id: category._id, restaurantId },
-          update: { $set: { sortOrder } },
-        },
-      })),
-      session ? { session } : {}
-    );
-  });
-
-  categories.forEach((category, sortOrder) => {
-    category.sortOrder = sortOrder;
-  });
+  const categories = await runInTransaction((session) => reorderCategories(id, priority, session));
   return c.json(categories);
 }
 
@@ -188,7 +248,7 @@ export async function deleteAddonGroup(c: Context) {
 }
 
 export async function createMenuItem(c: Context) {
-  const body = c.get('validatedJson');
+  const { priority, ...body } = c.get('validatedJson');
   await checkDishLinks(body);
   const stored = await storePhoto(c, body.photo, 'dishes');
   delete body.photo;
@@ -196,11 +256,19 @@ export async function createMenuItem(c: Context) {
     Object.assign(body, { photo: stored.photo, ...(stored.photoSizes && { photoSizes: stored.photoSizes }) });
   }
 
-  const [count, last] = await Promise.all([
-    MenuItem.countDocuments({ categoryId: body.categoryId }),
-    MenuItem.findOne({ categoryId: body.categoryId }).sort({ sortOrder: -1, createdAt: -1, _id: -1 }),
-  ]);
-  const item = await MenuItem.create({ ...body, sortOrder: Math.max(count, (last?.sortOrder ?? -1) + 1) });
+  const item = await runInTransaction(async (session) => {
+    const countQuery = MenuItem.countDocuments({ categoryId: body.categoryId });
+    const lastQuery = MenuItem.findOne({ categoryId: body.categoryId }).sort({ sortOrder: -1, createdAt: -1, _id: -1 });
+    if (session) {
+      countQuery.session(session);
+      lastQuery.session(session);
+    }
+    const [count, last] = await Promise.all([countQuery, lastQuery]);
+    const sortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
+    const [created] = await MenuItem.create([{ ...body, sortOrder }], session ? { session } : {});
+    const items = await reorderMenuItems(body.categoryId, String(created!._id), priority ?? count + 1, session);
+    return items.find((entry) => String(entry._id) === String(created!._id))!;
+  });
 
   const user = c.get('user');
   await logAudit({
@@ -209,70 +277,80 @@ export async function createMenuItem(c: Context) {
     target: { type: 'menu_item', id: String(item._id), label: item.name },
   });
 
-  return c.json(dishJson(item, c.get('branchId')), 201);
+  return c.json({
+    ...dishJson(item, c.get('branchId')),
+    items: await menuItemsJson(c.get('branchId')),
+  }, 201);
 }
 
 export async function updateMenuItem(c: Context) {
   const id = c.req.param('id') ?? '';
-  const body = c.get('validatedJson');
+  const { priority, ...body } = c.get('validatedJson');
   const current = await MenuItem.findById(id);
   if (!current) return c.json({ message: 'Menu item not found' }, 404);
   await checkDishLinks(body, id);
 
-  const categoryId = body.categoryId ?? current.categoryId;
-  let nextSortOrder: number | undefined;
-  if (categoryId !== current.categoryId) {
-    const [count, last] = await Promise.all([
-      MenuItem.countDocuments({ categoryId }),
-      MenuItem.findOne({ categoryId }).sort({ sortOrder: -1, createdAt: -1, _id: -1 }),
-    ]);
-    nextSortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
-  }
-
   const stored = await storePhoto(c, body.photo, 'dishes');
   delete body.photo;
-  const updateBody = { ...body, ...(nextSortOrder !== undefined ? { sortOrder: nextSortOrder } : {}) };
-  // A new photo sets both fields; clearing removes both. A URL sent back as it is (the apps never do) keeps its sizes.
-  const update =
-    stored === null
-      ? { $set: updateBody, $unset: { photo: 1, photoSizes: 1 } }
-      : { $set: { ...updateBody, ...(stored && { photo: stored.photo }), ...(stored?.photoSizes && { photoSizes: stored.photoSizes }) } };
-  const item = await MenuItem.findByIdAndUpdate(id, update, { returnDocument: 'after' });
-  if (!item) return c.json({ message: 'Menu item not found' }, 404);
-  return c.json(dishJson(item, c.get('branchId')));
+
+  const item = await runInTransaction(async (session) => {
+    const currentQuery = MenuItem.findById(id);
+    if (session) currentQuery.session(session);
+    const existing = await currentQuery;
+    if (!existing) throw httpError(404, 'Menu item not found');
+
+    const previousCategoryId = existing.categoryId;
+    const categoryId = body.categoryId ?? previousCategoryId;
+    const categoryChanged = categoryId !== previousCategoryId;
+    let nextSortOrder = existing.sortOrder ?? 0;
+    let targetCount = 0;
+
+    if (categoryChanged) {
+      const countQuery = MenuItem.countDocuments({ categoryId });
+      const lastQuery = MenuItem.findOne({ categoryId }).sort({ sortOrder: -1, createdAt: -1, _id: -1 });
+      if (session) {
+        countQuery.session(session);
+        lastQuery.session(session);
+      }
+      const [count, last] = await Promise.all([countQuery, lastQuery]);
+      targetCount = count;
+      nextSortOrder = Math.max(count, (last?.sortOrder ?? -1) + 1);
+    }
+
+    const updateBody = { ...body, ...(categoryChanged ? { sortOrder: nextSortOrder } : {}) };
+    // A new photo sets both fields; clearing removes both. A URL sent back as it is (the apps never do) keeps its sizes.
+    const update =
+      stored === null
+        ? { $set: updateBody, $unset: { photo: 1, photoSizes: 1 } }
+        : { $set: { ...updateBody, ...(stored && { photo: stored.photo }), ...(stored?.photoSizes && { photoSizes: stored.photoSizes }) } };
+    const updateOptions = session ? { returnDocument: 'after' as const, session } : { returnDocument: 'after' as const };
+    const saved = await MenuItem.findByIdAndUpdate(id, update, updateOptions);
+    if (!saved) throw httpError(404, 'Menu item not found');
+
+    if (categoryChanged) {
+      await reorderMenuItems(previousCategoryId, undefined, undefined, session);
+      const targetItems = await reorderMenuItems(categoryId, id, priority ?? targetCount + 1, session);
+      return targetItems.find((entry) => String(entry._id) === id)!;
+    }
+    if (priority !== undefined) {
+      const items = await reorderMenuItems(categoryId, id, priority, session);
+      return items.find((entry) => String(entry._id) === id)!;
+    }
+    return saved;
+  });
+
+  return c.json({
+    ...dishJson(item, c.get('branchId')),
+    items: await menuItemsJson(c.get('branchId')),
+  });
 }
 
 export async function updateMenuItemPriority(c: Context) {
   const id = c.req.param('id') ?? '';
   const { priority } = c.get('validatedJson') as { priority: number };
-  const restaurantId = getTenantId();
-  if (!restaurantId) throw httpError(400, 'Pick a restaurant first');
-
   const item = await MenuItem.findById(id);
   if (!item) return c.json({ message: 'Menu item not found' }, 404);
-
-  const items = await MenuItem.find({ categoryId: item.categoryId }).sort({ sortOrder: 1, name: 1, _id: 1 });
-  const currentIndex = items.findIndex((entry) => String(entry._id) === id);
-  if (currentIndex < 0) return c.json({ message: 'Menu item not found' }, 404);
-
-  const [moved] = items.splice(currentIndex, 1);
-  items.splice(Math.min(priority - 1, items.length), 0, moved!);
-
-  await runInTransaction(async (session) => {
-    await MenuItem.bulkWrite(
-      items.map((entry, sortOrder) => ({
-        updateOne: {
-          filter: { _id: entry._id, restaurantId },
-          update: { $set: { sortOrder } },
-        },
-      })),
-      session ? { session } : {}
-    );
-  });
-
-  items.forEach((entry, sortOrder) => {
-    entry.sortOrder = sortOrder;
-  });
+  const items = await runInTransaction((session) => reorderMenuItems(item.categoryId, id, priority, session));
   return c.json(items.map((entry) => dishJson(entry, c.get('branchId'))));
 }
 
