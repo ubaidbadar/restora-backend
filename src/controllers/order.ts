@@ -330,6 +330,9 @@ function placedTime(placedAt?: string): number {
 
 type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number; price?: number };
 
+const orderItemSelectionKey = (item: { itemId: string; sizeId?: string | null; addonIds?: string[] | null; note?: string | null }) =>
+  [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(','), item.note ?? ''].join('|');
+
 /**
  * The order's customer: an existing one by id, or a new record when a name and a real mobile number were given (a name
  * alone is a walk-in, with no record). Answers an error message when the id is unknown.
@@ -361,7 +364,7 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
  * hours must be on sale `at` (when the order was taken), except those already on the order being edited (`onOrder`).
  * Answers an error message when a dish is gone, sold out, not on sale or picked wrongly.
  */
-export async function priceItems(rawItems: RawItem[], branchId: string, at: number = Date.now(), onOrder: string[] = []): Promise<IOrderItem[] | string> {
+export async function priceItems(rawItems: RawItem[], branchId: string, at: number = Date.now(), onOrder: string[] = [], existingItems: IOrderItem[] = []): Promise<IOrderItem[] | string> {
   // One aggregation: the dishes with their add-on groups and, for deals, the dishes in them (of the same restaurant).
   const ids = rawItems.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
   const sameRestaurant = { $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } };
@@ -379,6 +382,13 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
     }),
   ]);
   const menuById = new Map(menuItems.map((m) => [String(m._id), m]));
+  const existingBySelection = new Map<string, IOrderItem[]>();
+  for (const item of existingItems) {
+    const key = orderItemSelectionKey(item);
+    const matches = existingBySelection.get(key);
+    if (matches) matches.push(item);
+    else existingBySelection.set(key, [item]);
+  }
   const priced: IOrderItem[] = [];
 
   for (const rawItem of rawItems) {
@@ -418,6 +428,17 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
     }
 
     const menuPrice = size.price + addonsPrice;
+    const matches = existingBySelection.get(orderItemSelectionKey({
+      itemId: String(menuItem._id),
+      sizeId: String(size._id),
+      addonIds,
+      note: rawItem.note || undefined,
+    }));
+    const previousIndex = matches?.length
+      ? Math.max(0, matches.findIndex((item) => rawItem.price !== undefined ? item.priceOverridden === true : item.priceOverridden !== true))
+      : -1;
+    const previous = previousIndex >= 0 ? matches?.splice(previousIndex, 1)[0] : undefined;
+    const priceOverridden = rawItem.price !== undefined || previous?.priceOverridden === true;
     priced.push({
       itemId: String(menuItem._id),
       name: menuItem.name,
@@ -427,9 +448,9 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addons: addons.length ? addons : undefined,
       includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
-      menuPrice,
-      priceOverridden: rawItem.price !== undefined,
-      price: rawItem.price ?? menuPrice,
+      menuPrice: previous?.menuPrice ?? menuPrice,
+      priceOverridden,
+      price: rawItem.price ?? previous?.price ?? menuPrice,
       qty: rawItem.qty,
     });
   }
@@ -450,6 +471,9 @@ export async function createOrder(c: Context) {
   // What the person may do beyond taking the order.
   if (body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot give discounts' }, 403);
+  }
+  if (body.items.some((item: RawItem) => item.price !== undefined) && !(await hasPermission(c, 'orders:discount'))) {
+    return c.json({ message: 'You cannot change dish prices' }, 403);
   }
   if (body.paymentStatus !== 'unpaid' && !(await hasPermission(c, 'orders:payment'))) {
     return c.json({ message: 'You cannot record payments. Save it as pay later.' }, 403);
@@ -768,8 +792,8 @@ const KITCHEN_HAS_IT: IOrder['status'][] = ['new', 'preparing', 'ready'];
 const EDITABLE_STATUSES: IOrder['status'][] = ['pending', 'new', 'preparing', 'ready'];
 
 /**
- * Changes what a placed order is and what is in it (dishes, type, table, customer, discount), priced again from the menu.
- * Only until it is on the way or done, and only while unpaid: a paid or khata bill is settled.
+ * Changes what a placed order is and what is in it. New selections use current menu prices; unchanged selections keep
+ * their saved unit price unless staff explicitly changes it. Only unfinished, unpaid orders can be edited.
  */
 export async function editOrder(c: Context) {
   const id = c.req.param('id') ?? '';
@@ -786,6 +810,16 @@ export async function editOrder(c: Context) {
   if (body.discount !== order.discount && body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot give discounts' }, 403);
   }
+  const changesDishPrice = body.items.some((item: RawItem) =>
+    item.price !== undefined && !order.items.some((saved) =>
+      saved.priceOverridden === true &&
+      saved.price === item.price &&
+      orderItemSelectionKey(saved) === orderItemSelectionKey(item)
+    )
+  );
+  if (changesDishPrice && !(await hasPermission(c, 'orders:discount'))) {
+    return c.json({ message: 'You cannot change dish prices' }, 403);
+  }
 
   const found = await resolveCustomer(body);
   if (typeof found === 'string') return c.json({ message: found }, 400);
@@ -800,7 +834,7 @@ export async function editOrder(c: Context) {
   }
 
   // Lines already on the order stay, even once their deal's hours are over.
-  const items = await priceItems(body.items, order.branchId, Date.now(), order.items.map((item) => item.itemId));
+  const items = await priceItems(body.items, order.branchId, Date.now(), order.items.map((item) => item.itemId), order.items);
   if (typeof items === 'string') return c.json({ message: items }, 400);
 
   // Unpaid, so no tax yet: it is added when the customer pays.
