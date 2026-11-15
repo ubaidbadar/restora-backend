@@ -328,7 +328,7 @@ function placedTime(placedAt?: string): number {
   return at > now - 2 * 86_400_000 && at < now + 5 * 60_000 ? at : now;
 }
 
-type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number };
+type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number; price?: number };
 
 /**
  * The order's customer: an existing one by id, or a new record when a name and a real mobile number were given (a name
@@ -355,8 +355,8 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
 }
 
 /**
- * The order lines priced from the menu, never from the client: size and add-ons by id, each checked against the dish's
- * add-on rules. The ids are kept on the line so the order can be opened for editing later. A deal is sold at its own
+ * The menu price is calculated from trusted menu data; staff may optionally override the final per-unit price for this
+ * order only. Size and add-ons are resolved by id and checked against the dish's rules. A deal is sold at its own
  * price and carries the dishes in it; it is sold out when any of them is. Dishes and deals sold only on some days or
  * hours must be on sale `at` (when the order was taken), except those already on the order being edited (`onOrder`).
  * Answers an error message when a dish is gone, sold out, not on sale or picked wrongly.
@@ -426,7 +426,8 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addons: addons.length ? addons : undefined,
       includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
-      price: size.price + addonsPrice,
+      menuPrice: size.price + addonsPrice,
+      price: rawItem.price ?? (size.price + addonsPrice),
       qty: rawItem.qty,
     });
   }
@@ -470,7 +471,7 @@ export async function createOrder(c: Context) {
     tableName = table.name;
   }
 
-  // 3. Prices come from the menu, never from the client. A deal taken offline counts at the time it was taken.
+  // 3. The menu price is calculated on the server; an explicit staff price is only an order-line override. A deal taken offline counts at the time it was taken.
   const orderItems = await priceItems(body.items, branchId, placedTime(body.placedAt));
   if (typeof orderItems === 'string') return c.json({ message: orderItems }, 400);
 
@@ -541,11 +542,30 @@ export async function createOrder(c: Context) {
     throw err;
   }
 
+  const priceOverrides = newOrder.items
+    .filter((item) => item.menuPrice !== undefined && item.price !== item.menuPrice)
+    .map((item) => ({
+      name: item.name,
+      detail: [item.sizeName, item.addons?.map((addon) => addon.name).join(', '), item.note && `“${item.note}”`].filter(Boolean).join(' · ') || undefined,
+      was: item.qty,
+      now: item.qty,
+      wasPrice: item.menuPrice ?? item.price,
+      nowPrice: item.price,
+    }));
+  const createdChanges = {
+    after: {
+      total: newOrder.total,
+      status: newOrder.status,
+      dailyToken: newOrder.dailyToken,
+      ...(priceOverrides.length ? { lines: priceOverrides } : {}),
+    },
+  };
+
   await logAudit({
     action: 'order.created',
     actor: auditActor(c),
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
-    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    changes: createdChanges,
   });
 
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
@@ -556,7 +576,7 @@ export async function createOrder(c: Context) {
     action: 'order.created',
     actor: auditActor(c),
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
-    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    changes: createdChanges,
     at: newOrder.createdAt || new Date().toISOString(),
   };
 
