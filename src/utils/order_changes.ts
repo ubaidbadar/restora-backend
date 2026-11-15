@@ -22,42 +22,89 @@ const lineKey = (item: IOrderItem) => [item.itemId, item.sizeId ?? '', [...(item
 const lineDetail = (item: IOrderItem) =>
   [item.sizeName, item.addons?.map((addon) => addon.name).join(', '), item.note && `“${item.note}”`].filter(Boolean).join(' · ') || undefined;
 
-/** Each dish whose count or unit price changed, removed ones first, in the order they appear on the order. */
+/** Each dish whose count, price or kitchen note changed, removed ones first, in the order they appear on the order. */
 export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChange[] {
   const count = (items: IOrderItem[]) => {
     const lines = new Map<string, { item: IOrderItem; qty: number }>();
     for (const item of items) {
-      const line = lines.get(lineKey(item));
+      const key = lineKey(item);
+      const line = lines.get(key);
       if (line) line.qty += item.qty;
-      else lines.set(lineKey(item), { item, qty: item.qty });
+      else lines.set(key, { item, qty: item.qty });
     }
     return lines;
   };
   const was = count(before);
   const now = count(after);
+  const matchedWas = new Set<string>();
+  const matchedNow = new Set<string>();
   const changes: LineChange[] = [];
-  for (const [key, { item, qty }] of was) {
+
+  const record = (previous: { item: IOrderItem; qty: number }, current: { item: IOrderItem; qty: number }) => {
+    const priceChanged = previous.item.price !== current.item.price;
+    const detailChanged = lineDetail(previous.item) !== lineDetail(current.item);
+    if (previous.qty === current.qty && !priceChanged && !detailChanged) return;
+    changes.push({
+      name: current.item.name,
+      detail: lineDetail(current.item),
+      was: previous.qty,
+      now: current.qty,
+      ...(priceChanged ? { wasPrice: previous.item.price, nowPrice: current.item.price } : {}),
+    });
+  };
+
+  // First match the exact dish, size, add-ons and note.
+  for (const [key, previous] of was) {
     const current = now.get(key);
-    const left = current?.qty ?? 0;
-    const priceChanged = current !== undefined && item.price !== current.item.price;
-    if (left !== qty || priceChanged) {
-      changes.push({
-        name: item.name,
-        detail: lineDetail(item),
-        was: qty,
-        now: left,
-        ...(current && item.price !== current.item.price ? { wasPrice: item.price, nowPrice: current.item.price } : {}),
-      });
+    if (!current) continue;
+    matchedWas.add(key);
+    matchedNow.add(key);
+    record(previous, current);
+  }
+
+  // A changed kitchen note must not turn the same priced dish into a remove + add in history.
+  const unmatchedBySelection = new Map<string, { key: string; item: IOrderItem; qty: number }[]>();
+  for (const [key, previous] of was) {
+    if (matchedWas.has(key)) continue;
+    const selection = lineSelectionKey(previous.item);
+    const candidates = unmatchedBySelection.get(selection);
+    if (candidates) candidates.push({ key, ...previous });
+    else unmatchedBySelection.set(selection, [{ key, ...previous }]);
+  }
+
+  for (const [key, current] of now) {
+    if (matchedNow.has(key)) continue;
+    const candidates = unmatchedBySelection.get(lineSelectionKey(current.item))?.filter((candidate) => !matchedWas.has(candidate.key)) ?? [];
+    if (!candidates.length) continue;
+
+    const samePrice = candidates.filter((candidate) => candidate.item.price === current.item.price);
+    const sameQty = candidates.filter((candidate) => candidate.qty === current.qty);
+    const previous = samePrice.length === 1
+      ? samePrice[0]
+      : candidates.length === 1
+        ? candidates[0]
+        : sameQty.length === 1 ? sameQty[0] : undefined;
+    if (!previous) continue;
+
+    matchedWas.add(previous.key);
+    matchedNow.add(key);
+    record(previous, current);
+  }
+
+  // Anything still unmatched is a real removal or addition.
+  for (const [key, previous] of was) {
+    if (!matchedWas.has(key)) {
+      changes.push({ name: previous.item.name, detail: lineDetail(previous.item), was: previous.qty, now: 0 });
     }
   }
-  for (const [key, { item, qty }] of now) {
-    if (!was.has(key)) {
+  for (const [key, current] of now) {
+    if (!matchedNow.has(key)) {
       changes.push({
-        name: item.name,
-        detail: lineDetail(item),
+        name: current.item.name,
+        detail: lineDetail(current.item),
         was: 0,
-        now: qty,
-        ...(item.priceOverridden ? { wasPrice: item.menuPrice ?? item.price, nowPrice: item.price } : {}),
+        now: current.qty,
+        ...(current.item.priceOverridden ? { wasPrice: current.item.menuPrice ?? current.item.price, nowPrice: current.item.price } : {}),
       });
     }
   }
