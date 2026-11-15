@@ -568,6 +568,54 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     }
   });
 
+  it('keeps the saved price when only the kitchen note changes after a menu update', async () => {
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
+    const dishRes = await app.request('/api/v1/menu/items', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ categoryId, name: 'Note Price Snapshot Dish', sizes: [{ name: '', price: 300 }], addonGroupIds: [] }),
+    });
+    expect(dishRes.status).toBe(201);
+    const dish = (await dishRes.json()) as any;
+
+    try {
+      const createdRes = await app.request('/api/v1/orders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          branchId, type: 'takeaway', paymentStatus: 'unpaid',
+          items: [{ itemId: dish._id, qty: 1, addonIds: [], note: 'No onions' }],
+        }),
+      });
+      expect(createdRes.status).toBe(201);
+      const created = (await createdRes.json()) as any;
+
+      const menuUpdate = await app.request(`/api/v1/menu/items/${dish._id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ sizes: [{ ...dish.sizes[0], price: 900 }] }),
+      });
+      expect(menuUpdate.status).toBe(200);
+
+      const editRes = await app.request(`/api/v1/orders/${created._id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          type: 'takeaway',
+          items: [{ itemId: dish._id, sizeId: created.items[0].sizeId, qty: 1, addonIds: [], note: 'Extra spicy' }],
+        }),
+      });
+      expect(editRes.status).toBe(200);
+      const edited = (await editRes.json()) as any;
+      expect(edited.items[0]).toMatchObject({ price: 300, menuPrice: 300, priceOverridden: false, note: 'Extra spicy' });
+      const menuAfter = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
+      expect(menuAfter.items.find((item: any) => item._id === dish._id).sizes[0].price).toBe(900);
+    } finally {
+      const removed = await app.request(`/api/v1/menu/items/${dish._id}`, { method: 'DELETE', headers });
+      expect(removed.status).toBe(200);
+    }
+  });
+
   it('keeps a takeaway walk-in name on the order without creating a customer record', async () => {
     const customersBefore = await Customer.countDocuments({ restaurantId });
     const res = await app.request('/api/v1/orders', {
