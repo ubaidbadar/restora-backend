@@ -499,9 +499,13 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
 
   it('preserves the saved unit price when the menu price changes before an order edit', async () => {
     const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
-    const menuBefore = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
-    const dishBefore = menuBefore.items.find((item: any) => item._id === menuItemId);
-    const originalSizes = dishBefore.sizes.map((size: any) => ({ _id: size._id, name: size.name, price: size.price }));
+    const dishRes = await app.request('/api/v1/menu/items', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ categoryId, name: 'Price Snapshot Dish', sizes: [{ name: '', price: 300 }], addonGroupIds: [] }),
+    });
+    expect(dishRes.status).toBe(201);
+    const dish = (await dishRes.json()) as any;
 
     try {
       const createdRes = await app.request('/api/v1/orders', {
@@ -509,19 +513,17 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
         headers,
         body: JSON.stringify({
           branchId, type: 'takeaway', paymentStatus: 'unpaid',
-          items: [{ itemId: menuItemId, qty: 1, addonIds: [spicyOptionId] }],
+          items: [{ itemId: dish._id, qty: 1, addonIds: [] }],
         }),
       });
       expect(createdRes.status).toBe(201);
       const created = (await createdRes.json()) as any;
-      expect(created.items[0]).toMatchObject({ price: 800, menuPrice: 800, priceOverridden: false });
+      expect(created.items[0]).toMatchObject({ price: 300, menuPrice: 300, priceOverridden: false });
 
-      const menuUpdate = await app.request(`/api/v1/menu/items/${menuItemId}`, {
+      const menuUpdate = await app.request(`/api/v1/menu/items/${dish._id}`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({
-          sizes: originalSizes.map((size: any, index: number) => ({ ...size, price: index === 0 ? 900 : size.price })),
-        }),
+        body: JSON.stringify({ sizes: [{ ...dish.sizes[0], price: 900 }] }),
       });
       expect(menuUpdate.status).toBe(200);
 
@@ -530,27 +532,23 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
         headers,
         body: JSON.stringify({
           type: 'takeaway',
-          items: [{ itemId: menuItemId, sizeId: created.items[0].sizeId, qty: 2, addonIds: [spicyOptionId] }],
+          items: [{ itemId: dish._id, sizeId: created.items[0].sizeId, qty: 2, addonIds: [] }],
         }),
       });
       expect(editRes.status).toBe(200);
       const edited = (await editRes.json()) as any;
-      expect(edited.items[0]).toMatchObject({ price: 800, menuPrice: 800, priceOverridden: false, qty: 2 });
-      expect(edited.subtotal).toBe(1600);
+      expect(edited.items[0]).toMatchObject({ price: 300, menuPrice: 300, priceOverridden: false, qty: 2 });
+      expect(edited.subtotal).toBe(600);
 
       const menuAfter = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
-      expect(menuAfter.items.find((item: any) => item._id === menuItemId).sizes[0].price).toBe(900);
+      expect(menuAfter.items.find((item: any) => item._id === dish._id).sizes[0].price).toBe(900);
       const timeline = (await (await app.request(`/api/v1/orders/${created._id}/timeline`, { headers })).json()) as any[];
       expect(timeline[1].changes.after.lines[0]).toMatchObject({ was: 1, now: 2 });
       expect(timeline[1].changes.after.lines[0]).not.toHaveProperty('wasPrice');
       expect(timeline[1].changes.after.lines[0]).not.toHaveProperty('nowPrice');
     } finally {
-      const restored = await app.request(`/api/v1/menu/items/${menuItemId}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({ sizes: originalSizes }),
-      });
-      expect(restored.status).toBe(200);
+      const removed = await app.request(`/api/v1/menu/items/${dish._id}`, { method: 'DELETE', headers });
+      expect(removed.status).toBe(200);
     }
   });
 
