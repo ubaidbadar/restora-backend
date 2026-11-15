@@ -330,8 +330,9 @@ function placedTime(placedAt?: string): number {
 
 type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number; price?: number };
 
-const orderItemSelectionKey = (item: { itemId: string; sizeId?: string | null; addonIds?: string[] | null; note?: string | null }) =>
-  [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(','), item.note ?? ''].join('|');
+/** A note is not part of pricing: changing kitchen instructions must not reprice a saved order line. */
+const orderItemSelectionKey = (item: { itemId: string; sizeId?: string | null; addonIds?: string[] | null }) =>
+  [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(',')].join('|');
 
 /**
  * The order's customer: an existing one by id, or a new record when a name and a real mobile number were given (a name
@@ -432,7 +433,6 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       itemId: String(menuItem._id),
       sizeId: String(size._id),
       addonIds,
-      note: rawItem.note || undefined,
     }));
     const unchangedOverrideIndex = rawItem.price === undefined
       ? -1
