@@ -128,7 +128,12 @@ describe('Hardening', () => {
     expect((await api(a, 'POST', `/orders/${order._id}/cancel`)).status).toBe(404);
   });
 
-  it('edits an unpaid order until it is on the way, priced again from the menu', async () => {
+  it('allows direct completion and keeps edits limited to unfinished unpaid orders', async () => {
+    const direct = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
+    const directCompletion = await api(a, 'PATCH', `/orders/${direct._id}`, { status: 'completed' });
+    expect(directCompletion.status).toBe(200);
+    expect(((await directCompletion.json()) as Json).status).toBe('completed');
+
     const order = (await (await api(a, 'POST', '/orders', { type: 'takeaway', items: [{ itemId: dishId, addonIds: [], qty: 1 }], paymentStatus: 'unpaid' })).json()) as Json;
     expect(order.items[0].sizeId).toBeTruthy();
     const edited = await api(a, 'PUT', `/orders/${order._id}`, { type: 'takeaway', items: [{ itemId: dishId, sizeId: order.items[0].sizeId, addonIds: [], qty: 3 }] });
@@ -137,9 +142,7 @@ describe('Hardening', () => {
     expect(saved.items[0].qty).toBe(3);
     expect(saved.total).toBe(order.items[0].price * 3);
     expect(saved.dailyToken).toBe(order.dailyToken);
-    // Staff must advance the order through each stage. A direct jump to completed
-    // is a conflict, not a valid way to finish an editable order.
-    expect((await api(a, 'PATCH', `/orders/${order._id}`, { status: 'completed' })).status).toBe(409);
+    // The normal kitchen progression still works when staff prefer to use it.
     for (const status of ['preparing', 'ready', 'completed']) {
       expect((await api(a, 'PATCH', `/orders/${order._id}`, { status })).status).toBe(200);
     }
@@ -340,6 +343,7 @@ describe('Hardening', () => {
     expect(saved.type).toBe('dine_in');
     // Not paid, and not counted, before it is accepted.
     expect((await api(a, 'POST', `/orders/${order._id}/payment`, { paymentMethod: 'cash' })).status).toBe(400);
+    expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'completed' })).status).toBe(409);
     expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'new' })).status).toBe(200);
     expect((await api(a, 'PATCH', `/orders/${order._id}/status`, { status: 'pending' })).status).toBe(400);
 
