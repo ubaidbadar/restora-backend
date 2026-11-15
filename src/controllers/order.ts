@@ -358,8 +358,8 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
 }
 
 /**
- * The menu price is calculated from trusted menu data; staff may optionally override the final per-unit price for this
- * order only. Size and add-ons are resolved by id and checked against the dish's rules. A deal is sold at its own
+ * New lines use a server-calculated menu price; unchanged selections on an edit retain their saved price, and staff
+ * may explicitly override a line for this order only. Size and add-ons are resolved by id and checked against the dish's rules. A deal is sold at its own
  * price and carries the dishes in it; it is sold out when any of them is. Dishes and deals sold only on some days or
  * hours must be on sale `at` (when the order was taken), except those already on the order being edited (`onOrder`).
  * Answers an error message when a dish is gone, sold out, not on sale or picked wrongly.
@@ -455,7 +455,7 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addons: addons.length ? addons : undefined,
       includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
-      menuPrice: previous?.menuPrice ?? menuPrice,
+      menuPrice: previous ? (previous.menuPrice ?? previous.price) : menuPrice,
       priceOverridden,
       price: rawItem.price ?? previous?.price ?? menuPrice,
       qty: rawItem.qty,
