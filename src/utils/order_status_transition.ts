@@ -1,9 +1,9 @@
 import type { OrderStatus } from '../constants/order_status';
 
 /**
- * A status transition is only valid when the persisted order is in the exact
- * preceding stage. The type constraint prevents skipping delivery dispatch.
- * These filters are used in the atomic MongoDB update, not just a stale read.
+ * Normal status changes follow the order workflow. Completing is also an
+ * explicit operator action from any active stage; pending QR orders must first
+ * be accepted so their kitchen slip is not skipped. These filters are atomic.
  */
 export type OrderType = 'dine_in' | 'takeaway' | 'delivery';
 export type TransitionCondition = { status: OrderStatus; type?: OrderType | { $ne: OrderType } };
@@ -15,8 +15,10 @@ export function orderTransitionConditions(target: OrderStatus): TransitionCondit
     case 'ready': return [{ status: 'preparing' }];
     case 'out_for_delivery': return [{ status: 'ready', type: 'delivery' }];
     case 'completed': return [
-      { status: 'ready', type: { $ne: 'delivery' } },
-      { status: 'out_for_delivery', type: 'delivery' },
+      { status: 'new' },
+      { status: 'preparing' },
+      { status: 'ready' },
+      { status: 'out_for_delivery' },
     ];
     // Cancelling has its own audited permissioned endpoint. A guest order cannot
     // be reverted to pending, and completed/cancelled orders never advance.
