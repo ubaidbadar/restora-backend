@@ -15,6 +15,11 @@ export interface IOrderItem {
   /** For a deal: the dishes in it, per one deal, as they were when ordered (for the kitchen and the receipt). */
   includes?: { name: string; sizeName?: string; qty: number }[];
   note?: string;
+  /** Menu price per unit when this order was saved; optional for orders created before price overrides existed. */
+  menuPrice?: number;
+  /** Whether staff explicitly set a custom price for this order line. */
+  priceOverridden?: boolean;
+  /** Final per-unit price charged for this order line. */
   price: number;
   qty: number;
 }
@@ -90,7 +95,9 @@ const OrderItemSchema = new Schema(
     addons: [{ name: { type: String }, price: { type: Number } }],
     includes: { type: [{ _id: false, name: { type: String }, sizeName: { type: String }, qty: { type: Number } }], default: undefined },
     note: { type: String },
-    price: { type: Number, required: true },
+    menuPrice: { type: Number, min: 0 },
+    priceOverridden: { type: Boolean, default: false },
+    price: { type: Number, required: true, min: 0 },
     qty: { type: Number, required: true, min: 1 },
   },
   { _id: false }

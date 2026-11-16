@@ -1,12 +1,14 @@
 import type { IOrder, IOrderItem } from '../models/order';
 
-/** One dish whose count changed: 0 → 2 was added, 2 → 0 was removed. */
+/** One dish whose count, unit price or kitchen note changed: 0 → 2 was added, 2 → 0 was removed. */
 export interface LineChange {
   name: string;
   /** Size, add-ons and note, as on the receipt. */
   detail?: string;
   was: number;
   now: number;
+  wasPrice?: number;
+  nowPrice?: number;
 }
 
 /** The order's facts its history shows, as they read to a person. */
@@ -16,30 +18,96 @@ type Snapshot = Pick<IOrder, Exclude<Field, 'customer'>> & { customer?: { name?:
 
 /** The same dish when it is the same item, size, add-ons and note. */
 const lineKey = (item: IOrderItem) => [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(','), item.note ?? ''].join('|');
+/** The priced selection, excluding a kitchen note which does not affect its unit price. */
+const lineSelectionKey = (item: IOrderItem) => [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(',')].join('|');
 
 const lineDetail = (item: IOrderItem) =>
   [item.sizeName, item.addons?.map((addon) => addon.name).join(', '), item.note && `“${item.note}”`].filter(Boolean).join(' · ') || undefined;
 
-/** Each dish whose count went up or down, removed ones first, in the order they appear on the order. */
+/** Each dish whose count, price or kitchen note changed, removed ones first, in the order they appear on the order. */
 export function lineChanges(before: IOrderItem[], after: IOrderItem[]): LineChange[] {
   const count = (items: IOrderItem[]) => {
     const lines = new Map<string, { item: IOrderItem; qty: number }>();
     for (const item of items) {
-      const line = lines.get(lineKey(item));
+      const key = lineKey(item);
+      const line = lines.get(key);
       if (line) line.qty += item.qty;
-      else lines.set(lineKey(item), { item, qty: item.qty });
+      else lines.set(key, { item, qty: item.qty });
     }
     return lines;
   };
   const was = count(before);
   const now = count(after);
+  const matchedWas = new Set<string>();
+  const matchedNow = new Set<string>();
   const changes: LineChange[] = [];
-  for (const [key, { item, qty }] of was) {
-    const left = now.get(key)?.qty ?? 0;
-    if (left !== qty) changes.push({ name: item.name, detail: lineDetail(item), was: qty, now: left });
+
+  const record = (previous: { item: IOrderItem; qty: number }, current: { item: IOrderItem; qty: number }) => {
+    const priceChanged = previous.item.price !== current.item.price;
+    const detailChanged = lineDetail(previous.item) !== lineDetail(current.item);
+    if (previous.qty === current.qty && !priceChanged && !detailChanged) return;
+    changes.push({
+      name: current.item.name,
+      detail: lineDetail(current.item),
+      was: previous.qty,
+      now: current.qty,
+      ...(priceChanged ? { wasPrice: previous.item.price, nowPrice: current.item.price } : {}),
+    });
+  };
+
+  // First match the exact dish, size, add-ons and note.
+  for (const [key, previous] of was) {
+    const current = now.get(key);
+    if (!current) continue;
+    matchedWas.add(key);
+    matchedNow.add(key);
+    record(previous, current);
   }
-  for (const [key, { item, qty }] of now) {
-    if (!was.has(key)) changes.push({ name: item.name, detail: lineDetail(item), was: 0, now: qty });
+
+  // A changed kitchen note must not turn the same priced dish into a remove + add in history.
+  const unmatchedBySelection = new Map<string, { key: string; item: IOrderItem; qty: number }[]>();
+  for (const [key, previous] of was) {
+    if (matchedWas.has(key)) continue;
+    const selection = lineSelectionKey(previous.item);
+    const candidates = unmatchedBySelection.get(selection);
+    if (candidates) candidates.push({ key, ...previous });
+    else unmatchedBySelection.set(selection, [{ key, ...previous }]);
+  }
+
+  for (const [key, current] of now) {
+    if (matchedNow.has(key)) continue;
+    const candidates = unmatchedBySelection.get(lineSelectionKey(current.item))?.filter((candidate) => !matchedWas.has(candidate.key)) ?? [];
+    if (!candidates.length) continue;
+
+    const samePrice = candidates.filter((candidate) => candidate.item.price === current.item.price);
+    const sameQty = candidates.filter((candidate) => candidate.qty === current.qty);
+    let previous: (typeof candidates)[number] | undefined;
+    if (samePrice.length === 1) previous = samePrice[0];
+    else if (candidates.length === 1) previous = candidates[0];
+    else if (sameQty.length === 1) previous = sameQty[0];
+    if (!previous) continue;
+
+    matchedWas.add(previous.key);
+    matchedNow.add(key);
+    record(previous, current);
+  }
+
+  // Anything still unmatched is a real removal or addition.
+  for (const [key, previous] of was) {
+    if (!matchedWas.has(key)) {
+      changes.push({ name: previous.item.name, detail: lineDetail(previous.item), was: previous.qty, now: 0 });
+    }
+  }
+  for (const [key, current] of now) {
+    if (!matchedNow.has(key)) {
+      changes.push({
+        name: current.item.name,
+        detail: lineDetail(current.item),
+        was: 0,
+        now: current.qty,
+        ...(current.item.priceOverridden ? { wasPrice: current.item.menuPrice ?? current.item.price, nowPrice: current.item.price } : {}),
+      });
+    }
   }
   return changes.sort((a, b) => Number(a.now > 0) - Number(b.now > 0));
 }

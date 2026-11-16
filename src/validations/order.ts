@@ -12,13 +12,18 @@ export const orderItemInputSchema = z.object({
   qty: z.coerce.number().int().min(1, 'Quantity must be at least 1'),
 });
 
+/** Only staff-created and staff-edited orders may set a per-line price. Public QR orders keep the menu price. */
+const staffOrderItemInputSchema = orderItemInputSchema.extend({
+  price: z.number().finite().min(0).optional(),
+});
+
 export const orderCreateSchema = z
   .object({
     branchId: z.string().optional(),
     customerId: z.string().optional().nullable(),
     newName: z.string().optional().nullable(),
     newPhone: z.string().optional().nullable(),
-    items: z.array(orderItemInputSchema).min(1, 'Add at least one dish'),
+    items: z.array(staffOrderItemInputSchema).min(1, 'Add at least one dish'),
     type: z.enum(ORDER_TYPES),
     tableId: z.string().optional().nullable(),
     tableName: z.string().optional().nullable(),
@@ -79,7 +84,7 @@ export const orderEditSchema = z
     customerId: z.string().optional().nullable(),
     newName: z.string().optional().nullable(),
     newPhone: z.string().optional().nullable(),
-    items: z.array(orderItemInputSchema).min(1, 'Add at least one dish'),
+    items: z.array(staffOrderItemInputSchema).min(1, 'Add at least one dish'),
     type: z.enum(ORDER_TYPES),
     tableId: z.string().optional().nullable(),
     tableName: z.string().optional().nullable(),

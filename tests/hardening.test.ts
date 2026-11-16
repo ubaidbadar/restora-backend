@@ -5,6 +5,7 @@ import { app } from '../index';
 import StaffMember from '../src/models/staff_member';
 import Customer from '../src/models/customer';
 import Order from '../src/models/order';
+import publicOrderSchema from '../src/validations/public_order';
 import { runWithTenant } from '../src/middlewares/tenant_context';
 
 // Regression tests for the review fixes: tenancy, money, permissions and the client's API contract.
@@ -79,6 +80,76 @@ describe('Hardening', () => {
 
     const cust = (await (await api(a, 'POST', '/customers', { name: 'Kamran', phone: '03005550001' })).json()) as Json;
     customerId = cust._id;
+  });
+
+  it('does not allow public QR orders to override menu prices', () => {
+    const parsed = publicOrderSchema.parse({
+      items: [{ itemId: 'dish-id', qty: 1, addonIds: [], price: 1 }],
+    });
+    expect(parsed.items[0]).not.toHaveProperty('price');
+    expect(parsed.items[0]).not.toHaveProperty('priceOverridden');
+  });
+
+  it('requires discount permission for new or changed custom prices, but preserves existing overrides', async () => {
+    const roles = (await (await api(a, 'GET', '/roles')).json()) as Json[];
+    const cashierRole = roles.find((role) => role.key === 'cashier')!;
+    const inviteRes = await api(a, 'POST', '/invitations', {
+      channel: 'email',
+      email: 'price-cashier@test.com',
+      roleIds: [cashierRole._id],
+      branchScope: 'all',
+    });
+    expect(inviteRes.status).toBe(201);
+    const invitation = (await inviteRes.json()) as Json;
+    const token = invitation.inviteUrl.split('/invite/')[1];
+    const cashier = await signup('price-cashier@test.com', 'Price Cashier');
+    const joined = await app.request(`/api/v1/invitations/accept/${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cashier.cookie },
+    });
+    expect(joined.status).toBe(200);
+    const cashierCall = (method: string, path: string, body?: unknown) => call(cashier.cookie, a.restaurantId, method, path, body);
+
+    const regular = await cashierCall('POST', '/orders', {
+      type: 'takeaway',
+      paymentStatus: 'unpaid',
+      items: [{ itemId: dishId, qty: 1, addonIds: [] }],
+    });
+    expect(regular.status).toBe(201);
+
+    const deniedCreate = await cashierCall('POST', '/orders', {
+      type: 'takeaway',
+      paymentStatus: 'unpaid',
+      items: [{ itemId: dishId, qty: 1, addonIds: [], price: 900 }],
+    });
+    expect(deniedCreate.status).toBe(403);
+
+    const ownerOrderRes = await api(a, 'POST', '/orders', {
+      type: 'takeaway',
+      paymentStatus: 'unpaid',
+      items: [{ itemId: dishId, qty: 1, addonIds: [], price: 900 }],
+    });
+    expect(ownerOrderRes.status).toBe(201);
+    const ownerOrder = (await ownerOrderRes.json()) as Json;
+
+    const keepExisting = await cashierCall('PUT', `/orders/${ownerOrder._id}`, {
+      type: 'takeaway',
+      items: [{ itemId: dishId, sizeId: ownerOrder.items[0].sizeId, qty: 2, addonIds: [], price: 900 }],
+    });
+    expect(keepExisting.status).toBe(200);
+    expect(((await keepExisting.json()) as Json).items[0]).toMatchObject({ price: 900, priceOverridden: true, qty: 2 });
+
+    const changeExisting = await cashierCall('PUT', `/orders/${ownerOrder._id}`, {
+      type: 'takeaway',
+      items: [{ itemId: dishId, sizeId: ownerOrder.items[0].sizeId, qty: 2, addonIds: [], price: 850 }],
+    });
+    expect(changeExisting.status).toBe(403);
+
+    const resetExisting = await cashierCall('PUT', `/orders/${ownerOrder._id}`, {
+      type: 'takeaway',
+      items: [{ itemId: dishId, sizeId: ownerOrder.items[0].sizeId, qty: 2, addonIds: [], price: 1000 }],
+    });
+    expect(resetExisting.status).toBe(403);
   });
 
   it('the /api/auth alias still reaches Better Auth', async () => {

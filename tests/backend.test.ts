@@ -437,6 +437,191 @@ describe('4. Addon Bounds Validation & Menu Stock Control', () => {
     expect(order.total).toBe(1600);
   });
 
+  it('keeps manual unit prices on an order only and records every adjustment in its history', async () => {
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
+    const invalid = await app.request('/api/v1/orders', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        branchId, type: 'takeaway', paymentStatus: 'unpaid',
+        items: [{ itemId: menuItemId, qty: 1, addonIds: [spicyOptionId], price: -1 }],
+      }),
+    });
+    expect(invalid.status).toBe(400);
+
+    const res = await app.request('/api/v1/orders', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        branchId, type: 'takeaway', paymentStatus: 'unpaid',
+        // A client-supplied menuPrice is ignored; the server always snapshots the actual menu price.
+        items: [{ itemId: menuItemId, qty: 2, addonIds: [spicyOptionId], price: 650, menuPrice: 1 }],
+      }),
+    });
+    expect(res.status).toBe(201);
+    const order = (await res.json()) as any;
+    expect(order.items[0]).toMatchObject({ price: 650, menuPrice: 800, priceOverridden: true, qty: 2 });
+    expect(order.subtotal).toBe(1300);
+    expect(order.total).toBe(1300);
+
+    const menuRes = await app.request(`/api/v1/menu?branchId=${branchId}`, { headers });
+    const menu = (await menuRes.json()) as any;
+    expect(menu.items.find((item: any) => item._id === menuItemId).sizes[0].price).toBe(750);
+
+    const timelineRes = await app.request(`/api/v1/orders/${order._id}/timeline`, { headers });
+    const timeline = (await timelineRes.json()) as any[];
+    expect(timeline[0].action).toBe('order.created');
+    expect(timeline[0].changes.after.lines[0]).toMatchObject({
+      name: 'Mutton Seekh Kabab', was: 2, now: 2, wasPrice: 800, nowPrice: 650,
+    });
+
+    const editRes = await app.request(`/api/v1/orders/${order._id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        type: 'takeaway',
+        items: [{ itemId: menuItemId, sizeId: order.items[0].sizeId, qty: 2, addonIds: [spicyOptionId], price: 600, menuPrice: 1 }],
+      }),
+    });
+    expect(editRes.status).toBe(200);
+    const edited = (await editRes.json()) as any;
+    expect(edited.items[0]).toMatchObject({ price: 600, menuPrice: 800, priceOverridden: true, qty: 2 });
+    expect(edited.subtotal).toBe(1200);
+
+    const updatedTimeline = (await (await app.request(`/api/v1/orders/${order._id}/timeline`, { headers })).json()) as any[];
+    expect(updatedTimeline[1].action).toBe('order.edited');
+    expect(updatedTimeline[1].changes.after.lines[0]).toMatchObject({
+      name: 'Mutton Seekh Kabab', was: 2, now: 2, wasPrice: 650, nowPrice: 600,
+    });
+
+    const resetRes = await app.request(`/api/v1/orders/${order._id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        type: 'takeaway',
+        items: [{ itemId: menuItemId, sizeId: order.items[0].sizeId, qty: 2, addonIds: [spicyOptionId], price: 800 }],
+      }),
+    });
+    expect(resetRes.status).toBe(200);
+    const reset = (await resetRes.json()) as any;
+    expect(reset.items[0]).toMatchObject({ price: 800, menuPrice: 800, priceOverridden: false, qty: 2 });
+    const resetTimeline = (await (await app.request(`/api/v1/orders/${order._id}/timeline`, { headers })).json()) as any[];
+    expect(resetTimeline[2].changes.after.lines[0]).toMatchObject({
+      name: 'Mutton Seekh Kabab', was: 2, now: 2, wasPrice: 600, nowPrice: 800,
+    });
+    const menuAfterEdit = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
+    expect(menuAfterEdit.items.find((item: any) => item._id === menuItemId).sizes[0].price).toBe(750);
+  });
+
+  it('preserves the saved unit price when the menu price changes before an order edit', async () => {
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
+    const dishRes = await app.request('/api/v1/menu/items', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ categoryId, name: 'Price Snapshot Dish', sizes: [{ name: '', price: 300 }], addonGroupIds: [] }),
+    });
+    expect(dishRes.status).toBe(201);
+    const dish = (await dishRes.json()) as any;
+
+    try {
+      const createdRes = await app.request('/api/v1/orders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          branchId, type: 'takeaway', paymentStatus: 'unpaid',
+          items: [{ itemId: dish._id, qty: 1, addonIds: [] }],
+        }),
+      });
+      expect(createdRes.status).toBe(201);
+      const created = (await createdRes.json()) as any;
+      expect(created.items[0]).toMatchObject({ price: 300, menuPrice: 300, priceOverridden: false });
+
+      const menuUpdate = await app.request(`/api/v1/menu/items/${dish._id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ sizes: [{ ...dish.sizes[0], price: 900 }] }),
+      });
+      expect(menuUpdate.status).toBe(200);
+
+      const editRes = await app.request(`/api/v1/orders/${created._id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          type: 'takeaway',
+          items: [{ itemId: dish._id, sizeId: created.items[0].sizeId, qty: 2, addonIds: [] }],
+        }),
+      });
+      expect(editRes.status).toBe(200);
+      const edited = (await editRes.json()) as any;
+      expect(edited.items[0]).toMatchObject({ price: 300, menuPrice: 300, priceOverridden: false, qty: 2 });
+      expect(edited.subtotal).toBe(600);
+
+      const menuAfter = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
+      expect(menuAfter.items.find((item: any) => item._id === dish._id).sizes[0].price).toBe(900);
+      const timeline = (await (await app.request(`/api/v1/orders/${created._id}/timeline`, { headers })).json()) as any[];
+      expect(timeline[1].changes.after.lines[0]).toMatchObject({ was: 1, now: 2 });
+      expect(timeline[1].changes.after.lines[0]).not.toHaveProperty('wasPrice');
+      expect(timeline[1].changes.after.lines[0]).not.toHaveProperty('nowPrice');
+    } finally {
+      const removed = await app.request(`/api/v1/menu/items/${dish._id}`, { method: 'DELETE', headers });
+      expect(removed.status).toBe(200);
+    }
+  });
+
+  it('records a price adjustment when the kitchen note changes on the same priced dish', async () => {
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'x-restaurant-id': restaurantId };
+    const dishRes = await app.request('/api/v1/menu/items', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ categoryId, name: 'Note Price Snapshot Dish', sizes: [{ name: '', price: 300 }], addonGroupIds: [] }),
+    });
+    expect(dishRes.status).toBe(201);
+    const dish = (await dishRes.json()) as any;
+
+    try {
+      const createdRes = await app.request('/api/v1/orders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          branchId, type: 'takeaway', paymentStatus: 'unpaid',
+          items: [{ itemId: dish._id, qty: 1, addonIds: [], note: 'No onions', price: 250 }],
+        }),
+      });
+      expect(createdRes.status).toBe(201);
+      const created = (await createdRes.json()) as any;
+      expect(created.items[0]).toMatchObject({ price: 250, menuPrice: 300, priceOverridden: true });
+
+      const menuUpdate = await app.request(`/api/v1/menu/items/${dish._id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ sizes: [{ ...dish.sizes[0], price: 900 }] }),
+      });
+      expect(menuUpdate.status).toBe(200);
+
+      const editRes = await app.request(`/api/v1/orders/${created._id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          type: 'takeaway',
+          items: [{ itemId: dish._id, sizeId: created.items[0].sizeId, qty: 1, addonIds: [], note: 'Extra spicy', price: 200 }],
+        }),
+      });
+      expect(editRes.status).toBe(200);
+      const edited = (await editRes.json()) as any;
+      expect(edited.items[0]).toMatchObject({ price: 200, menuPrice: 300, priceOverridden: true, note: 'Extra spicy' });
+
+      const timeline = (await (await app.request(`/api/v1/orders/${created._id}/timeline`, { headers })).json()) as any[];
+      expect(timeline[1].changes.after.lines[0]).toMatchObject({
+        was: 1, now: 1, wasPrice: 250, nowPrice: 200, detail: '“Extra spicy”',
+      });
+      const menuAfter = (await (await app.request(`/api/v1/menu?branchId=${branchId}`, { headers })).json()) as any;
+      expect(menuAfter.items.find((item: any) => item._id === dish._id).sizes[0].price).toBe(900);
+    } finally {
+      const removed = await app.request(`/api/v1/menu/items/${dish._id}`, { method: 'DELETE', headers });
+      expect(removed.status).toBe(200);
+    }
+  });
+
   it('keeps a takeaway walk-in name on the order without creating a customer record', async () => {
     const customersBefore = await Customer.countDocuments({ restaurantId });
     const res = await app.request('/api/v1/orders', {

@@ -328,7 +328,11 @@ function placedTime(placedAt?: string): number {
   return at > now - 2 * 86_400_000 && at < now + 5 * 60_000 ? at : now;
 }
 
-type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number };
+type RawItem = { itemId: string; sizeId?: string | null; addonIds: string[]; note?: string | null; qty: number; price?: number };
+
+/** A note is not part of pricing: changing kitchen instructions must not reprice a saved order line. */
+const orderItemSelectionKey = (item: { itemId: string; sizeId?: string | null; addonIds?: string[] | null }) =>
+  [item.itemId, item.sizeId ?? '', [...(item.addonIds ?? [])].sort().join(',')].join('|');
 
 /**
  * The order's customer: an existing one by id, or a new record when a name and a real mobile number were given (a name
@@ -355,13 +359,13 @@ async function resolveCustomer(body: { customerId?: string | null; newName?: str
 }
 
 /**
- * The order lines priced from the menu, never from the client: size and add-ons by id, each checked against the dish's
- * add-on rules. The ids are kept on the line so the order can be opened for editing later. A deal is sold at its own
+ * New lines use a server-calculated menu price; unchanged selections on an edit retain their saved price, and staff
+ * may explicitly override a line for this order only. Size and add-ons are resolved by id and checked against the dish's rules. A deal is sold at its own
  * price and carries the dishes in it; it is sold out when any of them is. Dishes and deals sold only on some days or
  * hours must be on sale `at` (when the order was taken), except those already on the order being edited (`onOrder`).
  * Answers an error message when a dish is gone, sold out, not on sale or picked wrongly.
  */
-export async function priceItems(rawItems: RawItem[], branchId: string, at: number = Date.now(), onOrder: string[] = []): Promise<IOrderItem[] | string> {
+export async function priceItems(rawItems: RawItem[], branchId: string, at: number = Date.now(), onOrder: string[] = [], existingItems: IOrderItem[] = []): Promise<IOrderItem[] | string> {
   // One aggregation: the dishes with their add-on groups and, for deals, the dishes in them (of the same restaurant).
   const ids = rawItems.map((item) => toObjectId(item.itemId)).filter((id) => id !== null);
   const sameRestaurant = { $match: { $expr: { $eq: ['$restaurantId', '$$rid'] } } };
@@ -379,6 +383,13 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
     }),
   ]);
   const menuById = new Map(menuItems.map((m) => [String(m._id), m]));
+  const existingBySelection = new Map<string, IOrderItem[]>();
+  for (const item of existingItems) {
+    const key = orderItemSelectionKey(item);
+    const matches = existingBySelection.get(key);
+    if (matches) matches.push(item);
+    else existingBySelection.set(key, [item]);
+  }
   const priced: IOrderItem[] = [];
 
   for (const rawItem of rawItems) {
@@ -417,6 +428,26 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       }
     }
 
+    const menuPrice = size.price + addonsPrice;
+    const matches = existingBySelection.get(orderItemSelectionKey({
+      itemId: String(menuItem._id),
+      sizeId: String(size._id),
+      addonIds,
+    }));
+    const unchangedOverrideIndex = rawItem.price === undefined
+      ? -1
+      : (matches?.findIndex((item) => item.priceOverridden === true && item.price === rawItem.price) ?? -1);
+    const ordinaryLineIndex = matches?.findIndex((item) => item.priceOverridden !== true) ?? -1;
+    let previousIndex = -1;
+    if (matches?.length) {
+      previousIndex = unchangedOverrideIndex;
+      if (previousIndex < 0) previousIndex = ordinaryLineIndex;
+      if (previousIndex < 0) previousIndex = 0;
+    }
+    const previous = previousIndex >= 0 ? matches?.splice(previousIndex, 1)[0] : undefined;
+    const savedMenuPrice = previous ? (previous.menuPrice ?? previous.price) : menuPrice;
+    const price = rawItem.price ?? previous?.price ?? menuPrice;
+    const priceOverridden = rawItem.price !== undefined ? rawItem.price !== savedMenuPrice : previous?.priceOverridden === true;
     priced.push({
       itemId: String(menuItem._id),
       name: menuItem.name,
@@ -426,7 +457,9 @@ export async function priceItems(rawItems: RawItem[], branchId: string, at: numb
       addons: addons.length ? addons : undefined,
       includes: includes.length ? includes : undefined,
       note: rawItem.note || undefined,
-      price: size.price + addonsPrice,
+      menuPrice: savedMenuPrice,
+      priceOverridden,
+      price,
       qty: rawItem.qty,
     });
   }
@@ -447,6 +480,9 @@ export async function createOrder(c: Context) {
   // What the person may do beyond taking the order.
   if (body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot give discounts' }, 403);
+  }
+  if (body.items.some((item: RawItem) => item.price !== undefined) && !(await hasPermission(c, 'orders:discount'))) {
+    return c.json({ message: 'You cannot change dish prices' }, 403);
   }
   if (body.paymentStatus !== 'unpaid' && !(await hasPermission(c, 'orders:payment'))) {
     return c.json({ message: 'You cannot record payments. Save it as pay later.' }, 403);
@@ -470,7 +506,7 @@ export async function createOrder(c: Context) {
     tableName = table.name;
   }
 
-  // 3. Prices come from the menu, never from the client. A deal taken offline counts at the time it was taken.
+  // 3. The menu price is calculated on the server; an explicit staff price is only an order-line override. A deal taken offline counts at the time it was taken.
   const orderItems = await priceItems(body.items, branchId, placedTime(body.placedAt));
   if (typeof orderItems === 'string') return c.json({ message: orderItems }, 400);
 
@@ -541,11 +577,30 @@ export async function createOrder(c: Context) {
     throw err;
   }
 
+  const priceOverrides = newOrder.items
+    .filter((item) => item.priceOverridden === true)
+    .map((item) => ({
+      name: item.name,
+      detail: [item.sizeName, item.addons?.map((addon) => addon.name).join(', '), item.note && `“${item.note}”`].filter(Boolean).join(' · ') || undefined,
+      was: item.qty,
+      now: item.qty,
+      wasPrice: item.menuPrice ?? item.price,
+      nowPrice: item.price,
+    }));
+  const createdChanges = {
+    after: {
+      total: newOrder.total,
+      status: newOrder.status,
+      dailyToken: newOrder.dailyToken,
+      ...(priceOverrides.length ? { lines: priceOverrides } : {}),
+    },
+  };
+
   await logAudit({
     action: 'order.created',
     actor: auditActor(c),
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
-    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    changes: createdChanges,
   });
 
   // The kitchen slips print by themselves. An order that is saved must not fail because a printer could not be reached.
@@ -556,7 +611,7 @@ export async function createOrder(c: Context) {
     action: 'order.created',
     actor: auditActor(c),
     target: { type: 'order', id: String(newOrder._id), label: `#${newOrder.dailyToken} (${newOrder.type})` },
-    changes: { after: { total: newOrder.total, status: newOrder.status, dailyToken: newOrder.dailyToken } },
+    changes: createdChanges,
     at: newOrder.createdAt || new Date().toISOString(),
   };
 
@@ -746,8 +801,8 @@ const KITCHEN_HAS_IT: IOrder['status'][] = ['new', 'preparing', 'ready'];
 const EDITABLE_STATUSES: IOrder['status'][] = ['pending', 'new', 'preparing', 'ready'];
 
 /**
- * Changes what a placed order is and what is in it (dishes, type, table, customer, discount), priced again from the menu.
- * Only until it is on the way or done, and only while unpaid: a paid or khata bill is settled.
+ * Changes what a placed order is and what is in it. New selections use current menu prices; unchanged selections keep
+ * their saved unit price unless staff explicitly changes it. Only unfinished, unpaid orders can be edited.
  */
 export async function editOrder(c: Context) {
   const id = c.req.param('id') ?? '';
@@ -764,6 +819,25 @@ export async function editOrder(c: Context) {
   if (body.discount !== order.discount && body.discount > 0 && !(await hasPermission(c, 'orders:discount'))) {
     return c.json({ message: 'You cannot give discounts' }, 403);
   }
+  const unchangedOverrideCounts = new Map<string, number>();
+  for (const saved of order.items) {
+    if (!saved.priceOverridden) continue;
+    const key = `${orderItemSelectionKey(saved)}|${saved.price}`;
+    unchangedOverrideCounts.set(key, (unchangedOverrideCounts.get(key) ?? 0) + 1);
+  }
+  const changesDishPrice = body.items.some((item: RawItem) => {
+    if (item.price === undefined) return false;
+    const key = `${orderItemSelectionKey(item)}|${item.price}`;
+    const count = unchangedOverrideCounts.get(key) ?? 0;
+    if (count > 0) {
+      unchangedOverrideCounts.set(key, count - 1);
+      return false;
+    }
+    return true;
+  });
+  if (changesDishPrice && !(await hasPermission(c, 'orders:discount'))) {
+    return c.json({ message: 'You cannot change dish prices' }, 403);
+  }
 
   const found = await resolveCustomer(body);
   if (typeof found === 'string') return c.json({ message: found }, 400);
@@ -778,7 +852,7 @@ export async function editOrder(c: Context) {
   }
 
   // Lines already on the order stay, even once their deal's hours are over.
-  const items = await priceItems(body.items, order.branchId, Date.now(), order.items.map((item) => item.itemId));
+  const items = await priceItems(body.items, order.branchId, Date.now(), order.items.map((item) => item.itemId), order.items);
   if (typeof items === 'string') return c.json({ message: items }, 400);
 
   // Unpaid, so no tax yet: it is added when the customer pays.
