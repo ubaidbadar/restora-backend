@@ -23,6 +23,7 @@ import WhatsAppInvoiceDelivery from '../models/whatsapp_invoice_delivery';
 import { withinWhatsAppWindow } from '../controllers/whatsapp_inbox';
 import type { IWhatsAppConnection } from '../models/whatsapp_connection';
 import type { IOrder } from '../models/order';
+import sortMenuItems from '../utils/sort_menu_items';
 
 type Row = { id: string; title: string; description?: string };
 type Inbound = { id: string; type?: string; text?: { body?: string }; interactive?: { type?: string; list_reply?: { id?: string }; button_reply?: { id?: string } } };
@@ -34,10 +35,11 @@ function cartFilter(connection: IWhatsAppConnection, phone: string) {
   return { branchId: connection.branchId, phoneNumberId: connection.phoneNumberId, phone };
 }
 async function menu(connection: IWhatsAppConnection) {
-  const [categories, items] = await Promise.all([
-    MenuCategory.find({}).sort({ sortOrder: 1 }),
-    MenuItem.find({}).sort({ createdAt: 1 }),
+  const [categories, rawItems] = await Promise.all([
+    MenuCategory.find({}).sort({ sortOrder: 1, createdAt: 1, _id: 1 }),
+    MenuItem.find({}),
   ]);
+  const items = sortMenuItems(rawItems, categories);
   const available = items.filter((it) => !it.hidden && !it.soldOutBranchIds.includes(connection.branchId) &&
     onSale(it) && (it.includes || []).every((part) => {
       const dish = items.find((candidate) => String(candidate._id) === part.itemId);

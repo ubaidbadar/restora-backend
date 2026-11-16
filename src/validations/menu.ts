@@ -30,6 +30,7 @@ const dealFields = {
 };
 
 export const menuItemSchema = z.object({
+  priority: z.coerce.number().int().min(1, 'Priority must be at least 1').max(10000).optional(),
   categoryId: z.string().min(1, 'Pick a category'),
   name: z.string().trim().min(1, 'Enter the dish name').max(80),
   description: z.string().trim().max(200).optional().default(''),
@@ -48,6 +49,7 @@ export const menuItemSchema = z.object({
 
 /** Editing a dish changes only the fields sent: no defaults, so a rename does not clear add-ons or unhide it. */
 export const menuItemUpdateSchema = z.object({
+  priority: z.coerce.number().int().min(1, 'Priority must be at least 1').max(10000).optional(),
   categoryId: z.string().min(1, 'Pick a category').optional(),
   name: z.string().trim().min(1, 'Enter the dish name').max(80).optional(),
   description: z.string().trim().max(200).optional(),
@@ -65,13 +67,19 @@ export const menuItemUpdateSchema = z.object({
   hidden: z.boolean().optional(),
 }).refine(bothHours, hoursIssue);
 
+export const menuPrioritySchema = z.object({
+  priority: z.coerce.number().int().min(1, 'Priority must be at least 1').max(10000),
+});
+
 export const menuCategorySchema = z.object({
   name: z.string().trim().min(1, 'Enter the category name').max(40),
-  sortOrder: z.coerce.number().int().default(0),
+  priority: z.coerce.number().int().min(1, 'Priority must be at least 1').max(10000).optional(),
+  sortOrder: z.coerce.number().int().optional(),
 });
 
 export const menuCategoryUpdateSchema = z.object({
   name: z.string().trim().min(1, 'Enter the category name').max(40).optional(),
+  priority: z.coerce.number().int().min(1, 'Priority must be at least 1').max(10000).optional(),
   sortOrder: z.coerce.number().int().optional(),
 });
 

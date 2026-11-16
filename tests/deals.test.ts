@@ -143,6 +143,76 @@ describe('Deals', () => {
     await post(`/api/v1/menu/items/${deal._id}`, { from: '', to: '' }, 'PATCH');
   });
 
+  it('saves category and dish priorities through add/edit payloads and keeps every menu in the same order', async () => {
+    const drinksCategory = (await post('/api/v1/menu/categories', { name: 'Drinks', priority: 1 })).body;
+    expect(drinksCategory.sortOrder).toBe(0);
+    expect(drinksCategory.categories.map((category: Json) => category.name)).toEqual(['Drinks', 'Deals']);
+
+    const tea = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Tea',
+      priority: 1,
+      sizes: [{ price: 100 }],
+    })).body;
+    const coffee = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Coffee',
+      priority: 1,
+      sizes: [{ price: 120 }],
+    })).body;
+    const lassi = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Lassi',
+      priority: 2,
+      sizes: [{ price: 150 }],
+    })).body;
+
+    expect(tea.sortOrder).toBe(0);
+    expect(coffee.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Coffee', 'Tea']);
+    expect(lassi.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Coffee', 'Lassi', 'Tea']);
+
+    const movedDish = await post(`/api/v1/menu/items/${coffee._id}`, { priority: 3 }, 'PATCH');
+    expect(movedDish.status).toBe(200);
+    expect(movedDish.body.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Lassi', 'Tea', 'Coffee']);
+    expect(movedDish.body.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.sortOrder)).toEqual([0, 1, 2]);
+
+    const juice = (await post('/api/v1/menu/items', {
+      categoryId: drinksCategory._id,
+      name: 'Juice',
+      priority: 2,
+      sizes: [{ price: 180 }],
+    })).body;
+    expect(juice.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Lassi', 'Juice', 'Tea', 'Coffee']);
+
+    const snacksCategory = (await post('/api/v1/menu/categories', { name: 'Snacks', priority: 2 })).body;
+    await post('/api/v1/menu/items', {
+      categoryId: snacksCategory._id,
+      name: 'Samosa',
+      priority: 1,
+      sizes: [{ price: 50 }],
+    });
+    const movedToSnacks = await post(`/api/v1/menu/items/${juice._id}`, { categoryId: snacksCategory._id, priority: 1 }, 'PATCH');
+    expect(movedToSnacks.status).toBe(200);
+    expect(movedToSnacks.body.items.filter((item: Json) => item.categoryId === snacksCategory._id).map((item: Json) => item.name)).toEqual(['Juice', 'Samosa']);
+    expect(movedToSnacks.body.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Lassi', 'Tea', 'Coffee']);
+
+    const movedCategory = await post(`/api/v1/menu/categories/${drinksCategory._id}`, { name: 'Drinks', priority: 3 }, 'PATCH');
+    expect(movedCategory.status).toBe(200);
+    expect(movedCategory.body.categories.map((category: Json) => category.name)).toEqual(['Snacks', 'Deals', 'Drinks']);
+    expect(movedCategory.body.categories.map((category: Json) => category.sortOrder)).toEqual([0, 1, 2]);
+
+    const staffMenu = await app.request('/api/v1/menu', { headers });
+    const staffData = (await staffMenu.json()) as Json;
+    expect(staffData.categories.map((category: Json) => category.name)).toEqual(['Snacks', 'Deals', 'Drinks']);
+    expect(staffData.items.filter((item: Json) => item.categoryId === drinksCategory._id).map((item: Json) => item.name)).toEqual(['Lassi', 'Tea', 'Coffee']);
+
+    await post('/api/v1/tables', { branchId, name: 'Priority Table', section: 'Hall', seats: 2 });
+    const table = await Table.findOne({ name: 'Priority Table' });
+    const publicMenu = (await (await app.request(`/api/v1/public/t/${table!.qrCode}`)).json()) as Json;
+    expect(publicMenu.categories.map((category: Json) => category.name)).toEqual(['Snacks', 'Deals', 'Drinks']);
+    expect(publicMenu.items.filter((item: Json) => item.categoryId === snacksCategory._id).map((item: Json) => item.name)).toEqual(['Juice', 'Samosa']);
+  });
+
   it('keeps a dish that is in a deal from being deleted', async () => {
     const res = await app.request(`/api/v1/menu/items/${naan._id}`, { method: 'DELETE', headers });
     expect(res.status).toBe(400);

@@ -19,6 +19,7 @@ export interface IMenuItem {
   _id?: string;
   restaurantId?: string;
   categoryId: string;
+  sortOrder?: number;
   name: string;
   description?: string;
   /** The large photo (1200px); older apps read only this. */
@@ -69,6 +70,7 @@ const DealPartSchema = new Schema(
 const MenuItemSchema = new Schema<IMenuItem>(
   {
     categoryId: { type: String, required: true, index: true },
+    sortOrder: { type: Number, default: 0 },
     name: { type: String, required: true, trim: true },
     description: { type: String, trim: true, default: '' },
     photo: { type: String },
@@ -104,7 +106,7 @@ const MenuItemSchema = new Schema<IMenuItem>(
 );
 
 MenuItemSchema.plugin(tenantPlugin);
-MenuItemSchema.index({ restaurantId: 1, categoryId: 1 });
+MenuItemSchema.index({ restaurantId: 1, categoryId: 1, sortOrder: 1 });
 
 const MenuItem: Model<IMenuItem> = mongoose.models.MenuItem || mongoose.model<IMenuItem>('MenuItem', MenuItemSchema);
 
