@@ -34,7 +34,7 @@
     "@hookform/resolvers": "^7.0.5",
     "better-auth": "^1.7.10",
     "hono": "^4.13.17",
-    "lucide-react": "^1.60.0",
+    "lucide-react": "^1.73.0",
     "mongoose": "^9.12.1",
     "nodemailer": "^10.2.1",
     "react": "19.3.1",
