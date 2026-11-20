@@ -40,6 +40,24 @@ describe('automatic native Windows printer routing', () => {
     expect(second[1]?.automatic).toBe(true);
   });
 
+  it('normalizes Mongoose-style subdocuments before changing an automatic route', () => {
+    const saved = { ...existing('Old', ['kitchen', 'receipt']), automatic: true };
+    // Mongoose stores its fields under _doc and exposes getters, so spreading
+    // the subdocument does not copy systemName or automatic.
+    const mongooseLike = {
+      prints: saved.prints,
+      categoryIds: saved.categoryIds,
+      toObject: () => saved,
+    } as unknown as IPrinter;
+    const moved = mergePrinters([mongooseLike], ['Old', 'New'], 'New');
+    expect(moved.find((p) => p.systemName === 'Old')).toMatchObject({
+      prints: [], automatic: false,
+    });
+    expect(moved.find((p) => p.systemName === 'New')).toMatchObject({
+      prints: ['kitchen', 'receipt'], automatic: true,
+    });
+  });
+
   it('does not modify the saved printer objects', () => {
     const saved = [existing('Receipt', [])];
     mergePrinters(saved, ['Receipt'], 'Receipt');
