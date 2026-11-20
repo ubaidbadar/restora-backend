@@ -40,7 +40,7 @@ export async function pairPrintAgent(c: Context) {
 export async function reportPrinters(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent & { save: () => Promise<unknown> };
   const { version, printers, defaultPrinter } = c.get('validatedJson');
-  agent.printers = mergePrinters(agent.printers, printers);
+  agent.printers = mergePrinters(agent.printers, printers, defaultPrinter);
   if (version) agent.version = version;
   await agent.save();
   // The agent keeps staff's settings, so it can print for the web app on this PC without internet.
