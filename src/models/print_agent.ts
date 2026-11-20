@@ -1,6 +1,13 @@
 import mongoose, { Schema, type Model } from 'mongoose';
 import tenantPlugin from './plugins/tenant_plugin';
 
+export interface IPrinterHealth {
+  state: 'offline' | 'paused' | 'paperOut' | 'paperJam' | 'doorOpen' | 'error' | 'busy' | 'unknown';
+  checkedAt: number;
+  queuedJobs: number;
+  statusFlags: number;
+}
+
 export interface IPrinter {
   /** The name Windows gives it; what the agent prints to. */
   systemName: string;
@@ -14,6 +21,8 @@ export interface IPrinter {
   copies: number;
   /** False when Windows no longer lists it. */
   present: boolean;
+  /** Best-effort Windows queue status; not proof of physical receipt output. */
+  health?: IPrinterHealth;
 }
 
 /** The app on a branch's PC that prints for the web app. */
@@ -42,6 +51,18 @@ const PrinterSchema = new Schema<IPrinter>(
     width: { type: Number, enum: [48, 32], default: 48 },
     copies: { type: Number, default: 1, min: 1, max: 5 },
     present: { type: Boolean, default: true },
+    health: {
+      type: new Schema<IPrinterHealth>(
+        {
+          state: { type: String, enum: ['offline', 'paused', 'paperOut', 'paperJam', 'doorOpen', 'error', 'busy', 'unknown'], required: true },
+          checkedAt: { type: Number, required: true },
+          queuedJobs: { type: Number, default: 0 },
+          statusFlags: { type: Number, default: 0 },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
   },
   { _id: false }
 );
