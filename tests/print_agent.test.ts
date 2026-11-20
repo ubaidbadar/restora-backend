@@ -247,6 +247,18 @@ describe('Print agents', () => {
     expect(byName['EPSON TM-T20'].present).toBe(false);
   });
 
+  it('keeps kitchen jobs queued while its configured printer is not present', async () => {
+    const report = await post('/api/v1/print-agent/printers', {
+      printers: ['Bar Star'],
+    }, 'PUT', { Authorization: `Bearer ${token}`, Cookie: '' });
+    expect(report.status).toBe(200);
+    expect(report.body.printers.find((p: Json) => p.systemName === 'Kitchen Star').present).toBe(false);
+
+    const order = (await placeOrder([{ itemId: karahi._id, qty: 1 }])).body;
+    const pending = (await agentGet('/jobs')).body;
+    expect(pending.some((job: Json) => job.printer === 'Kitchen Star' && job.orderKey === order._id)).toBe(true);
+  });
+
   it('refuses a wrong token, and stops a removed agent at once', async () => {
     const wrong = await app.request('/api/v1/print-agent/jobs', { headers: { Authorization: 'Bearer ' + 'x'.repeat(43) } });
     expect(wrong.status).toBe(401);
