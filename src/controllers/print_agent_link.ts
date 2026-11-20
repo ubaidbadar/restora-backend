@@ -13,7 +13,7 @@ const MAX_MISSES_PER_MINUTE = 20;
 
 /** The agent types the code it was given; it answers its token, and from then on proves itself with that token. */
 export async function pairPrintAgent(c: Context) {
-  const { code, version, printers } = c.get('validatedJson');
+  const { code, version, printers, defaultPrinter } = c.get('validatedJson');
   misses = misses.filter((at) => Date.now() - at < 60_000);
   if (misses.length >= MAX_MISSES_PER_MINUTE) throw httpError(429, 'Too many wrong codes. Wait a minute.');
 
@@ -30,7 +30,7 @@ export async function pairPrintAgent(c: Context) {
   agent.pairing = null;
   agent.version = version;
   agent.lastSeenAt = new Date().toISOString();
-  agent.printers = mergePrinters(agent.printers, printers);
+  agent.printers = mergePrinters(agent.printers, printers, defaultPrinter);
   await runWithoutTenant(() => agent.save());
 
   return c.json({ token, agent: { _id: String(agent._id), name: agent.name, branchId: agent.branchId }, printers: agent.printers });
@@ -39,7 +39,7 @@ export async function pairPrintAgent(c: Context) {
 /** The printers Windows lists now, sent again when they change. Staff's names and settings are kept. */
 export async function reportPrinters(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent & { save: () => Promise<unknown> };
-  const { version, printers } = c.get('validatedJson');
+  const { version, printers, defaultPrinter } = c.get('validatedJson');
   agent.printers = mergePrinters(agent.printers, printers);
   if (version) agent.version = version;
   await agent.save();
