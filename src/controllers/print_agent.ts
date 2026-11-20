@@ -47,7 +47,7 @@ export async function updatePrinter(c: Context) {
 
   const agent = await PrintAgent.findOneAndUpdate(
     { _id: id, 'printers.systemName': systemName },
-    { $set: { 'printers.$.label': body.label, 'printers.$.prints': body.prints, 'printers.$.categoryIds': body.categoryIds, 'printers.$.width': body.width, 'printers.$.copies': body.copies } },
+    { $set: { 'printers.$.label': body.label, 'printers.$.prints': body.prints, 'printers.$.categoryIds': body.categoryIds, 'printers.$.width': body.width, 'printers.$.copies': body.copies, 'printers.$.automatic': false } },
     { returnDocument: 'after' }
   ).catch(() => null);
   if (!agent) throw httpError(404, 'Printer not found');
