@@ -36,7 +36,9 @@ export default async function queuePrintJobs(
 
   const jobs = agents.flatMap((agent) =>
     agent.printers
-      .filter((printer) => printer.present && printer.prints.includes(kind))
+      // Keep assignments even while Windows does not list the printer.
+      // Otherwise tickets created during a USB/network outage disappear instead of queueing.
+      .filter((printer) => printer.prints.includes(kind))
       .flatMap((printer) => {
         // A kitchen printer with categories gets only their dishes; a slip with no dish is not printed.
         const items = kind === 'kitchen' && printer.categoryIds.length ? lines.filter((item) => printer.categoryIds.includes(categoryOf(item.itemId, agent.dishes) ?? '')) : lines;
