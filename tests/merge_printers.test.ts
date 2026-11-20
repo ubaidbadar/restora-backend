@@ -33,6 +33,13 @@ describe('automatic native Windows printer routing', () => {
     expect(printers.find((p) => p.systemName === 'Receipt')?.prints).toEqual(['receipt']);
   });
 
+  it('moves only automatic assignments when Windows changes its default printer', () => {
+    const first = mergePrinters([], ['Counter', 'Kitchen'], 'Counter');
+    const second = mergePrinters(first, ['Counter', 'Kitchen'], 'Kitchen');
+    expect(second.map((p) => p.prints)).toEqual([[], ['kitchen', 'receipt']]);
+    expect(second[1]?.automatic).toBe(true);
+  });
+
   it('does not modify the saved printer objects', () => {
     const saved = [existing('Receipt', [])];
     mergePrinters(saved, ['Receipt'], 'Receipt');
