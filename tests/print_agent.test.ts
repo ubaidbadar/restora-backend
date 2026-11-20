@@ -103,6 +103,22 @@ describe('Print agents', () => {
     expect(missing.status).toBe(404);
   });
 
+  it('stores Windows-reported health without invalidating printer-setting revisions', async () => {
+    const before = await app.request('/api/v1/print-agent/jobs', { headers: { Authorization: `Bearer ${token}` } });
+    const revision = before.headers.get('X-Restora-Printer-Revision');
+    expect(revision).toMatch(/^[a-f0-9]{64}$/);
+
+    const reported = await post('/api/v1/print-agent/printers', {
+      printers: ['EPSON TM-T20', 'Kitchen Star'],
+      health: [{ systemName: 'Kitchen Star', state: 'offline', checkedAt: Math.floor(Date.now() / 1000), queuedJobs: 2, statusFlags: 128 }],
+    }, 'PUT', { Authorization: `Bearer ${token}`, Cookie: '' });
+    expect(reported.status).toBe(200);
+    expect(reported.body.printers[1].health).toMatchObject({ state: 'offline', statusFlags: 128, queuedJobs: 2 });
+
+    const after = await app.request('/api/v1/print-agent/jobs', { headers: { Authorization: `Bearer ${token}` } });
+    expect(after.headers.get('X-Restora-Printer-Revision')).toBe(revision);
+  });
+
   it('queues a kitchen slip with only the printer\'s dishes when an order is taken', async () => {
     const res = await placeOrder([{ itemId: karahi._id, qty: 1 }, { itemId: coke._id, qty: 2 }]);
     expect(res.status).toBe(201);
