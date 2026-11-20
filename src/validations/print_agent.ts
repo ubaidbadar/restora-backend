@@ -16,6 +16,7 @@ export const printerUpdateSchema = z.object({
 export const printersReportSchema = z.object({
   version: z.string().max(20).optional(),
   printers: z.array(z.string().min(1).max(200)).max(50),
+  defaultPrinter: z.string().min(1).max(200).optional(),
 });
 
 export const agentPairSchema = printersReportSchema.extend({
