@@ -14,6 +14,8 @@ export interface IPrinter {
   copies: number;
   /** False when Windows no longer lists it. */
   present: boolean;
+  /** Set only when Windows chose the default printer automatically. */
+  automatic?: boolean;
 }
 
 /** The app on a branch's PC that prints for the web app. */
@@ -42,6 +44,7 @@ const PrinterSchema = new Schema<IPrinter>(
     width: { type: Number, enum: [48, 32], default: 48 },
     copies: { type: Number, default: 1, min: 1, max: 5 },
     present: { type: Boolean, default: true },
+    automatic: { type: Boolean, default: false },
   },
   { _id: false }
 );
