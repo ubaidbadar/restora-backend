@@ -231,6 +231,35 @@ describe('Print agents', () => {
     expect(byName['EPSON TM-T20'].present).toBe(false);
   });
 
+  it('follows a changed Windows default printer after automatic routing', async () => {
+    // Explicit assignments are cleared before testing the automatic path.
+    for (const systemName of ['EPSON TM-T20', 'Kitchen Star']) {
+      const cleared = await post(`/api/v1/print-agents/${agent._id}/printers/${encodeURIComponent(systemName)}`,
+        { label: systemName, prints: [], categoryIds: [], width: 48, copies: 1 }, 'PATCH');
+      expect(cleared.status).toBe(200);
+    }
+    const report = async (printers: string[], defaultPrinter: string) => {
+      const res = await app.request('/api/v1/print-agent/printers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ printers, defaultPrinter }),
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as Json).printers as Json[];
+    };
+    const first = await report(['Kitchen Star', 'Bar Star', 'Receipt USB'], 'Receipt USB');
+    expect(first.find((p) => p.systemName === 'Receipt USB')).toMatchObject({
+      prints: ['kitchen', 'receipt'], automatic: true,
+    });
+    const moved = await report(['Kitchen Star', 'Bar Star', 'Receipt USB', 'Default Two'], 'Default Two');
+    expect(moved.find((p) => p.systemName === 'Receipt USB')).toMatchObject({
+      prints: [], automatic: false,
+    });
+    expect(moved.find((p) => p.systemName === 'Default Two')).toMatchObject({
+      prints: ['kitchen', 'receipt'], automatic: true,
+    });
+  });
+
   it('refuses a wrong token, and stops a removed agent at once', async () => {
     const wrong = await app.request('/api/v1/print-agent/jobs', { headers: { Authorization: 'Bearer ' + 'x'.repeat(43) } });
     expect(wrong.status).toBe(401);
