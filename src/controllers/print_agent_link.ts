@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { createHash } from 'node:crypto';
 import PrintAgent, { type IPrintAgent } from '../models/print_agent';
 import PrintJob from '../models/print_job';
 import { runWithoutTenant } from '../middlewares/tenant_context';
@@ -39,8 +40,8 @@ export async function pairPrintAgent(c: Context) {
 /** The printers Windows lists now, sent again when they change. Staff's names and settings are kept. */
 export async function reportPrinters(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent & { save: () => Promise<unknown> };
-  const { version, printers } = c.get('validatedJson');
-  agent.printers = mergePrinters(agent.printers, printers);
+  const { version, printers, health } = c.get('validatedJson');
+  agent.printers = mergePrinters(agent.printers, printers, health);
   if (version) agent.version = version;
   await agent.save();
   // The agent keeps staff's settings, so it can print for the web app on this PC without internet.
@@ -51,6 +52,11 @@ export async function reportPrinters(c: Context) {
 export async function pendingJobs(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent;
   const jobs = await PrintJob.find({ agentId: String(agent._id), status: 'pending' }).sort({ createdAt: 1 }).limit(20);
+  // Hash only staff-controlled assignments: heartbeat/health writes must not
+  // invalidate the cached config on every poll.
+  const settings = agent.printers.map(({ systemName, label, prints, categoryIds, width, copies, present }) =>
+    ({ systemName, label, prints, categoryIds, width, copies, present }));
+  c.header('X-Restora-Printer-Revision', createHash('sha256').update(JSON.stringify(settings)).digest('hex'));
   // The agent prints a slip once per orderKey, kind and printer. A reprint (no autoKey) gets a key of its own, so it prints every time it is asked for.
   return c.json(jobs.map((job) => ({ _id: String(job._id), printer: job.printer, kind: job.kind, orderKey: job.autoKey ? job.orderKey : `${job.orderKey}~${job._id}`, width: job.width, copies: job.copies, order: job.order, header: job.header })));
 }
