@@ -16,6 +16,13 @@ export const printerUpdateSchema = z.object({
 export const printersReportSchema = z.object({
   version: z.string().max(20).optional(),
   printers: z.array(z.string().min(1).max(200)).max(50),
+  health: z.array(z.object({
+    systemName: z.string().min(1).max(200),
+    state: z.enum(['offline', 'paused', 'paperOut', 'paperJam', 'doorOpen', 'error', 'busy', 'unknown']),
+    checkedAt: z.number().int().nonnegative(),
+    queuedJobs: z.number().int().nonnegative(),
+    statusFlags: z.number().int().nonnegative(),
+  })).max(50).optional(),
 });
 
 export const agentPairSchema = printersReportSchema.extend({
