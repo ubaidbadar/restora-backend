@@ -231,6 +231,38 @@ describe('Print agents', () => {
     expect(byName['EPSON TM-T20'].present).toBe(false);
   });
 
+  it('stores additive health and WPP without changing the legacy printers array', async () => {
+    const report = {
+      printers: ['Kitchen Star', 'Bar Star'],
+      printerStatuses: [
+        { systemName: 'Kitchen Star', port: 'USB001', state: 'unknown', source: 'spooler', checkedAt: 1890000000 },
+        { systemName: 'Bar Star', port: 'IP_192.168.1.2', state: 'offline', source: 'spooler', checkedAt: 1890000000 },
+        { systemName: 'unconfigured', port: 'USB999', state: 'ready', source: 'printer', checkedAt: 1890000000 },
+      ],
+      wpp: false,
+    };
+    const res = await app.request('/api/v1/print-agent/printers', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(report),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Json).printers).toBeArray();
+    let list = (await (await app.request('/api/v1/print-agents', { headers })).json()) as Json[];
+    expect(list[0].wpp).toBe(false);
+    expect(list[0].printerStatuses).toHaveLength(2);
+    expect(list[0].printerStatuses[0]).toMatchObject({ systemName: 'Kitchen Star', state: 'unknown' });
+    // Old installed agents send only string[]; stale health must not survive them.
+    const older = await app.request('/api/v1/print-agent/printers', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ printers: ['Kitchen Star', 'Bar Star'] }),
+    });
+    expect(older.status).toBe(200);
+    list = (await (await app.request('/api/v1/print-agents', { headers })).json()) as Json[];
+    expect(list[0].printerStatuses).toHaveLength(0);
+    expect(list[0].wpp).toBe('unknown');
+    expect(list[0].printers.find((p: Json) => p.systemName === 'Kitchen Star').label).toBe('Kitchen');
+  });
+
   it('refuses a wrong token, and stops a removed agent at once', async () => {
     const wrong = await app.request('/api/v1/print-agent/jobs', { headers: { Authorization: 'Bearer ' + 'x'.repeat(43) } });
     expect(wrong.status).toBe(401);
