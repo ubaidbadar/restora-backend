@@ -39,8 +39,14 @@ export async function pairPrintAgent(c: Context) {
 /** The printers Windows lists now, sent again when they change. Staff's names and settings are kept. */
 export async function reportPrinters(c: Context) {
   const agent = c.get('printAgent') as IPrintAgent & { save: () => Promise<unknown> };
-  const { version, printers } = c.get('validatedJson');
+  const { version, printers, printerStatuses, wpp } = c.get('validatedJson');
   agent.printers = mergePrinters(agent.printers, printers);
+  // Status is evidence, not staff configuration. Keep only the queues this
+  // same agent reports, and clear old evidence when an older agent sends names only.
+  agent.printerStatuses = (printerStatuses ?? []).filter((status: { systemName: string }) =>
+    printers.includes(status.systemName)
+  );
+  agent.wpp = wpp ?? 'unknown';
   if (version) agent.version = version;
   await agent.save();
   // The agent keeps staff's settings, so it can print for the web app on this PC without internet.
