@@ -16,6 +16,15 @@ export const printerUpdateSchema = z.object({
 export const printersReportSchema = z.object({
   version: z.string().max(20).optional(),
   printers: z.array(z.string().min(1).max(200)).max(50),
+  // Additive metadata: older agents still send only printers/name strings.
+  printerStatuses: z.array(z.object({
+    systemName: z.string().min(1).max(200),
+    port: z.string().max(512),
+    state: z.enum(['ready', 'offline', 'paper_out', 'error', 'not_found', 'unknown']),
+    source: z.enum(['spooler', 'pnp', 'printer']),
+    checkedAt: z.number().int().nonnegative(),
+  })).max(50).optional(),
+  wpp: z.union([z.boolean(), z.literal('unknown')]).optional(),
 });
 
 export const agentPairSchema = printersReportSchema.extend({
