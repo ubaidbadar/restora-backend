@@ -246,7 +246,7 @@ describe('Print agents', () => {
       body: JSON.stringify(report),
     });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as Json).printers).toBeArray();
+    expect(Array.isArray(((await res.json()) as Json).printers)).toBe(true);
     let list = (await (await app.request('/api/v1/print-agents', { headers })).json()) as Json[];
     expect(list[0].wpp).toBe(false);
     expect(list[0].printerStatuses).toHaveLength(2);
