@@ -16,6 +16,14 @@ export interface IPrinter {
   present: boolean;
 }
 
+export interface IPrinterStatus {
+  systemName: string;
+  port: string;
+  state: 'ready' | 'offline' | 'paper_out' | 'error' | 'not_found' | 'unknown';
+  source: 'spooler' | 'pnp' | 'printer';
+  checkedAt: number;
+}
+
 /** The app on a branch's PC that prints for the web app. */
 export interface IPrintAgent {
   _id?: string;
@@ -29,6 +37,9 @@ export interface IPrintAgent {
   /** Until the agent pairs: the code typed into it. */
   pairing?: { code: string; expiresAt: string } | null;
   printers: IPrinter[];
+  /** Non-authoritative point-in-time evidence, separate from staff printer settings. */
+  printerStatuses?: IPrinterStatus[];
+  wpp?: boolean | 'unknown';
   createdAt?: string;
   updatedAt?: string;
 }
@@ -42,6 +53,17 @@ const PrinterSchema = new Schema<IPrinter>(
     width: { type: Number, enum: [48, 32], default: 48 },
     copies: { type: Number, default: 1, min: 1, max: 5 },
     present: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const PrinterStatusSchema = new Schema<IPrinterStatus>(
+  {
+    systemName: { type: String, required: true },
+    port: { type: String, required: true },
+    state: { type: String, enum: ['ready', 'offline', 'paper_out', 'error', 'not_found', 'unknown'], required: true },
+    source: { type: String, enum: ['spooler', 'pnp', 'printer'], required: true },
+    checkedAt: { type: Number, required: true },
   },
   { _id: false }
 );
@@ -65,6 +87,9 @@ const PrintAgentSchema = new Schema<IPrintAgent>(
       default: null,
     },
     printers: { type: [PrinterSchema], default: [] },
+    printerStatuses: { type: [PrinterStatusSchema], default: [] },
+    // The agent validates this before reporting; unknown is always safe.
+    wpp: { type: Schema.Types.Mixed, default: 'unknown' },
   },
   { timestamps: true, toJSON: { virtuals: true, transform: hideSecrets }, toObject: { virtuals: true, transform: hideSecrets } }
 );
